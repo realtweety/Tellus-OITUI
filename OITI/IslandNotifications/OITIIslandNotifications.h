@@ -33,6 +33,7 @@
 @end
 
 // OITINoticeStackCards.xm
+void OITIStackCardsDownloadUpdate(NSString *header, NSString *percent, double fraction, NSInteger ending);   // a running Detailed download as a card: its current state
 void OITIStackCardsRefresh(void);   // rebuild or remove the cards of the older notices (the stack below the newest notice)
 
 // OITINoticeActions.xm

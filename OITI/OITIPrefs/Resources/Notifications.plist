@@ -223,30 +223,10 @@
       <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
-        <key>footerText</key>
-        <string>Moves all incoming notification banners to below the Dynamic Island for better visibility, using the built-in banner position for your device. If your device has none yet this has no effect: use custom positioning below instead. Applies immediately to a banner on screen; switching it off only takes effect for the next banner. Takes priority over custom positioning.</string>
-      </dict>
-      <dict>
-        <key>cell</key>
-        <string>PSSwitchCell</string>
-        <key>default</key>
-        <false/>
-        <key>defaults</key>
-        <string>com.wilburt.oiti.prefs</string>
-        <key>key</key>
-        <string>notificationFix</string>
-        <key>label</key>
-        <string>Fix Notification Positioning</string>
-        <key>PostNotification</key>
-        <string>com.wilburt.oiti/PrefsChanged</string>
-      </dict>
-      <dict>
-        <key>cell</key>
-        <string>PSGroupCell</string>
         <key>label</key>
         <string>Custom Notification Positioning</string>
         <key>footerText</key>
-        <string>Moves incoming banners to the X and Y you enter, in points, at most one screen either way. The defaults are 0 and 40. Values are saved when you leave a field or tap Save. A banner already on screen moves immediately; switching it off only takes effect for the next banner. Turned off by Apple Mode.</string>
+        <string>Moves incoming banners to the X and Y you enter, in points, at most one screen either way. The defaults are 0 and 40. Values are saved when you leave a field or tap Save. A banner already on screen moves immediately; switching it off only takes effect for the next banner. Stays on in Apple Mode.</string>
       </dict>
       <dict>
         <key>cell</key>

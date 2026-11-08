@@ -17,6 +17,36 @@
 static NSString * const kOITIPrefsDomain = @"com.wilburt.oiti.prefs";
 static NSDictionary<NSString *, NSNumber *> *sLastPrefSnapshot;
 
+// One-time migration (v0.3.0, batch 8). Fix Island Position and Fix Notification Positioning are gone: the built-in positions only
+// existed for some devices, were mostly estimates, and people changed them anyway. So that nobody's Island or banner moves on the
+// update, a device that has a table entry and had a Fix switch on gets the same position as a custom position, once:
+//   Fix Island Position on       -> Use Custom Position on, X 0, Y = the table's islandY   (the Island's old Y)
+//   Fix Notification Positioning -> Use Custom Notification Position on, X 0, Y = the table's bannerY
+// (the old Fix took priority over a custom value, so the custom X and Y are overwritten too). Without a table entry the old switch
+// did nothing and nothing is changed. The key PresetPositionsMigrated is written either way, so it never runs again. It runs from
+// preferencesChanged, after the respring-loop guard, and uses only sysctl (the machine identifier) and preferences: no UIKit.
+// The stored fixEnabled and notificationFix keys are left as they are and are ignored from now on.
+static void OITIMigratePresetPositions(void) {
+    if ([sOITIPreferences boolForKey:@"PresetPositionsMigrated" default:NO]) return;
+    const OITIDeviceProfile *profile = OITICurrentProfile();
+    BOOL islandFix = [sOITIPreferences boolForKey:@"fixEnabled" default:NO];
+    BOOL bannerFix = [sOITIPreferences boolForKey:@"notificationFix" default:NO];
+    if (profile && islandFix) {
+        [sOITIPreferences setObject:@YES forKey:@"posEnabled"];
+        [sOITIPreferences setObject:@"0" forKey:@"xPos"];
+        [sOITIPreferences setObject:[NSString stringWithFormat:@"%g", (double)profile->islandY] forKey:@"yPos"];
+    }
+    if (profile && bannerFix) {
+        [sOITIPreferences setObject:@YES forKey:@"notEnabled"];
+        [sOITIPreferences setObject:@"0" forKey:@"xNot"];
+        [sOITIPreferences setObject:[NSString stringWithFormat:@"%g", (double)profile->bannerY] forKey:@"yNot"];
+    }
+    [sOITIPreferences setObject:@YES forKey:@"PresetPositionsMigrated"];
+    [sOITIPreferences synchronize];
+    [sLog logLevel:0 tag:@"PREF" format:@"preset positions migrated once: device %@ (%@), Fix Island Position was %@, Fix Notification Positioning was %@",
+     [OITDeviceInfo machineIdentifier] ?: @"?", profile ? @(profile->name) : @"no table entry", islandFix ? @"on" : @"off", bannerFix ? @"on" : @"off"];
+}
+
 // One of the four typed position settings (xPos, yPos, xNot, yNot). The Settings text field stores a string, `defaults write`
 // stores a number. A string that is not a plain number (empty, "abc", "nan", "1e30") gives the setting's default instead of 0,
 // and the result is always finite and inside kOITIPositionCeiling. The tighter limit of one screen needs UIScreen, which must
@@ -74,7 +104,9 @@ void preferencesChanged(void) {
         [sOITIPreferences reload];
     }
 
-    fixEnabled = [sOITIPreferences boolForKey:@"fixEnabled" default:NO];
+    OITIMigratePresetPositions();   // before the values below are read, so a migrated position applies in this same pass
+
+    fixEnabled = [sOITIPreferences boolForKey:@"fixEnabled" default:NO];   // no longer used for anything (see the migration)
     islandEnabled = [sOITIPreferences boolForKey:@"islandEnabled" default:NO];
     posEnabled = [sOITIPreferences boolForKey:@"posEnabled" default:NO];
     hideEnabled = [sOITIPreferences boolForKey:@"hideEnabled" default:NO];
@@ -118,9 +150,9 @@ void preferencesChanged(void) {
     BOOL appleModeWasOn = sAppleMode;
     sAppleMode = [sOITIPreferences boolForKey:@"appleMode" default:NO];
     if (sAppleMode) {
-        posEnabled = NO;
+        // Where the Island and the banner sit (Use Custom Position, Use Custom Notification Position) stays on in Apple Mode: since
+        // 0.3.0 it is all that is left of the built-in position fixes that Apple Mode always kept, and a notched phone needs it.
         hideEnabled = NO;
-        notEnabled = NO;
         colorEnabled = NO;
         transEnabled = NO;
         scaleEnabled = NO;

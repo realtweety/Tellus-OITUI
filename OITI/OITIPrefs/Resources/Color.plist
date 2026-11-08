@@ -10,7 +10,7 @@
         <key>label</key>
         <string>Custom Opacity</string>
         <key>footerText</key>
-        <string>Makes the Island see-through by this amount. 1.0 is fully opaque, which is stock. This slider is the only transparency control: the custom color below is always opaque. Changes apply immediately, with no respring.</string>
+        <string>Sets how opaque the Island is: 1.0 is fully opaque, which is stock, and lower values make it more see-through. This slider is the only transparency control: the custom color below is always opaque. Changes apply immediately, with no respring.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -45,6 +45,18 @@
         <string>com.wilburt.oiti.prefs</string>
         <key>key</key>
         <string>alpha</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>resetOpacity</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Reset Opacity to 1.0</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -145,6 +157,18 @@
         <string>com.wilburt.oiti.prefs</string>
         <key>key</key>
         <string>blue</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>resetColor</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Reset Color to Black</string>
       </dict>
     </array>
     <key>title</key>

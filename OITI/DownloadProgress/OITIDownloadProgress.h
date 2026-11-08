@@ -63,7 +63,7 @@ OITINoticeStackView *OITIBuildDownloadStack(OITIProgressBarView **barOut, UILabe
 void OITIDownloadsRefresh(void);
 void OITIDownloadPillDismiss(NSString *reason);
 void OITIDownloadItemRemoved(NSDictionary *item, NSString *reason);
-void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSString *title, NSString *bundleID, double fraction, BOOL paused);
+void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSString *title, NSString *bundleID, double fraction, BOOL paused, BOOL installing);
 void OITIDownloadFinish(NSString *identifier, BOOL completed);
 void OITIDownloadDrop(NSString *identifier);
 void OITIFakeDownloadStart(void);

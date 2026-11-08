@@ -26,7 +26,7 @@ I am hoping to keep adding quality-of-life features, customization, and more, so
 ## What Things Do
 
 - **The Island:** turn the Dynamic Island on, move it, and resize or scale it (the width and height scales are relative to Apple's own size, so 1.0 is the stock Island). Colour, opacity and notification banner offsets are adjustable and apply live.
-- **Apple Mode:** one switch that turns every Island customization off at once so you can see how the stock Island behaves. It keeps Enable Dynamic Island, the built-in position and notification fixes, the Status Bar Layout setting and safe mode.
+- **Apple Mode:** one switch that turns every Island customization off at once so you can see how the stock Island behaves. It keeps Enable Dynamic Island, Use Custom Position and Use Custom Notification Position, the Status Bar Layout setting and safe mode.
 - **Island Notifications:** see below.
 - **Download Progress:** see below.
 - **Startup Animation (prototype):** see below.

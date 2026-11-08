@@ -50,18 +50,14 @@ static CGFloat OITIAppleCanvasScale(UIView *window) {
 // MARK: Island position (unchanged from Step 1)
 // =============================================================================================
 
-// Moves the Island window to the built-in (fixEnabled) or custom (posEnabled) position.
-// The built-in table wins when both are on, as before. On a device with no table entry, "fixEnabled" falls back
-// to the custom position.
+// Moves the Island window to the custom (posEnabled) position. Since 0.3.0 (batch 8) there are no built-in positions any more:
+// "Fix Island Position" was turned into this custom position once, at the first launch (OITIMigratePresetPositions).
 static void OITIApplyIslandPosition(UIView *window) {
     CGFloat sx = scaleEnabled ? OITISafeScaleValue(scaleX) : 1.0;
     CGFloat sy = scaleEnabled ? OITISafeScaleValue(scaleY) : 1.0;
     CGRect frame = window.frame;
-    const OITIDeviceProfile *profile = fixEnabled ? OITICurrentProfile() : NULL;
 
-    if (profile) {
-        frame.origin.y = profile->islandY / sy;
-    } else if (posEnabled) {
+    if (posEnabled) {
         // Stored values are finite and within kOITIPositionCeiling; the one-screen limit is applied here, where UIKit is up.
         CGFloat yUse = OITIClampedPositionForUse(yPos, NO);
         CGFloat xUse = OITIClampedPositionForUse(xPos, YES);
@@ -76,15 +72,10 @@ static void OITIApplyIslandPosition(UIView *window) {
 }
 
 // Notification banner window position. Returns YES and fills `out` when an override applies.
-//  - notificationFix: use the device's built-in banner position. Devices with no table entry are left untouched.
-//  - notEnabled: custom origin (xNot, yNot); devices with no table entry keep the system's size.
+//  - notEnabled: custom origin (xNot, yNot); devices with no table entry keep the system's size. ("Fix Notification Positioning"
+//    was turned into this setting once, at the first launch with 0.3.0.)
 static BOOL OITIBannerFrame(CGRect incoming, CGRect *out) {
     const OITIDeviceProfile *profile = OITICurrentProfile();
-    if (notificationFix) {
-        if (!profile) return NO;
-        *out = CGRectMake(0, profile->bannerY, profile->bannerWidth, profile->bannerHeight);
-        return YES;
-    }
     if (notEnabled) {
         CGSize size = profile ? CGSizeMake(profile->bannerWidth, profile->bannerHeight) : incoming.size;
         *out = CGRectMake(OITIClampedPositionForUse(xNot, YES), OITIClampedPositionForUse(yNot, NO), size.width, size.height);
@@ -136,10 +127,10 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
     if ([sLog isLoggingAtLevel:1]) {
         [sApertureWindows addObject:self];
         OITIScheduleAutoDump();
-        NSString *signature = [NSString stringWithFormat:@"frame=%@ bounds=%@ xf=%@ fix=%d pos=%d scale=%d sx=%.3f sy=%.3f",
+        NSString *signature = [NSString stringWithFormat:@"frame=%@ bounds=%@ xf=%@ pos=%d scale=%d sx=%.3f sy=%.3f",
                                NSStringFromCGRect(self.frame), NSStringFromCGRect(self.bounds),
                                NSStringFromCGAffineTransform(self.transform),
-                               fixEnabled, posEnabled, scaleEnabled, scaleX, scaleY];
+                               posEnabled, scaleEnabled, scaleX, scaleY];
         if ([sLog noteSignature:signature forObject:self]) {
             [sLog logLevel:1 tag:@"ISLAND" format:@"%@@%p changed: %@ (profile=%d)",
              NSStringFromClass([self class]), self, signature, OITICurrentProfile() != NULL];
@@ -156,7 +147,7 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 
 - (void)didMoveToWindow {
     %orig;
-    BOOL shouldHide = fixEnabled || posEnabled || scaleEnabled;
+    BOOL shouldHide = posEnabled || scaleEnabled;
     if (shouldHide) {
         if (!self.hidden) self.hidden = YES;
         objc_setAssociatedObject(self, kOITIHiddenByUsKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -310,8 +301,8 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
         NSString *signature = [NSString stringWithFormat:@"in=%@ used=%@ ov=%d", NSStringFromCGRect(frame),
                                NSStringFromCGRect(used), didOverride];
         if ([sLog noteSignature:signature forObject:self]) {
-            [sLog logLevel:1 tag:@"BANNER" format:@"%@@%p setFrame %@ (notificationFix=%d custom=%d profile=%d)",
-             NSStringFromClass([self class]), self, signature, notificationFix, notEnabled, OITICurrentProfile() != NULL];
+            [sLog logLevel:1 tag:@"BANNER" format:@"%@@%p setFrame %@ (custom=%d profile=%d)",
+             NSStringFromClass([self class]), self, signature, notEnabled, OITICurrentProfile() != NULL];
         }
     }
     %orig(used);
@@ -358,7 +349,7 @@ void OITIRefreshIslandLayout(void) {
             [window setNeedsLayout];
             OITIMarkOverrideViewsForLayout(window, 0);
         }
-        if (notificationFix || notEnabled) {
+        if (notEnabled) {
             for (UIView *banner in sBannerWindows.allObjects) {
                 CGRect current = banner.frame;
                 banner.frame = current;   // the setFrame: hook applies the override

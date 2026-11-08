@@ -4,7 +4,7 @@
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
 
-static NSString * const kOITIPrefsBuildTag = @"OITIPrefs-0.3.0-2026-11-03-d";
+static NSString * const kOITIPrefsBuildTag = @"OITIPrefs-0.3.0-2026-11-07-a";
 static NSString * const kOITIPrefsLogPath = @"/tmp/OITIPrefsDebug.log";
 
 static NSString * const kOITIGestaltPlistPath = @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist";
@@ -212,6 +212,17 @@ static BOOL OITIMachineHasNativeIsland(NSString *machine) {
     [self oiti_writeBackupBreadcrumb];
 }
 
+// Puts the custom Island position back to its defaults (X 0, Y 20.5). The text fields store text, so these are stored as text too
+// (the same form the fields write). The Use Custom Position switch is left as it is.
+- (void)resetPosition {
+    OITPreferences *prefs = [OITPreferences preferencesWithDomain:kOITIGestaltPrefsDomain];
+    [prefs setObject:@"0" forKey:@"xPos"];
+    [prefs setObject:@"20.5" forKey:@"yPos"];
+    [prefs synchronize];
+    OITPostDarwinNotification(@"com.wilburt.oiti/PrefsChanged");
+    [self oitiRefreshSettingsPage];
+}
+
 - (void)sourceCode {
     NSURL *url = [NSURL URLWithString:@"https://github.com/ethxnn88/visibleisland"];
     if ([[UIApplication sharedApplication] canOpenURL:url]) {
@@ -258,8 +269,6 @@ static BOOL OITIMachineHasNativeIsland(NSString *machine) {
         } else {
             [OITIRootListController restoreOriginalHardwareIdentity];
         }
-    } else if ([[specifier propertyForKey:@"key"] isEqualToString:@"fixEnabled"]) {
-        if ([value boolValue]) [OITIBaseListController oitiCheckDeviceFixSupportForKey:@"fixEnabled"];
     }
 }
 @end

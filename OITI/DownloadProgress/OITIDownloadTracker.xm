@@ -45,7 +45,7 @@ static NSString *OITIDownloadBytesText(double bytes) {
 static NSDictionary *OITIDownloadSnapshot(void) {
     if (!sDownloads.count) return nil;
     double downloaded = 0, total = 0, speed = 0, fractionSum = 0, etaMax = 0;
-    BOOL totalKnown = YES, anyFraction = NO, allFraction = YES, allPaused = YES, etaKnown = YES;
+    BOOL totalKnown = YES, anyFraction = NO, allFraction = YES, allPaused = YES, etaKnown = YES, allInstalling = YES;
     NSString *title = nil, *bundleID = nil, *appName = nil;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     for (NSDictionary *download in sDownloads.allValues) {
@@ -60,7 +60,9 @@ static NSDictionary *OITIDownloadSnapshot(void) {
             fractionSum += fraction;
             double rate = [download[@"fractionRate"] doubleValue];
             BOOL stalled = now - [download[@"fractionChangeTime"] doubleValue] > 20.0;
-            if (rate > 0 && fraction < 1.0 && !stalled && ![download[@"paused"] boolValue]) {
+            if ([download[@"installing"] boolValue]) {
+                // Installing: no estimate is needed from this one (the others, if any, still decide it).
+            } else if (rate > 0 && fraction < 1.0 && !stalled && ![download[@"paused"] boolValue]) {
                 etaMax = MAX(etaMax, (1.0 - fraction) / rate);
             } else {
                 etaKnown = NO;
@@ -71,11 +73,12 @@ static NSDictionary *OITIDownloadSnapshot(void) {
             fractionSum += size > 0 ? MIN(1.0, itemDownloaded / size) : 0.0;
         }
         if (![download[@"paused"] boolValue]) allPaused = NO;
+        if (![download[@"installing"] boolValue]) allInstalling = NO;
         if (!title) { title = download[@"title"]; bundleID = download[@"bundleID"]; appName = download[@"appName"]; }
     }
     return @{ @"count": @(sDownloads.count), @"downloaded": @(downloaded), @"total": @(totalKnown ? total : 0.0),
               @"speed": @(speed), @"title": title ?: @"Download", @"appName": appName ?: @"", @"bundleID": bundleID ?: @"",
-              @"fractionMode": @(anyFraction), @"fraction": @(fractionSum / (double)sDownloads.count), @"paused": @(allPaused),
+              @"fractionMode": @(anyFraction), @"fraction": @(fractionSum / (double)sDownloads.count), @"paused": @(allPaused), @"installing": @(allInstalling),
               @"eta": @(allFraction && etaKnown ? etaMax : -1.0) };
 }
 
@@ -361,7 +364,8 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     double speed = [snapshot[@"speed"] doubleValue];
     BOOL fractionMode = [snapshot[@"fractionMode"] boolValue];
     BOOL paused = [snapshot[@"paused"] boolValue];
-    NSString *etaText = (complete || paused) ? @"" : OITIDownloadETAText([snapshot[@"eta"] doubleValue]);
+    BOOL installing = !complete && !paused && [snapshot[@"installing"] boolValue];
+    NSString *etaText = (complete || paused || installing) ? @"" : OITIDownloadETAText([snapshot[@"eta"] doubleValue]);
     double fraction = complete ? 1.0 : (fractionMode ? [snapshot[@"fraction"] doubleValue] : (total > 0 ? downloaded / total : 0.0));
     NSString *percent = (fractionMode || total > 0 || complete) ? [NSString stringWithFormat:@"%d%%", (int)floor(fraction * 100.0 + 0.0001)] : @"…";
     NSString *header = OITIDownloadHeaderText(snapshot);
@@ -376,7 +380,7 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     if (minimal && fractionMode) {
         // A source that only knows a percentage: no sizes and no speed, a state word above the bar and the estimate below it.
         [minimal setHeader:header
-                downloaded:complete ? @"Download complete" : (paused ? @"Paused" : @"Downloading")
+                downloaded:complete ? @"Download complete" : (paused ? @"Paused" : (installing ? @"Installing…" : @"Downloading"))
                      total:etaText
                      speed:complete ? @"Done" : @""
                    percent:percent fraction:fraction complete:complete];
@@ -405,7 +409,7 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     } else if (complete) {
         detailText = fractionMode ? @"Download complete" : [NSString stringWithFormat:@"Download complete · %@", OITIDownloadBytesText(downloaded)];
     } else if (fractionMode) {
-        NSString *state = paused ? @"Paused" : etaText;
+        NSString *state = paused ? @"Paused" : (installing ? @"Installing…" : etaText);
         detailText = state.length ? [NSString stringWithFormat:@"%@ · %@", percent, state] : percent;
     } else if (total > 0) {
         detailText = [NSString stringWithFormat:@"%@ of %@ · %@/s", OITIDownloadBytesText(downloaded), OITIDownloadBytesText(total),
@@ -422,6 +426,7 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
         [trailing sizeToFit];
     }
     if ([trailing isKindOfClass:[UILabel class]]) OITIDownloadSetDetailedCheck(trailing, complete);
+    OITIStackCardsDownloadUpdate(header, percent, fraction, ending);   // the same state for the download's card, if a notice has pushed it down
 }
 
 static void OITIDownloadsEnsureTimer(void);
@@ -566,7 +571,9 @@ static void OITIDownloadUpdate(NSString *identifier, NSString *appName, NSString
 
 // Sources that only know a percentage (the App Store) call this instead. fraction is 0 to 1. The estimate of the time
 // left comes from how fast the fraction moves (smoothed, unknown while paused or when it has not moved for 20 s).
-void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSString *title, NSString *bundleID, double fraction, BOOL paused) {
+// `installing` is the App Store's install phase after the bytes are done (installPhase 1 in the device logs of 2026-11-06); the
+// download keeps moving its fraction, so the bar stays, only the words change.
+void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSString *title, NSString *bundleID, double fraction, BOOL paused, BOOL installing) {
     if (!identifier.length) return;
     if (!sDownloads) sDownloads = [NSMutableDictionary dictionary];
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
@@ -590,6 +597,7 @@ void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSStrin
     download[@"bundleID"] = bundleID ?: @"";
     download[@"fraction"] = @(clamped);
     download[@"paused"] = @(paused);
+    download[@"installing"] = @(installing && !paused);
     double last = [download[@"fractionLast"] doubleValue];
     if (clamped > last + 0.0005) {
         double dt = now - [download[@"fractionLastTime"] doubleValue];
@@ -690,7 +698,7 @@ static NSString * const kOITIFakeDownloadIdentifier = @"oiti.test-download";
 static void OITIFakeDownloadReport(double bytes) {
     if (sDownloadTestFractionOnly) {
         double fraction = sFakeDownloadTotal > 0 ? floor(bytes / sFakeDownloadTotal * 100.0) / 100.0 : 0.0;
-        OITIDownloadUpdateFraction(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", fraction, NO);
+        OITIDownloadUpdateFraction(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", fraction, NO, fraction >= 0.90 && fraction < 1.0);   // from 90 percent it shows the Installing state, so the look can be tried without a real install
     } else {
         OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", bytes, sFakeDownloadTotal);
     }

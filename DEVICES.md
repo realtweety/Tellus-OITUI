@@ -4,6 +4,8 @@ What the device table (`OITI/OITIDeviceProfiles.h`) does, which devices have an 
 and how a row is added. Written for the v0.3.0 polish (batch 1, build `OITI-exp-2026-11-01-b`). Nothing in this file claims a
 measurement that has not been made.
 
+> **v0.3.0 batch 8:** Fix Island Position and Fix Notification Positioning were removed (owner's decision). The table below now does three jobs: a one-time migration (a Fix switch that was on becomes a custom position, `OITIMigratePresetPositions` in `Shared/OITIPreferences.xm`), Status Bar Layout **Automatic** (only whether a row exists) and the size of a custom banner. The rows in section 1 that name the two Fix features describe the code up to batch 7; section 4 is only needed if a new per-device value is ever wanted.
+
 ## 1. What the table gates (read from the code)
 
 `OITICurrentProfile()` looks the device's machine identifier up in the table. No entry means no profile, and exactly three

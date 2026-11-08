@@ -764,7 +764,14 @@ static NSString *OITIPositionString(double value) {
     UIStackView *row = [[UIStackView alloc] initWithFrame:CGRectZero]; row.axis = UILayoutConstraintAxisHorizontal; row.alignment = UIStackViewAlignmentCenter; row.spacing = 10;
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero]; label.text = [specifier propertyForKey:@"label"];
     label.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium]; label.textColor = UIColor.labelColor;
-    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]]; chevron.tintColor = UIColor.tertiaryLabelColor;
+    UIImageSymbolConfiguration *chevronSize = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
+    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right" withConfiguration:chevronSize]]; chevron.tintColor = UIColor.tertiaryLabelColor;
+    // The label and the arrow have the same default hugging priority, so the stack stretched one of them (a stretched arrow looks
+    // broken). The label takes the free width, the arrow keeps its natural size at the trailing edge, as in the system Settings.
+    chevron.contentMode = UIViewContentModeScaleAspectFit;
+    [chevron setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [chevron setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [label setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
     [row addArrangedSubview:label]; [row addArrangedSubview:chevron];
     // This stack is presentation only. Let touches reach the enclosing button.
     row.userInteractionEnabled = NO;
