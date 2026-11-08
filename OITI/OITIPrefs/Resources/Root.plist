@@ -7,6 +7,8 @@
       <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
+        <key>footerText</key>
+        <string>Turning this on or off needs a respring.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -26,7 +28,7 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>footerText</key>
-        <string>Turns off every Island customization and leaves a stock iOS Dynamic Island. Off while on: scale, Island size, color, opacity, outline hiding, hide when not in use, Island Notifications (and with them the notification stack), the notification haptic, Dismiss When Tapped, download progress and the startup animation. Still active: Enable Dynamic Island, Use Custom Position, Use Custom Notification Position, Status Bar Layout and safe mode. Applies immediately. Your settings are kept and return when Apple Mode is turned off.</string>
+        <string>Makes the Island look and behave like stock iOS. Your settings are kept, and your position settings stay on.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -48,7 +50,7 @@
         <key>label</key>
         <string>Custom Island Positioning</string>
         <key>footerText</key>
-        <string>Moves the Island to the X and Y you enter, in points, at most one screen either way. The default Y is 20.5. Values are saved when you leave a field or tap Save, and the Island follows immediately. While Use Custom Scale is on, X only applies when it is above 0. Stays on in Apple Mode.</string>
+        <string>Moves the Island to the X and Y you enter, in points. Applies when you leave a field or tap Save.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -128,7 +130,7 @@
         <key>label</key>
         <string>Misc</string>
         <key>footerText</key>
-        <string>Disable Island Outline applies immediately. Hide When Not in Use applies after a respring, and turning it off needs one too.</string>
+        <string>Hide When Not in Use needs a respring to turn on or off.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -218,7 +220,7 @@
         <key>label</key>
         <string>Status Bar (Experimental)</string>
         <key>footerText</key>
-        <string>If a red bar reading "rdar:45025538" shows at the top of the screen with the Island on, Automatic switches to your device's own layout. It only knows the notched iPhones in Insula's device table; on any other device (an iPhone 8 Plus, for example) it does nothing, and the other layouts are for trying by hand. Respring after changing it. Only used while the Island is on.</string>
+        <string>If a red "rdar:45025538" bar shows with the Island on, try Automatic (supported notched iPhones only). Needs a respring.</string>
       </dict>
       <dict>
         <key>cell</key>

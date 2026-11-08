@@ -10,7 +10,7 @@
         <key>label</key>
         <string>Island Size</string>
         <key>footerText</key>
-        <string>Makes the Island itself smaller or larger while icons, artwork and text keep their normal size. 1.0 is Apple's own size. Changes apply immediately, with no respring. Very small heights can clip tall content.</string>
+        <string>Makes the Island smaller or larger; its content keeps its size. 1.0 is stock. Very small heights can clip content.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -78,7 +78,7 @@
         <key>label</key>
         <string>Custom Island Scale</string>
         <key>footerText</key>
-        <string>Scales the Island and everything in it together, separately in width (X) and height (Y). 1.0 is Apple's own size, so turning this on at 1.0 changes nothing. Contents are stretched with it, so extreme values distort icons and text. Setting a custom position is recommended. For a smaller Island with normal-size contents, use Island Size above instead.</string>
+        <string>Scales the Island and its content together. 1.0 is stock. Extreme values distort the content.</string>
       </dict>
       <dict>
         <key>cell</key>

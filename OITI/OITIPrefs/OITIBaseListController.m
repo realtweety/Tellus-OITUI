@@ -241,11 +241,11 @@ static void OITIMarkRespringIntent(void) {
     UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
     NSString *pageName = [self oiti_plistName];
     if (isRoot) {
-        detail.text = @"The Island is the stock iOS one. Your customization settings are saved but not applied. Fix Island Position and Status Bar Layout still apply.";
+        detail.text = @"Stock Island. Your settings are saved but not applied. Position and Status Bar Layout still apply.";
     } else if ([pageName isEqualToString:@"Notifications"]) {
-        detail.text = @"The Island is the stock iOS one. Island notifications, the notification stack, the haptic, Dismiss When Tapped and the custom notification position are saved but not applied. Fix Notification Positioning still applies.";
+        detail.text = @"Stock Island. These settings are saved but not applied. Custom notification position still applies.";
     } else {
-        detail.text = @"The Island is the stock iOS one. The settings on this page are saved but not applied.";
+        detail.text = @"Stock Island. The settings on this page are saved but not applied.";
     }
     detail.font = [UIFont systemFontOfSize:13.0];
     detail.textColor = UIColor.secondaryLabelColor;
@@ -312,7 +312,7 @@ static void OITIMarkRespringIntent(void) {
     [stack addArrangedSubview:title];
 
     UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
-    detail.text = [NSString stringWithFormat:@"Insula switched its tweaks off after %@%@. Your changes below are saved but do nothing until safe mode is cleared and you respring. If SpringBoard keeps restarting after that, safe mode will switch on again.", reason, when];
+    detail.text = [NSString stringWithFormat:@"Insula switched itself off after %@%@. Your settings are saved. Clear safe mode and respring to use them.", reason, when];
     detail.font = [UIFont systemFontOfSize:13.0];
     detail.textColor = UIColor.secondaryLabelColor;
     detail.numberOfLines = 0;
@@ -368,7 +368,7 @@ static void OITIMarkRespringIntent(void) {
     [stack addArrangedSubview:title];
 
     UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
-    detail.text = [NSString stringWithFormat:@"SpringBoard raised %ld errors while an Insula Island element was showing%@, so Insula stopped creating Island elements until the next respring. Until then Island notifications and the startup animation use stock behavior, and the Detailed download look does not appear. The Minimal download look is not affected. Respring to turn them back on.", (long)failures, when];
+    detail.text = [NSString stringWithFormat:@"SpringBoard raised %ld errors while an Island element was showing%@. Island notifications, the startup animation and the Detailed download look are off until you respring.", (long)failures, when];
     detail.font = [UIFont systemFontOfSize:13.0];
     detail.textColor = UIColor.secondaryLabelColor;
     detail.numberOfLines = 0;

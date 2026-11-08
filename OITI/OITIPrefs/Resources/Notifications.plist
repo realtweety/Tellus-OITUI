@@ -10,7 +10,7 @@
         <key>label</key>
         <string>Island Notifications</string>
         <key>footerText</key>
-        <string>Shows incoming notifications in the Dynamic Island. Requires the Island to be enabled. Turning it on applies from the next notification; turning it off clears any notice on screen. Turned off by Apple Mode.</string>
+        <string>Shows notifications in the Island. Needs Enable Dynamic Island.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -46,7 +46,7 @@
         <key>label</key>
         <string>Experimental Notification Stack</string>
         <key>footerText</key>
-        <string>Shows up to four notifications at once: the newest in the Island, in the Style you chose below, and the older ones as small cards of their own below the Island. A tap on a card opens that notification and a swipe up on it dismisses it. Early feature: it is usable, but not polished, and the layout may look different across devices. Turn the stack off to show only one Island notification at a time; that applies immediately and clears all but the newest notice. Island Notifications must also be enabled, and Apple Mode turns Island Notifications off, so there is no stack then.</string>
+        <string>Shows up to four notifications: the newest in the Island, older ones as small cards below it. Tap a card to open it, swipe up to dismiss.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -68,7 +68,7 @@
         <key>label</key>
         <string>Island Notification Style</string>
         <key>footerText</key>
-        <string>Expanded shows the app icon, title and message. Wide and Compact are smaller pills. Takes effect on the next notification.</string>
+        <string>Expanded shows the icon, title and message; Wide and Compact are smaller. Applies to the next notification.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -104,7 +104,7 @@
         <key>label</key>
         <string>Tapping a Notification</string>
         <key>footerText</key>
-        <string>A tap always opens what the notification opens. By default the notice then stays in the Island until its timeout or a swipe up. Turn this on to remove the notice right after the tap. Applies immediately, also to a notice already on screen. Does not affect the Hello animation or download progress. Turned off by Apple Mode.</string>
+        <string>Removes a notification from the Island right after you tap it.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -126,7 +126,7 @@
         <key>label</key>
         <string>Haptics</string>
         <key>footerText</key>
-        <string>A short, light tap when a notification banner arrives. Works with or without Island Notifications. Follows the system's Haptics setting. Not played for notifications that go straight to the lock screen, and not played in Apple Mode. Applies from the next notification.</string>
+        <string>A light tap when a notification arrives.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -148,7 +148,7 @@
         <key>label</key>
         <string>Island Notification Duration</string>
         <key>footerText</key>
-        <string>How many seconds each notification stays in the Island. Tap it to open the app, swipe up to dismiss. Applies from the next notification.</string>
+        <string>How many seconds each notification stays in the Island.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -174,7 +174,7 @@
         <key>label</key>
         <string>Island Notification Message Lines</string>
         <key>footerText</key>
-        <string>How many lines of the message are shown before it is cut off with an ellipsis. The Island grows to fit. Applies from the next notification.</string>
+        <string>How many message lines show before the text is cut off.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -200,7 +200,7 @@
         <key>label</key>
         <string>Island Notification Roundness</string>
         <key>footerText</key>
-        <string>Adds to the Island's corner radius while a notification is showing. 0 is Apple's shape. Applies from the next notification.</string>
+        <string>Extra corner radius for notifications. 0 is stock.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -226,7 +226,7 @@
         <key>label</key>
         <string>Custom Notification Positioning</string>
         <key>footerText</key>
-        <string>Moves incoming banners to the X and Y you enter, in points, at most one screen either way. The defaults are 0 and 40. Values are saved when you leave a field or tap Save. A banner already on screen moves immediately; switching it off only takes effect for the next banner. Stays on in Apple Mode.</string>
+        <string>Moves banners to the X and Y you enter, in points. Applies when you leave a field or tap Save.</string>
       </dict>
       <dict>
         <key>cell</key>

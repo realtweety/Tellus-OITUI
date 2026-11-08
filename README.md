@@ -1,17 +1,17 @@
 # Tellus
 
-**Tellus** (OITUI, *Order In The User Interface*) is my current project: a small family of tweaks that make an iPhone running iOS 16 look and feel as modern as possible. It is built for rootless jailbreaks and made and maintained by me with help from AI.
+**Tellus** (OITUI, *Order In The User Interface*) is a small family of tweaks that make an iPhone running iOS 16 look and feel more modern. It is for rootless jailbreaks, made by me with help from AI.
 
 Every tweak has two names. The **Latin name** is what you see in Sileo and Settings. The **OIT name** is the technical name in package IDs, files, logs and the docs.
 
 | You see | Technical name | What it is |
 | --- | --- | --- |
-| **Insula** | OITI | Gives iPhones without a Dynamic Island a Dynamic Island, and the settings, notifications and download progress around it |
-| **Litus** | OITS | Repositions the status bar elements around the Island (work in progress, paused for now) |
-| OITCore | OITCore | The shared library. It installs as a dependency of Insula, so you install it first |
-| OITInspector | OITInspector | A read-only developer tool for runtime dumps (not needed to use anything else) |
+| **Insula** | OITI | A Dynamic Island for iPhones that don't have one, with notifications and download progress |
+| **Litus** | OITS | Moves status bar elements around the Island (paused) |
+| OITCore | OITCore | The shared library. It installs with Insula |
+| OITInspector | OITInspector | A read-only developer tool |
 
-Tellus is being developed and tested on an **iPhone 8 Plus** jailbroken with **Dopamine 3** on **iOS 16.7.16**. Other devices and iOS builds may behave differently, so please tell me what you find.
+Tested on an **iPhone 8 Plus** with **Dopamine 3** on **iOS 16.7.16**. Other devices may behave differently, so please tell me what you find.
 
 <!-- screenshot: the Insula Settings page (main page) -->
 
@@ -19,109 +19,48 @@ Tellus is being developed and tested on an **iPhone 8 Plus** jailbroken with **D
 
 # Insula (OITI)
 
-Insula, or Order In The Island, gives devices without a Dynamic Island a Dynamic Island. It is built on Apple's own Island system and does not draw a fake one on top. Insula provides the Island itself and its positioning, appearance, size and scale, and then adds the things that make it useful: notifications in the Island, a startup animation prototype, and download progress.
+Insula gives iPhones without a Dynamic Island one. It is built on Apple's own Island system and does not draw a fake one on top.
 
-I am hoping to keep adding quality-of-life features, customization, and more, so recommendations on how to improve and expand Insula are very welcome.
-
-## What Things Do
-
-- **The Island:** turn the Dynamic Island on, move it, and resize or scale it (the width and height scales are relative to Apple's own size, so 1.0 is the stock Island). Colour, opacity and notification banner offsets are adjustable and apply live.
-- **Apple Mode:** one switch that turns every Island customization off at once so you can see how the stock Island behaves. It keeps Enable Dynamic Island, Use Custom Position and Use Custom Notification Position, the Status Bar Layout setting and safe mode.
-- **Island Notifications:** see below.
-- **Download Progress:** see below.
-- **Startup Animation (prototype):** see below.
-- **Safe mode:** if SpringBoard restarts several times in a short window, Insula switches its tweaks off by itself. Settings then shows a banner with the reason and a **Clear Safe Mode & Respring** button.
+- **The Island:** turn it on, move it, resize or scale it, and change its color and opacity. Most changes apply immediately. Turning it on needs a respring.
+- **Apple Mode:** one switch that makes the Island look and behave like stock iOS.
+- **Notifications:** show notifications in the Island. The newest is in the Island, older ones are small cards below it (up to four). Tap to open, swipe up to dismiss. Off by default: **Settings > Insula > Notifications**.
+- **Download Progress:** show App Store downloads as a progress bar with the percentage and the time left, including paused, installing and finished. Off by default: **Settings > Insula > Download Progress**. Browser downloads are planned.
+- **Startup Animation (prototype):** plays a Hello animation after a respring. Off by default.
+- **Safe mode:** if SpringBoard keeps restarting, Insula switches itself off. Settings then shows why, with a button to clear it.
 
 <!-- screenshot: the Island with a notification -->
+<!-- screenshot: the download progress bar -->
 
-## Island Notifications
+If something looks wrong, turn on Apple Mode or turn off Island Notifications to get the stock behavior back.
 
-Island Notifications shows each notification banner (Messages, Instagram, YouTube, Snapchat, etc) as an element in the Island instead of the banner at the top of the screen. The Island expands to fit the app icon, title and message, stays for a few seconds, and goes away. Tap it to open the notification, swipe up to dismiss it.
+## Bug reports
 
-It is off by default. Turn it on in **Settings > Insula > Notifications**:
-
-- **Show Notifications in the Island** and **Hide the Stock Banner** (turn both on)
-- **Style:** Expanded (the polished one), Wide or Compact (both experimental)
-- **Duration**, **Message Lines** and **Roundness** sliders
-- **Notification Haptic:** a short, light tap when a banner arrives. It works with or without Island Notifications.
-
-The stack keeps up to four notices. The newest notice is the Island notification in the chosen style; older notices appear as small cards of their own below the Island, each with its own tap and swipe up. **Stack Multiple Notifications (Experimental)** is a separate toggle. The stack is usable but not polished yet.
-
-If something looks wrong, turn the two switches off and the stock banners come back.
-
-## Download Progress
-
-Download Progress shows a download in the Island while it happens. It is off by default and lives in **Settings > Insula > Download Progress**. Turn on **Show Download Progress**, then **Show App Store Downloads**.
-
-- **Two looks:** **Minimal** is Insula's own black pill that sits over the Island, and **Detailed** is a real Island element.
-- **What you see:** the app name, a progress bar with the percentage, and an estimate of the time left. Pausing a download in the App Store shows **Paused**, and cancelling shows a short red **Cancelled**. When a download finishes, the Minimal pill's text fades, the bar becomes a green circle and a check mark is drawn in it.
-- **Which downloads:** App Store installs and updates. TestFlight installs have not been tested yet.
-- **Percentage only:** iOS only exposes a percentage for App Store downloads, so there are no sizes or speeds for those. (The built-in test download, started from the same page, does show sizes and speed.)
-- **Going away:** the bar ends when the downloads finish, or after a time limit you set, or when you swipe it away. The download itself carries on.
-- **Browsers:** downloads in Safari, Chrome, and Arc are planned for later.
-
-<!-- screenshot: the Minimal pill during an App Store download -->
-<!-- gif: the completion animation -->
-
-## Startup Animation (prototype)
-
-An off-by-default prototype that waits until the device is unlocked and on the Home Screen, then plays a six-second Hello animation as a muted video, at most once every five minutes. During playback Insula promotes it ahead of the system charging activity; calls and other Island activity interrupt it.
-
-## Privacy and bug reports
-
-Insula does not send notification text anywhere, and at the default diagnostic level nothing about your notifications is written to a log. If you need to send a bug report, you can raise the diagnostic level:
+Insula does not send notification text anywhere. To report a bug, raise the log level, respring, reproduce the problem and read `/tmp/OITIDebug.log`:
 
 ```
 defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
 ```
 
-then respring, reproduce the problem and read `/tmp/OITIDebug.log`. At higher levels the log holds the first characters of notification titles and messages, so **read it before you share it**. `DIAGNOSTICS.md` explains the log and the dumps. Set the level back to 0 afterwards.
+At higher levels the log holds the first characters of notification text, so **read it before you share it**, and set the level back to 0 afterwards. `DIAGNOSTICS.md` explains the log.
 
 ---
 
 # Litus (OITS)
 
-Litus, or Order In The Status Bar, has a pretty specific use case. I have an iPhone 8 Plus, a notchless device, and I use Insula to give it a Dynamic Island. On notchless devices the clock is centered instead of on the left of the screen. Litus can change the position of every major status bar element along the X axis, and you can also hide those same elements completely. Y axis customization is something I would like to add.
-
-Litus is a work in progress and I have paused it for now to focus on Insula. It is in a fairly usable state (some status bar elements are much less stable than others). Recommendations are welcome.
-
----
+Litus moves and hides status bar elements along the X axis, so a notchless iPhone with an Island has a clock in a sensible place. It is a work in progress and paused while I focus on Insula.
 
 # OITCore
 
-OITCore is the common library my tweaks share: logging, preferences, device information and notifications. It does not do a lot yet, and it is installed automatically as a dependency of Insula. It will grow when the tweaks need more shared pieces.
-
----
-
-# Status, as of October 31, 2026
-
-- **Insula** is where all the work is going. The latest release is 0.2.5, which adds Download Progress, Apple Mode, live colour, opacity and offset settings, relative scaling, visible safe mode and expanded-Island crash recovery on top of 0.2.0, and renames the project. Version 0.3.0 will be a polish release: every current Insula feature gets tested, tightened and finished, with no big new features.
-- **Litus** is paused.
-- **OITCore** changes only when the tweaks need it.
+The shared library the tweaks use. It installs automatically with Insula.
 
 ---
 
 # Installation
 
-**Latest release:** [Tellus v0.2.5](https://github.com/realtweety/OITUI/releases/tag/v0.2.5). Install both `.deb` files, **OITCore** and **Insula** (OITI). OITCore first, or both in one `dpkg -i`. Insula will not install without OITCore.
+You need a rootless jailbreak on iOS 16. Install both `.deb` files from the [latest release](https://github.com/realtweety/OITUI/releases/latest): **OITCore** first (or both in one `dpkg -i`), then **Insula**. To remove everything, remove Insula before OITCore.
 
-Older releases:
-
-- [v0.2.0](https://github.com/realtweety/OITUI/releases/tag/v0.2.0): Island notification stack, the Hello startup animation prototype and more responsive Settings
-- [v0.1.0](https://github.com/realtweety/OITUI/releases/tag/v0.1.0): the latest release of OITI and OITCore at that time
-- [first_release](https://github.com/realtweety/OITUI/releases/tag/first_release): the latest release of OITS (Litus) and the first releases of OITI and OITCore
-
-You need a rootless jailbreak on iOS 16. To remove everything, remove Insula before OITCore.
-
----
+Older releases: [v0.2.5](https://github.com/realtweety/OITUI/releases/tag/v0.2.5), [v0.2.0](https://github.com/realtweety/OITUI/releases/tag/v0.2.0), [v0.1.0](https://github.com/realtweety/OITUI/releases/tag/v0.1.0), [first_release](https://github.com/realtweety/OITUI/releases/tag/first_release) (the only release of Litus).
 
 # Documentation
 
-- `OVERVIEW.md`: the modules, names, current state and plans
-- `COMMANDS.md`: commands and test steps
-- `DIAGNOSTICS.md`: logging, dumps and how to read them
-- `LEARNINGS.md`: technical constraints and lessons
-- `WORKFLOW.md`: branches, pull requests and releases
-- `IDEAS.md`: the backlog
-- `OITUI_HISTORY.md`: how the project got here
-- `Third Party Licenses/`: license texts for third-party work
+`OVERVIEW.md` (the modules and plans), `COMMANDS.md` (commands and test steps), `DIAGNOSTICS.md` (logging), `LEARNINGS.md` (technical lessons), `WORKFLOW.md` (branches and releases), `IDEAS.md` (the backlog), `OITUI_HISTORY.md` (how the project got here), `Third Party Licenses/`.

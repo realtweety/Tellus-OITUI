@@ -191,7 +191,7 @@
 #import "Safety/OITISafety.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-exp-2026-11-07-a";
+extern NSString * const kOITIBuildTag = @"OITI-exp-2026-11-07-b";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";
