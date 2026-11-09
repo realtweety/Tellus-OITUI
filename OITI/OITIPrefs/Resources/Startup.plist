@@ -8,9 +8,9 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
-        <string>Startup Animation Prototype</string>
+        <string>Startup Animation</string>
         <key>footerText</key>
-        <string>This experimental prototype runs after a respring or userspace reboot, once the phone is unlocked on the Home Screen. It plays the supplied Hello animation clip at most once every five minutes. The charging Island activity may be delayed until playback ends; calls and other Island activity can interrupt it. Off by default.</string>
+        <string>Plays a Hello animation after a respring, once the phone is unlocked (at most every five minutes). Needs a respring to turn on.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -22,7 +22,7 @@
         <key>key</key>
         <string>IslandStartupHelloEnabled</string>
         <key>label</key>
-        <string>Enable Hello Animation (Prototype)</string>
+        <string>Enable Hello Animation</string>
         <key>PostNotification</key>
         <string>com.wilburt.oiti/PrefsChanged</string>
       </dict>

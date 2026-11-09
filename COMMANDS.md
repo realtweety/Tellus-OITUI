@@ -86,6 +86,7 @@ THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install
 Build notes:
 - The arm64e linker warnings ("incompatible arm64e ABI compiler") on the Arch PC are harmless for your iPhone 8 Plus. Do not publish `.deb` files built on the Arch PC.
 - dpkg's "downgrading" warning is harmless. Each machine counts the package build number separately.
+- GitHub Actions builds the `.deb` files (every push to `experiments`: DEBUG; the release workflow: `FINALPACKAGE=1`, see section 10). The local commands above are for quick tests on the phone only; never publish a package built on the Arch PC.
 
 ## 4. Respring and settings on the phone
 
@@ -273,7 +274,7 @@ When you are done, copy the log to the PC with the `scp` command from section 2 
 
 ## 6A. Island size (metrics)
 
-Makes the Island itself smaller or larger while its contents keep their normal size. Only the width and height multipliers of Apple's `sensorRegionSize` are used (the experiments showed it is the root input; the other sizes follow from it). 1.0 is Apple's own size. Changes apply immediately, with no respring. You can also set these on the OITI > Scale page (Island Size sliders). Keep "Use Custom Scale" turned off while judging the result.
+Makes the Island itself smaller or larger while its contents keep their normal size. Only the width and height multipliers of Apple's `sensorRegionSize` are used (the experiments showed it is the root input; the other sizes follow from it). 1.0 is Apple's own size. Changes apply immediately, with no respring. You can also set these on the Settings > Insula > Scale page (Island Size sliders). Keep "Use Custom Scale" turned off while judging the result.
 
 | Command | What it does | Where |
 | --- | --- | --- |
@@ -330,7 +331,7 @@ If the Island looks broken, run the "Back to Apple's own size" block. If SpringB
 | `grep -e GUARD -e SAFE /tmp/OITIDebug.log` | The guard's decisions. | Phone |
 | `cat /var/mobile/Library/Preferences/OITIRespringIntent.plist` | The marker OITI's settings leave just before they respring (Respring button, Clear Safe Mode). The guard deletes it on the next launch, so an error here is normal. † | Phone |
 
-Safe mode also shows as a banner at the top of every OITI settings page, with a **Clear Safe Mode & Respring** button (`experiments` build `OITI-exp-2026-10-20-a`). A respring started from OITI's own Respring button or that button is not counted as a possible crash: the guard logs `respring requested from OITI settings N s ago: launch not counted, history cleared`. A respring from anywhere else (`sbreload`, another tweak, Dopamine) still counts.
+Since batch 2 (build `OITI-exp-2026-11-02-a`, reported working on the phone; the loop-trip check was not itemized) the guard records the launch and decides before `preferencesChanged()`, so a crash inside the preference reload now trips safe mode too; the commands and log lines on this page are unchanged. Safe mode also shows as a banner at the top of every OITI settings page, with a **Clear Safe Mode & Respring** button (`experiments` build `OITI-exp-2026-10-20-a`). A respring started from OITI's own Respring button or that button is not counted as a possible crash: the guard logs `respring requested from OITI settings N s ago: launch not counted, history cleared`. A respring from anywhere else (`sbreload`, another tweak, Dopamine) still counts.
 
 Test the marker. After each respring wait for the Island, then reopen Settings > Insula and tap Respring again. Do this six times about 20 seconds apart, then:
 
@@ -465,97 +466,92 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases are created only from tested work on `main`. Build on the **Mac**, ship OITCore and OITI together, and do not ship OITS until it is verified. The current release is `v0.2.5` (OITI package version `0.2.5`; OITCore remains `0.1.0`).
+Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.2.5` (OITI `0.2.5`; OITCore remains `0.1.0`); `v0.3.0` is in preparation (OITI `0.3.0`).
 
-After the PR is merged, run on the Mac from a clean checkout of `main`:
-
-```
-cd ~/theos-projects/OITUI
-git fetch --prune origin
-git switch main
-git pull --ff-only
-git log --oneline -3
-git status --short
-```
-
-Clear old build outputs and build release packages (no install, no `+debug`):
-
-```
-rm -f OITCore/packages/*.deb OITI/packages/*.deb
-cd OITCore
-make clean package FINALPACKAGE=1
-cd ../OITI
-make clean package FINALPACKAGE=1
-ls ../OITCore/packages ../OITI/packages
-```
-
-Each folder should list one `.deb`. Test those exact files on the phone (with `iproxy 2222 22` running):
-
-```
-scp -P 2222 ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb root@127.0.0.1:/var/mobile/
-```
-
-On the phone:
-
-```
-dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb
-sbreload
-```
-
-Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac. For `v0.2.5`:
-
-```
-git tag -a v0.2.5 -m "OITUI 0.2.5"
-git push origin v0.2.5
-gh release create v0.2.5 --title "OITUI 0.2.5" --notes-file RELEASE_NOTES_0.2.5.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
-```
-
-| Command | What it does | Where |
-| --- | --- | --- |
-| `git tag -l` | Lists existing tags. | Arch PC, Mac |
-| `git show v0.1.0 --stat` | Shows what the v0.1.0 tag points at. | Arch PC, Mac |
-| `gh release list` | Lists GitHub Releases. | Arch PC, Mac |
-| `gh release view v0.1.0` | Shows the v0.1.0 release and its attached files. | Arch PC, Mac |
-
-Pre-releases (betas). A beta for testers can be built from `experiments` once the work has run on the phone. `OITI/control` says `0.2.0~beta.1` (the tilde sorts it below `0.2.0`), the tag is `v0.2.0-beta.1` and the GitHub Release is marked pre-release. First commit and push the version, docs and code from the Arch PC:
+**1. Push the release candidate** (Arch PC, fish; the archive is the delta Claude gives you):
 
 ```
 cd ~/OITUI
 git switch experiments
 git status --short
+tar -xzf ~/Downloads/oitui-v030-rc.tar.gz -C ~/OITUI .
+git status --short
 git add -A
-git commit -m "OITI 0.2.0 Beta 1: Island Notifications, docs"
+git commit -m "v0.3.0 release candidate"
 git push
 git log --oneline -1
 ```
 
-Then on the Mac, build from that exact commit with a clean tree (the `git status` line must print nothing):
+The release-note files are already gone from `experiments`. If one ever comes back, quote the pattern for fish (fish stops on an unmatched `*`): `git rm -f --ignore-unmatch 'RELEASE_NOTES_*.md'`.
+
+**2. The normal CI run** (DEBUG build) must be green:
 
 ```
-cd ~/theos-projects/OITUI
-git fetch --prune origin
-git switch experiments
+gh run list --branch experiments --limit 3
+gh run watch
+```
+
+**3. Build the release packages** (`FINALPACKAGE=1`, OITCore and OITI). Try the manual run first:
+
+```
+gh workflow run release-oiti.yml --ref experiments
+gh run list --workflow=release-oiti.yml --limit 3
+gh run watch
+```
+
+I believe GitHub only offers `workflow_dispatch` for a workflow file that exists on the default branch, and this file is new on `experiments`, so the first line may fail (for example `HTTP 404: workflow ... not found`). That is unverified. If it does, use the tag trigger instead (a release-candidate tag on the pushed commit; it is deleted after the test):
+
+```
+git tag v0.3.0-rc.1
+git push origin v0.3.0-rc.1
+gh run list --workflow=release-oiti.yml --limit 3
+gh run watch
+```
+
+Download and check the artifact (the step "Collect and check packages" in the run prints the file names and SHA-256 sums):
+
+```
+rm -rf ~/Downloads/oiti-rc
+gh run download <run-id> -D ~/Downloads/oiti-rc
+ls -lR ~/Downloads/oiti-rc
+shasum -a 256 ~/Downloads/oiti-rc/*/*.deb
+```
+
+There must be exactly two files, `com.wilburt.oitcore_0.1.0...deb` and `com.wilburt.oiti_0.3.0...deb`, with no `debug` in the names. Then test **those** files, section 21. After the test, delete the candidate tag if you made one:
+
+```
+git push origin --delete v0.3.0-rc.1
+git tag -d v0.3.0-rc.1
+```
+
+**4. Land it** (only after the test passed and we both agreed): `gh pr create --base main --head experiments --title "OITUI 0.3.0" --body "Polish release, see the release notes."`, review the diff (`gh pr diff`), `gh pr merge --squash`, then recreate `experiments` from `main` (the block above). Check that the squash commit has the same tree as the tested commit, so the tested `.deb` files are the release:
+
+```
+git rev-parse origin/main^{tree}
+git rev-parse <the hash of the commit you tested>^{tree}
+```
+
+The two tree hashes must be identical. Then tag `main` and publish the Release with the tested files (the Release body is the only release note):
+
+```
+git switch main
 git pull --ff-only
-git status --short
-git log --oneline -1
-rm -f OITCore/packages/*.deb OITI/packages/*.deb
-cd OITCore
-make clean package FINALPACKAGE=1
-cd ../OITI
-make clean package FINALPACKAGE=1
-ls ../OITCore/packages ../OITI/packages
+git tag -a v0.3.0 -m "OITUI 0.3.0"
+git push origin v0.3.0
+gh release create v0.3.0 --title "OITUI 0.3.0" --notes "<the release text>" ~/Downloads/oiti-rc/*/*.deb
 ```
 
-The two `git log` hashes must match. Test those exact `.deb` files on the phone (with `iproxy 2222 22` running), the same way as a release (`scp`, `dpkg -i`, `sbreload`), and check section 13 before tagging. Then publish from the Mac, in this order (never tag before the `.deb` files are built and tested from that commit):
+Pushing the tag also runs the release workflow on the tagged commit (a second, untested build of identical sources). Do not attach that one; keep the artifact you tested. Use `--notes-file` with a file outside the repo (for example `~/oiti-0.3.0-notes.md`) if the text is long.
 
-```
-cd ~/theos-projects/OITUI
-git tag -a v0.2.0-beta.1 -m "OITI 0.2.0 Beta 1"
-git push origin v0.2.0-beta.1
-gh release create v0.2.0-beta.1 --prerelease --title "OITI 0.2.0 Beta 1" --notes-file RELEASE_NOTES_0.2.0-beta.1.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
-```
+| Command | What it does | Where |
+| --- | --- | --- |
+| `git tag -l` | Lists existing tags. | Arch PC |
+| `git show v0.1.0 --stat` | Shows what the v0.1.0 tag points at. | Arch PC |
+| `gh release list` | Lists GitHub Releases. | Arch PC |
+| `gh release view v0.2.5` | Shows a release and its attached files. | Arch PC |
+| `gh workflow list` | Lists the workflows GitHub knows. | Arch PC |
 
-GitHub shows the tilde in the file name as a dot (`0.2.0.beta.1`); `dpkg` uses the version in the package's `control` file. If the tag or release is wrong, delete it with `gh release delete v0.2.0-beta.1 --cleanup-tag --yes` and start again from the build.
+Pre-releases (betas, not used for 0.3.0). Use a tilde version such as `0.2.0~beta.1` (sorts below `0.2.0`), tag `v0.2.0-beta.1`, and create the Release with `--prerelease`. If a tag or release is wrong, delete it with `gh release delete <tag> --cleanup-tag --yes` and build again.
 
 ## 11. Gotchas
 
@@ -618,10 +614,11 @@ Island Notifications shows each notification banner as an Island element. It is 
 | `IslandNotificationsMessageLines` | Message lines before the ellipsis, 1 to 4 (default 2). |
 | `IslandNotificationsCornerExtra` | Points added to the Island's corner radius while a notification shows, -4 to 8 (default 0). |
 | `NotificationHaptic` | One short light haptic per banner request (default off). Independent of the other switches. |
+| `NotificationTapDismisses` | Settings > Insula > Notifications > Dismiss When Tapped (default off). A tap on a notification notice removes it 0.25 s after the tap. Not for the Hello or a download. Off under Apple Mode. |
 
 ### Experimental stack (owner-tested on iPhone 8 Plus / iOS 16.7.16)
 
-The stack keeps up to four notices, oldest to newest. In Expanded/Wide style the newest is the main notice and older notices render as individual rounded compact cards in its secondary content. They still share the outer expanded Island card. In Compact style all notices are compact. A fifth notice evicts the oldest. Each notice has its own timer; its lifetime resets when moved to compact or promoted. Swiping removes that notice, and removing the newest promotes the newest survivor. Tapping opens that notice but leaves its Island item until timeout or swipe. The owner has confirmed the stack appears; timing, overflow and the full interaction matrix still need additional checking.
+The stack keeps up to four notices, oldest to newest. The newest is the Island notification in the chosen Style; the older notices are small cards of their own below the Island (build `OITI-exp-2026-11-03-d`; before that they were compact cards inside the newest notice's card). A fifth notice evicts the oldest. Each notice has its own timer; its lifetime resets when moved to compact or promoted. Swiping removes that notice, and removing the newest promotes the newest survivor. Tapping opens that notice but leaves its Island item until timeout or swipe (unless Dismiss When Tapped is on). The owner has confirmed the stack appears; timing, overflow and the full interaction matrix still need additional checking.
 
 Regression checklist for a new build:
 
@@ -714,14 +711,14 @@ defaults write com.wilburt.oiti.prefs islandNotificationsEnabled -int 0
 Color, opacity, outline hiding and the custom banner position now apply while the setting changes, with no respring. The Island has to be on screen to see the first three, so start a timer first (Clock app, or ask Siri for one).
 
 1. Settings > Insula > Color and Opacity. Turn on **Use Custom Color** and drag Red, Green and Blue: the Island background should follow the slider while it moves. Turn the switch off: the Island goes back to black.
-2. Turn on **Use Custom Opacity** and drag **Opacity** (the slider used to be labelled "Blue"). The Island should fade and change as you drag, then return to normal when the switch goes off. The same slider also sets the custom color's alpha when Use Custom Color is on.
+2. Turn on **Use Custom Opacity** and drag **Opacity** (the slider used to be labelled "Blue"). The Island should fade and change as you drag, then return to normal when the switch goes off. (Before build `OITI-exp-2026-11-01-a` the same slider also set the custom color's alpha; the color is now always opaque, see section 20.)
 3. Root page: switch **Disable Island Outline** on and off. The outline should hide and come back live.
 4. Settings > Insula > Notifications: turn on **Use Custom Notification Position** and change X and Y. A banner window that already exists moves immediately; otherwise the next banner appears at the new position. Turning the custom position **off** only takes effect on the next banner, because OITI does not know the original frame.
 
 5. Bottom of the main OITI page: the line under the credit should read `OITI version 0.2.0-1+debug` for a debug build, or `0.2.0` for a release package. It comes from the package database (`/var/jb/var/lib/dpkg/status`). If Settings is not allowed to read that file it shows the version taken from `control` at build time with `(built-in)` after it, which for a debug build lacks the `-1+debug` part.
 
 6. Settings > Insula > Scale, **Use Custom Scale** (build `OITI-exp-2026-10-21-b`). The width and height sliders are relative to Apple's size now, so 1.0 is the stock Island. With the switch on and both sliders at 1.0, the Island must look the same as with the switch off, **position included**: turn it on and off and confirm nothing moves. Then change the sliders: below 1.0 shrinks the Island and its content, above 1.0 grows them. **Reset Scale** puts both back to 1.0. Anyone who had Custom Scale on before this build starts at 1.0 (the old values are not carried over).
-7. Apple Mode, main page, the switch under **Enable Dynamic Island**. Set a few customizations first (a custom color, Island size 0.65 / 0.70, Use Custom Position, Island Notifications on). Turn **Apple Mode** on: a blue banner appears at the top of every page, and the Island should go back to the stock iOS one without a respring (custom color and size gone, notification stack cleared, banners back to the system banner). **Fix Island Position**, **Enable Dynamic Island**, Status Bar Layout and safe mode must keep working as set. On another page the banner has **Turn Off Apple Mode**. Turn it off and every customization must return exactly as it was. Log lines: `grep -e "Apple Mode" /tmp/OITIDebug.log` shows `PREF Apple Mode ON: ...` and `OFF`.
+7. Apple Mode, main page, the switch under **Enable Dynamic Island**. Set a few customizations first (a custom color, Island size 0.65 / 0.70, Use Custom Position, Island Notifications on). Turn **Apple Mode** on: a blue banner appears at the top of every page, and the Island should go back to the stock iOS one without a respring (custom color and size gone, notification stack cleared, banners back to the system banner). **Enable Dynamic Island**, Use Custom Position, Use Custom Notification Position (both stay on in Apple Mode since 0.3.0), Status Bar Layout and safe mode must keep working as set. On another page the banner has **Turn Off Apple Mode**. Turn it off and every customization must return exactly as it was. Log lines: `grep -e "Apple Mode" /tmp/OITIDebug.log` shows `PREF Apple Mode ON: ...` and `OFF`.
 
 Check the log (level 1 shows COLOR, level 2 shows TOUCHPASS):
 
@@ -845,7 +842,7 @@ Other greps:
 
 If a run prints nothing, check `DiagnosticsLevel` first (`install dump request ignored` appears only for the notification, and the trigger file does nothing at level 0), then `grep SESSION /tmp/OITIDebug.log | tail -n 2`. When you are done, set the level back with `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0` and run `sbreload`. A second class query on whatever the dump finds works as before (section 6: put the class names in `/tmp/OITIClassQuery.txt`, then `dumpstate classq-X`).
 
-## 18. App Store downloads and the percentage-only look (build `OITI-exp-2026-10-26-a`; the App Store source was checked on the device with `-25-a` except TestFlight, the Cancelled state and the check animation are new and untested)
+## 18. App Store downloads and the percentage-only look (build `OITI-exp-2026-10-26-a`; the App Store source, the Cancelled state and the Minimal look's check animation have been checked on the owner's phone; TestFlight is not confirmed and the Detailed look has no completion check yet)
 
 Download Progress stage 2. Settings > Insula > **Download Progress** has a new group, **App Store Downloads**, with **Show App Store Downloads**. It needs **Show Download Progress** on too. Both are off by default, Apple Mode switches them off and safe mode never starts the source. App Store downloads report a percentage only (the install dump found no byte counts), so the bar shows the percentage and an estimate of the time left, and no sizes or speed. Section 17 is the read-only dump this was designed from.
 
@@ -974,8 +971,8 @@ Run the check (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInst
 1. Every setting at its default (or **Apple Mode** on): the Island looks stock, and a banner drops from the stock position.
 2. **Scale** page, **Island Size**: drag **Island Width** and **Island Height**; the Island resizes live without a respring and returns to stock at 1.0 (**Reset Island Size to 1.0**).
 3. **Scale** page, **Custom Island Scale**: switch on **Use Custom Scale** and drag **Width (X)** and **Height (Y)**; the whole Island scales around Apple's own size and returns at 1.0 (**Reset Width and Height to 1.0**).
-4. **Fix Island Position** on and off. Then **Custom Island Positioning**: **Use Custom Position** with **X Position:** and **Y Position:**, and **Save**.
-5. **Notifications** page: **Fix Notification Positioning**, then **Custom Notification Positioning** (**Use Custom Notification Position**, X and Y, **Save**). Send yourself a notification; the banner appears where the setting says.
+4. (The Fix Island Position switch was removed in 0.3.0.) **Custom Island Positioning**: **Use Custom Position** with **X Position:** and **Y Position:**, and **Save**.
+5. **Notifications** page (the Fix Notification Positioning switch was removed in 0.3.0): **Custom Notification Positioning** (**Use Custom Notification Position**, X and Y, **Save**). Send yourself a notification; the banner appears where the setting says.
 6. **Color and Opacity** page: **Use Custom Color** with Red, Green and Blue, and **Use Custom Opacity**. Both apply live and switch off cleanly. Main page, **Misc**: **Hide When Not in Use** and **Disable Island Outline**, each on and off.
 7. **Apple Mode** on: every customization above is off; the built-in position and notification fixes stay.
 
@@ -1070,3 +1067,297 @@ Run the check and the build from the top of this section (`python3 tools/check_s
 4. Install dump (needs `DiagnosticsLevel` 1): `touch /tmp/OITIInstallDump.trigger`, then `grep -c INSTALL /tmp/OITIDebug.log` is above 0.
 
 Report: a build error (the first lines), a step that behaves differently from before the split, or a crash or respring.
+
+
+## 20. v0.3.0 polish checks (one block per stage; build tag in the heading)
+
+### Stage 1: colour alpha and Settings footers (build `OITI-exp-2026-11-01-a`; owner reports it works, checks not itemized)
+
+Changes: Use Custom Color now always sets an opaque color; **Use Custom Opacity** and its **Opacity** slider are the only transparency control (applied once). The Settings page builder no longer drops a footer on a group with no rows after it (the Scale page's "Island Size" footer). The Color and Opacity page gained two footers. No setting was added or removed, no default changed.
+
+1. Settings > Insula > Color and Opacity. Start a timer so the Island is on screen. Turn **Use Custom Color** on, pick a clearly visible color and leave **Use Custom Opacity** off. Set **Opacity** to 0.3: the Island must stay fully opaque in that color (before this build it went see-through).
+2. Turn **Use Custom Opacity** on with Opacity at 0.3: the Island becomes see-through once (compare with Custom Color off: the same strength of fade, not a double fade). Opacity 1.0 looks the same as switching Use Custom Opacity off. Turn both off: the Island is stock black.
+3. Read the two footers on that page (under Use Custom Opacity's slider and under Use Custom Color's switch): they must say the color is opaque and that changes apply immediately. Check that this is true.
+4. Settings > Insula > Scale. Under the **Island Size** heading there must now be a small grey paragraph ("Makes the Island itself smaller or larger...") before **Island Width**. The other footers on the page (Custom Island Scale, Width (X), Height (Y)) are unchanged.
+5. Quick pass over the other pages (Root, Notifications, Download Progress, Startup Animation): layout and footers look as before.
+6. Level 1 `COLOR` lines: `background ... -> ...` should show alpha 1 for the applied color. Build tag in the log header: `OITI-exp-2026-11-01-a`.
+
+Static check on the Mac or PC: `python3 tools/check_settings.py` (lists groups whose footer is shown under the header; currently only Scale > Island Size, as intended).
+
+### Batch 1: Apple Mode haptic, position settings, device documentation (build `OITI-exp-2026-11-01-b`, run as part of the `-c` fix build; owner reports it works, checks not itemized)
+
+Changes: Notification Haptic is off under Apple Mode (new global `sNotificationHapticEnabled`, forced off with the other customizations). The four position fields (Island X/Y, banner X/Y) are parsed strictly and limited to one screen, in Settings and again in the tweak; the Y Position default shown is 20.5 (the code default). The Save buttons check every field and show "Saved". Fix Notification Positioning shows the same "No built-in offsets / Estimated offsets" notice as Fix Island Position. Footers now say what applies immediately, from the next notification, or after a respring. Nothing in the device table changed; see `DEVICES.md`. Stage 1 (above) is included.
+
+**Feature 1: Apple Mode haptic.** Level 1 log on (`defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1`).
+1. Settings > Insula > Notifications: **Notification Haptic** on, **Show Notifications in the Island** off. Send yourself a notification: one light tap.
+2. Settings > Insula, **Apple Mode** on. Send another: no tap, stock banner. The log shows `PREF CHANGED ... NotificationHaptic: 1 -> 0` (the snapshot is the effective value) and no `haptic played` line.
+3. Apple Mode off again, no respring: the tap is back.
+4. While Apple Mode is on, the blue banner on the Notifications page names the notification stack and the haptic as saved but not applied and says Fix Notification Positioning still applies; on the main page it says Fix Island Position and Status Bar Layout still apply. Read the Apple Mode footer on the main page: it lists the haptic and the stack.
+5. Stack behavior is unchanged: with Apple Mode off, Island Notifications on and **Stack Multiple Notifications** on, a burst of three still stacks as before.
+
+**Feature 2: position settings.**
+6. Settings > Insula, Custom Island Positioning. In **Y Position:** type `abc`, tap elsewhere: an alert says it is not a number and the previous value is shown again. Type `20,5`: stored and shown as `20.5`. Type `99999`: an alert states the limit (one screen, in points; for X the screen width, for Y the screen height) and the field shows the limit. Clear the field: it shows `20.5` (Y) or `0` (X). The notifications page does the same for **X Position:** / **Y Position:** (defaults `0` and `40`).
+7. With **Use Custom Position** on, the Island follows each accepted value immediately. Tap **Save** with the keyboard open: the field commits, the button reads "Saved" for about a second. Tap it again with no keyboard: same.
+8. Strict-parser check from the PC (replace the notify command if yours differs): `defaults write com.wilburt.oiti.prefs yPos -string nan`, then `notifyutil -p com.wilburt.oiti/PrefsChanged`. With Use Custom Position on, the Island stays at Y 20.5 and the level 1 log says `PREF position yPos = nan is not a plain number, using 20.5`. Repeat with `-string 1e30` (same line) and `-float 5000` (`outside the allowed range, using 1000.0`; the Island then sits at the one-screen limit, which is applied when the position is used). Restore with `defaults delete com.wilburt.oiti.prefs yPos`.
+9. Notifications page: turn **Fix Notification Positioning** on. On a device without a table entry (the 8 Plus) the alert "No built-in offsets" must appear, as it does for **Fix Island Position** on the main page. Read the new footer.
+10. Footers: check each claim once. **Disable Island Outline** (immediately, timer on screen), **Hide When Not in Use** (respring; turning it off needs one), **Duration**, **Message Lines**, **Roundness**, **Style** and **Haptic** (from the next notification), custom banner position (a banner on screen moves at once; switching it off applies to the next banner). Report any footer that is wrong; the Fix Island Position and Hide When Not in Use curtain wording is from the code only, not from a device check.
+11. The main page's Misc card now ends after the two toggles; the page links (Startup Animation ... Scale) are in their own card.
+
+**Feature 3: devices.** No phone check for the table (nothing was added). When you run the protocol in `DEVICES.md` section 4, `python3 tools/measure_device.py <log>` has only been tested on synthetic lines so far; tell me if it fails on a real log.
+
+**Regression pass.** Section 20 (Stage 1), stock settings look stock, the respring-loop guard (section 7) and a Download Progress test download with Apple Mode off.
+
+### Bootloop fix: safe first run of build `OITI-exp-2026-11-01-c`
+
+Background: the first batch 1 build hung SpringBoard at startup (see `OVERVIEW.md`, "batch 1 bootloop fix"). This build removes the suspected cause but has not run on the phone. Treat it as untrusted until it has booted once.
+
+Before you install:
+1. Keep the recovery path you already used: Dopamine > Settings > Tweak Injection off, jailbreak, then remove or disable OITI. Rename-to-disable is faster than uninstalling: `mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off` (the filter plist is what makes the tweak load).
+2. Keep a copy of the last good package (`OITI 0.2.5`) on the PC.
+3. Collect the evidence of the earlier failure first, if it still exists (it decides whether the fix is the real cause): `ls -lt /var/mobile/Library/Logs/CrashReporter | head -20` and `grep -l OITI /var/mobile/Library/Logs/CrashReporter/*.ips` (a `SpringBoard-*.ips` that lists `OITI.dylib` and a backtrace through `preferencesChanged` / `OITIReadPositionPreference` / `UIScreen` confirms the cause; no report at all suggests a hang rather than a crash). Also `cat /var/mobile/Library/Preferences/OITIBootLog.plist` and `ls /var/mobile/Library/Preferences/OITISafeMode.plist`: no launch entries from the failed attempts means the crash happened before the guard ran. Send me what you find. This is read-only; nothing here changes the phone.
+
+Install and first run:
+4. Build: `cd ~/OITUI/OITI && make clean package` (no `install`). Check that it is the new build: `strings "$(find .theos -name OITI.dylib | head -n 1)" | grep OITI-exp-2026-11-01-c` must print the tag.
+5. Copy it over with `scp`, then `dpkg -i` it on the phone. Do NOT respring yet.
+6. Disable it first and respring once without it, to prove the install did no harm: `mv .../OITI.plist .../OITI.plist.off` then `sbreload`. SpringBoard must come back normally.
+7. Open a second SSH session and run `tail -F /tmp/OITIDebug.log` in it. In the first session: `mv .../OITI.plist.off .../OITI.plist`, then `sbreload`.
+8. Within about 15 seconds SpringBoard must be back and the log must show `SESSION START build=OITI-exp-2026-11-01-c` followed by `SESSION READY hooks installed`. If the screen does not return after a minute, do not keep forcing reboots (each launch counts toward the loop guard and only helps if the guard gets to run); use the recovery path in step 1 and collect the crash report as in step 3.
+9. If it boots: run `python3 tools/check_ctor_path.py` and the Batch 1 and Stage 1 device checks above, in that order. Check 6 and 8 (position fields and the `defaults write` cases) now exercise the one-screen limit at use time, which is new code that has not run on a device.
+
+### Batch 2: loop guard order, Detailed download protection, promotion-guard notice, cleanup (build `OITI-exp-2026-11-02-a`; owner reports it works, checks not itemized)
+
+Changes: see `OVERVIEW.md`, "batch 2". Compile-checked for arm64 iOS 16.5 off the phone (Logos plus clang, no link); the guard logic was also run through a Python mirror (`python3 tools/guard_model.py`, a mirror of the logic, not the Objective-C) and `python3 tools/check_ctor_path.py` passes. The off-device compile check is `tools/offline_check.sh`. Reported working on the phone by the owner (general report, 2026-11-02).
+
+Safe first run (same recovery path as before: Dopamine > Tweak Injection off, jailbreak, then rename `OITI.plist` to `OITI.plist.off`). Keep a second SSH session on `tail -F /tmp/OITIDebug.log`.
+
+**Feature 1: loop guard.**
+1. Normal boot: the log shows `SESSION START build=OITI-exp-2026-11-02-a`, then `GUARD SpringBoard launches in the last 120 s: 1 (trip at 5)`, then `PREF initial` lines (level 1) and `SESSION READY`. The GUARD line must come BEFORE the first PREF line (it used to come after).
+2. Respring from Settings > Insula > Respring: `GUARD respring requested from OITI settings N s ago: launch not counted, history cleared`, no `TRIPPED`.
+3. Real loop still caught: run `sbreload` over SSH five times, about 10 seconds apart. The fifth launch logs `SAFE TRIPPED`, then `SESSION SAFE MODE`, and the settings pages show the orange banner. Tap Clear Safe Mode & Respring: the changes return.
+4. In safe mode, `cat /var/mobile/Library/Preferences/OITIBootLog.plist` shows the launches, the log has no `PREF initial` line (the full preference reload is skipped there), and changing a setting does nothing (as before).
+5. Optional, only if you want proof of the new coverage: this needs a deliberately failing build, so skip it unless you want to; the logic was checked off the phone only.
+
+**Feature 2: Detailed download and the guard notice.**
+6. Settings > Insula > Download Progress: Look Detailed, Show Download Progress on. Start the test download. While it runs, send yourself notifications (Island Notifications on, stack on): the download is no longer removed. Send four or more: the oldest notification is evicted, the download stays. The log shows `STACK full ... evicting oldest` (level 1) and no `progress element removed (capacity)`.
+7. Turn Stack Multiple Notifications off and send a notification during the test download: the download stays beside the newest notice (two items), and a second notification replaces the first notification only. Report what the compact download card looks like and whether its percentage keeps updating while a notification is the newest item.
+8. When the notification leaves, the download element comes back to its expanded look. Swiping the download away or Show Download Progress off still removes it for the rest of that download (unchanged).
+9. Promotion-guard notice. This cannot be provoked on purpose. If you ever see `ELEMENT GUARD element creation is now OFF until the next respring` in the log, open Settings > Insula: a yellow "Island elements are switched off" banner with a Respring button must be at the top of every page, and gone after a respring. To only see the banner, create the file by hand: `printf '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>time</key><real>1788300000</real><key>failures</key><integer>5</integer></dict></plist>' > /var/mobile/Library/Preferences/OITIElementsOff.plist`, reopen Settings > Insula, then respring (the new launch deletes the file).
+
+**Feature 3: cleanup.**
+10. At DiagnosticsLevel 0 (`defaults delete com.wilburt.oiti.prefs DiagnosticsLevel`, respring), send two notifications: the log shows no `our element before layout values`, `our element parts` or `registered` lines. At level 1 they are back.
+11. Settings > Insula > Startup Animation: the group and the switch no longer say "Prototype"; the main page header reads "Status Bar (Experimental)". The Hello animation itself behaves as before.
+
+**Regression pass.** Section 20 Stage 1 and Batch 1 checks, the position fields and Apple Mode haptic, a normal notification burst with stacking on, and a test download with the Minimal look.
+
+
+### Batch 3: Hello +0.5 s, Settings text and order, Dismiss When Tapped (build `OITI-exp-2026-11-03-a`; compile-checked only, not device-tested)
+
+Changes: see `OVERVIEW.md`, "batch 3". Compile-checked for arm64 iOS 16.5 off the phone with `tools/offline_check.sh` (Logos plus clang, no link; `check_ctor_path.py` and `check_settings.py` pass). The %ctor and the launch path are untouched, so the normal safe first run is enough; keep a second SSH session on `tail -F /tmp/OITIDebug.log`. Recovery if anything misbehaves is the usual one (Dopamine > Tweak Injection off, then rename `OITI.plist`).
+
+**Hello +0.5 s.** (Settings > Insula > Startup Animation > Enable Hello Animation on, Enable Dynamic Island on; set `DiagnosticsLevel` to 1 for the log lines, then respring and wait 10 s plus the unlock.)
+1. The log shows `SESSION START build=OITI-exp-2026-11-03-a`. After unlocking the Hello plays: the word draws in, holds, fades; then the Island stays open and empty black for about half a second longer than before, then closes. Compare with the previous build if you can: the only visible difference is the black pause at the end. Report whether the pause reads as intended.
+2. Log order: `HELLO video playback started`, then `HELLO video reached end; holding the last frame 0.5 s before removing the startup element`, then about 0.5 s later `ELEMENT STACK removed ... reason=video-finished remaining=0`. Total on screen about 6.8 s.
+3. Settings > Insula > Notifications > Island Notification Duration at the minimum (2 s) and at 4 s (default): respring (wait out the five-minute cooldown between runs) and confirm the Hello still plays to the end and does not close at 2 s or 4 s. Then the same at the maximum (10 s).
+4. Interruption still works: with Show Notifications in the Island on, send yourself a notification while the Hello plays (also try during the last half second, while the black frame is held): the Hello is cancelled (`HELLO ... cancel`/`STACK removed ... reason=...`), the notice shows, and no second removal line appears for the Hello afterwards. Plugging in the charger does not remove it (charging is kept behind the animation, as before).
+5. Compact style (unverified): Settings > Insula > Notifications > Style Compact, Show Notifications in the Island on, respring and let the Hello play. Report whether it still shows the full expanded card as it does at Expanded. Put Style back to Expanded afterwards if you prefer.
+6. Tap on the Hello (not changed): it opens the Settings app. Tell me whether it should do nothing instead.
+
+**Settings text and order.**
+7. Settings > Insula > Notifications: the first group is Island Notifications (Show Notifications in the Island, Hide the Stock Banner), then Experimental Notification Stack, then Island Notification Style, Tapping a Notification, Haptics and the rest. Every switch keeps its saved value.
+8. Settings > Insula > Startup Animation and Download Progress: the footers now say what applies immediately and what needs a respring. Check each claim you can: Show Download Progress and Show App Store Downloads on and off during a test download (applies at once), Style Minimal to Detailed during a download (the bar is replaced at once), a Return to Idle limit changed while a bar is showing (applies to it), the test download size (applies on the next start). Report any footer that is wrong.
+
+**Dismiss When Tapped.**
+9. Default (off): send yourself a notification with Island Notifications on; tap it. It opens the app and the notice stays until the timeout or a swipe up (as before).
+10. Settings > Insula > Notifications > Dismiss When Tapped on (no respring): send another and tap it. It opens the app and the notice leaves the Island shortly after. The log shows (level 1) `ELEMENT TAP dismisses the notification element ...` then `STACK removed ... reason=tap`.
+11. With the stack on, send three notifications, tap the newest: only that notice goes and the next one is promoted. Tap on a notice that is already compact (an older one) and report what happens.
+12. During a test download (Look Detailed) a tap on the download card does not remove it. A tap on the Hello is unchanged.
+13. Apple Mode on: Island notifications are off as before; the Apple Mode banner on the Notifications page lists Dismiss When Tapped. The log shows `PREF CHANGED ... NotificationTapDismisses: 1 -> 0` (effective value).
+
+**Regression pass.** Section 20 Stage 1, Batch 1 and Batch 2 checks, a normal notification burst with stacking on, a test download with both looks, and the respring-loop guard (section 7).
+
+### Batch 4: Hello 0.25 s hold, Hello tap to Insula, return to idle by percentage, Detailed completion check (build `OITI-exp-2026-11-03-b`; compile-checked only, not device-tested)
+
+Changes: see `OVERVIEW.md`, "batch 4". Compile-checked for arm64 iOS 16.5 off the phone with `tools/offline_check.sh`; `check_ctor_path.py` and `check_settings.py` pass. The %ctor and the launch path are untouched, so the normal safe first run is enough (second SSH session on `tail -F /tmp/OITIDebug.log`; recovery is the usual one). Set `DiagnosticsLevel` to 1 for the log lines.
+
+**Hello hold and tap.** (Settings > Insula > Startup Animation > Enable Hello Animation on, Enable Dynamic Island on; respring, wait 10 s and unlock; the five-minute cooldown applies between runs.)
+1. The log shows `SESSION START build=OITI-exp-2026-11-03-b`. The Hello plays; after the fade the black card stays about a quarter of a second, then closes. Log: `HELLO video reached end; holding the last frame 0.25 s ...`, then `STACK removed ... reason=video-finished`. Report whether 0.25 s feels right.
+2. Tap the Hello while the word is on screen (not in the first second): Settings opens directly on Insula's page, not on the Settings main list. Log: `ELEMENT TAP on the startup animation ...`, `open url prefs:root=Insula via openURL:options:completionHandler:`, then `STACK removed ... reason=tap`. The Hello is gone when you come back to the Home Screen (it does not keep playing).
+3. Tap it during the black hold at the end: same result, and no second removal line for it afterwards.
+4. Interruptions still work as in batch 3 (a notification while it plays cancels it; the charger does not).
+
+**Return to idle by percentage.** (Settings > Insula > Download Progress: Show Download Progress on; the new slider **After this percentage is reached** is in the Return to Idle group between the size and the time limits, default Never.)
+5. Set it to 50 %, Style Minimal, **Start Test Download** (a size of 200 MB or more is easiest to watch). At 50 % the pill goes away, the log says `limit reached (50% downloaded): the Island returns to idle, the download carries on`, and the download keeps going. **Stop Test Download**, **Start Test Download** again: the bar returns. Repeat with Style Detailed.
+6. With `DownloadTestFractionOnly` on (the percentage-only look, `COMMANDS.md` above): the same limit works with no sizes. If you have an App Store download to hand, the real App Store source is the most useful check: set 50 % and watch the Island return to idle at about half.
+7. Changing the slider while a bar is showing applies to it at once: with the bar at 30 % set the limit to 20 % and the Island goes idle on the next tick; set it back to Never during a new download and the bar stays to the end.
+8. Never (0) behaves exactly as before: the bar stays until completion, the size limit and the time limit still work (section 18 step 3).
+
+**Detailed look completion check.** (Style Detailed.)
+9. Let a test download finish (a small size, about 20 MB). In the trailing slot (right of the headline) the percentage is replaced by a small green circle with a white check that is drawn; the bar is green and the line under it says `Download complete`; about 3 s later the element goes. Report how the badge looks: size, position, whether anything is cut off. Log: `DOWNLOAD Detailed look: completion check shown in the trailing slot (label {...})` (please send me that line if the badge looks wrong).
+10. With Reduce Motion on (Settings > Accessibility > Motion) the badge appears at once with the check already drawn.
+11. Start another test during the 3 s after a completion: the percentage text is back and no check remains. **Stop Test Download** mid-download: `Download cancelled`, no check.
+12. Minimal look unchanged: its own check inside the pill still plays at completion.
+
+**Regression pass.** Section 20 Batch 3 checks, a notification burst with stacking on, and the respring-loop guard (section 7).
+
+### Batch 5, round 1: Stack Look "Separate Cards" (build `OITI-exp-2026-11-03-c`; superseded by round 2 below, which removed the Stack Look setting; kept for history)
+
+Changes: see `OVERVIEW.md`, "batch 5 round 1". New setting: Settings > Insula > Notifications > **Stack Look** (Inside the Island = default, Separate Cards). The %ctor and launch path are untouched, so the normal safe first run is enough (second SSH session on `tail -F /tmp/OITIDebug.log`; recovery is the usual one). Set `DiagnosticsLevel` to **2** for this round, because the level 2 `STACKCARDS` probe lines are what I need if the cards sit wrong; send me the `STACKCARDS` lines (and the `ELEMENT STACK` lines) from `/tmp/OITIDebug.log` after steps 2 to 4.
+
+1. Default unchanged: with Stack Look on Inside the Island, send three notifications quickly (Island Notifications and the stack on): the older ones are small cards inside the newest notice's card exactly as in batch 4. Log `STACK separate-cards ...`.
+2. Settings > Insula > Notifications > Stack Look > Separate Cards (no respring). Send three notifications about a second apart, Style Expanded. The Island shows only the newest notification (its card is now just that one); after a moment two small black capsules fade in under it, the most recent past notice first: app icon on the left, "Title: message" centred, "now" on the right. Report: where they sit relative to the Island's card (gap, width, centred or not), whether they appear while the Island is still growing, and anything cut off. Log: `STACKCARDS refresh: 2 older notices as cards`, `cards shown: 2 under island {...}`.
+3. Same with Style Wide and then Style Compact (Compact is unverified: say whether Apple shows anything else for the older notices there).
+4. Tap one of the cards: it opens that notice's app (the exact conversation only if the stock banner is still alive or the notification has a URL: tell me which it did) and the other cards are untouched; the tap never opens the newest notice. With Dismiss When Tapped on, the tapped card goes. Swipe up on a card: only that notice goes.
+5. Let time pass: the newest expires, the next notice is promoted into the Island and the cards below recompute (one fewer); the card's time text changes from "now" to "1m" after a minute. Notice any flicker or jump.
+6. Island Size / Position: change the Island sliders (Settings > Insula > Island Size) and repeat step 2 at a small and a large size, and with the notification position fix on: the cards must stay under the Island's card.
+7. Stack Look back to Inside the Island with cards on screen: the cards go and the in-card compact cards return at once. Apple Mode on: no cards, no stack (as before).
+8. Landscape / lock screen: the cards must not show in landscape; lock-screen-only deliveries still bypass the banner path (as before).
+9. Regression pass: Section 20 Batch 4 checks (Hello tap to Insula, percentage limit, Detailed check), a normal notification burst with Inside the Island, the respring-loop guard (section 7).
+
+### Batch 5, round 2: the stack is the separate cards only (build `OITI-exp-2026-11-03-d`; compile-checked only, not device-tested)
+
+Changes: see `OVERVIEW.md`, "batch 5 round 2". The Stack Look setting is gone and the older notices are always drawn as the cards you tested in round 1. The %ctor and launch path are untouched, so the normal safe first run is enough. `DiagnosticsLevel` 1 is enough now (2 only if the cards sit wrong).
+1. Settings > Insula > Notifications: the stack group has only **Stack Multiple Notifications (Experimental)** (no Stack Look row); its footer describes the cards.
+2. Send four notifications in a burst (the SSH script, or real ones), Style Expanded: the Island shows only the newest notification; the older ones appear as cards below it exactly as in round 1. The Apple card of the newest notice has no compact cards inside it any more (it never had with Separate Cards on, so nothing should look different from your last test).
+3. Style Wide and Compact: the same.
+4. Tap a card with a **real** notification (for example a message from another phone, or a Messages or Mail one): tell me whether it opens that exact notification (the conversation or message) or only the app. With a test notification from the SSH script it can only launch the app.
+5. A running Detailed download while notices arrive: the Detailed element behaves as in batch 4 when it is the newest; when a notice becomes newest the download is simply not shown as a card (this is the one visible difference to the removed look, where it was a compact card with a text line). The Minimal pill is unaffected.
+6. Stack off (Stack Multiple Notifications off): only one notice at a time and no cards. Apple Mode on: no Island notifications and no cards. Respring-loop guard (section 7) and a normal single notification as regression.
+
+### Batch 6: card animation, install-phase recorder, Settings audit (build `OITI-exp-2026-11-05-a`, Settings tag `OITIPrefs-0.3.0-2026-11-05-a`; compile-checked only, not device-tested)
+
+Changes: see `OVERVIEW.md`, "batch 6". The %ctor and launch path are untouched, so the normal safe first run is enough. No new setting and no changed default. Run these with `DiagnosticsLevel` 1 (the cards' motion needs no log; the log shows what the gate did).
+1. **Card animation, burst.** Settings > Insula > Notifications: Island Notifications and the stack on, Style Expanded. Run the four-notification SSH script (end of this section). Expect: older notices appear as cards under the Island; a card slides down a few points and fades in; when the stack changes the other cards glide to their places instead of jumping. Tell me what the **new** notification does: (a) the cards stay put and glide, or (b) the cards fade out and back in with the new one sliding in. `grep STACKCARDS /tmp/OITIDebug.log | tail -n 30` shows `cards hidden: ... newest on screen=0` right after a `refresh` line if it is (b).
+2. **Leaving.** Swipe a card up: it slides up a little and fades while the cards below it glide up. Let one time out (Duration slider low): the same. Tap a card with Dismiss When Tapped on: the same after the tap.
+3. **Promotion.** With three cards, swipe the newest (the Island's) notice away: the first card leaves the card list (slides up and fades) while the Island shows it as the notice, and the rest glide up.
+4. **Reduce Motion** (Settings > Accessibility > Motion > Reduce Motion on): new cards only fade in, leaving cards only fade out, the others jump, no slides. Turn it off again.
+5. **Size, position and Style.** Repeat step 1 with Style Wide and Compact, then with Island Width 0.8 and 1.3 and Height 1.2 (Settings > Insula > Scale), then with Use Custom Position at Y 35. The cards sit under the Island's card in each case and the motion is the same; report any case where a card slides in from the wrong place or overlaps the Island.
+6. **Regression.** Tap and swipe on a card still act on that notice only; Stack off and Apple Mode on: no cards; a single notification, a Detailed download and the respring-loop guard (section 7) as before.
+7. **Installing state, round 1 (read-only).** `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1`, `sbreload`. Settings > Insula > Download Progress: Show Download Progress and Show App Store Downloads on. Start an App Store install or update of a large app (1 GB or more is best: a short install phase is hard to catch) and stay on the Home Screen with the icon visible until the app is installed, ideally also pausing and resuming once. Then send me the output of `grep -E "DOWNLOAD" /tmp/OITIDebug.log | grep -E "PHASE|App Store source" | tail -n 80`. Each `PHASE` line is a change (the first reading, then every new phase or state, and one line when the placeholder leaves the list). If you can, note on the phone what the icon said at the end ("Waiting", "Installing"...). Set `DiagnosticsLevel` back to 0 afterwards; nothing about the feature changes on screen.
+8. **Settings.** Color and Opacity: set a color and an opacity, tap **Reset Color to Black** and **Reset Opacity to 1.0**: the sliders return to 0 and 1.00 at once and the Island follows live; the two switches stay as they were. Main page, Use Custom Position with X 30 and Y 40, tap **Reset Position to X 0, Y 20.5**: the fields show 0 and 20.5 and the Island follows. Read the new footers of Fix Island Position, Status Bar Layout and Custom Opacity against what you see.
+
+### Batch 7: cards matrix, download card, morph, Settings arrows (build `OITI-exp-2026-11-05-b`, Settings tag `OITIPrefs-0.3.0-2026-11-05-b`; compile-checked only, not device-tested)
+
+Changes: see `OVERVIEW.md`, "batch 7". The %ctor and launch path are untouched. No new setting, no changed default.
+1. **Settings arrows.** Settings > Insula: the arrows of Startup Animation, Notifications, Download Progress, Color and Opacity and Scale are small, evenly sized and sit at the right edge of the row. Tell me if any is still stretched, doubled or misplaced (a screenshot helps).
+2. **Morph.** `DiagnosticsLevel` 1 or higher is not needed for this. Notifications on, Stack on, Style Expanded. Send one notice, wait a second, send another (`touch /tmp/OITIPoC.trigger` after writing the sample, or the SSH script at the end of this section). Expect: the first notice's card shrinks out of the Island and slides down into its place under the new one, instead of blinking in afterwards. Report what you see: smooth, too early, a black flash over the new notice, a copy that stays, or the old blink. `grep STACKCARDS /tmp/OITIDebug.log | grep refresh | tail -n 8` (level 1) shows `N morphing from the Island` when a copy was started. Reduce Motion on: no copy (the old behavior).
+3. **Download card.** Download Progress on, Style Detailed (Settings > Insula > Download Progress), start a download (the test download from the same page is enough) and, while it runs, send one notice. Expect: the notice is the Island's, and a card for the download sits under it: app name, a thin bar that keeps moving, the percentage. Swipe the card up: it leaves and the download display stays away (like swiping the Detailed element); the download carries on. Let a download finish while the card shows: the bar goes green. With Stack Multiple Notifications off there is no card (as for notices).
+4. **Cards matrix.** `DiagnosticsLevel` at least 1, Notifications and Stack on, Reduce Motion off. From the PC: `scp -P 2222 tools/cards_matrix.sh root@localhost:/tmp/; and ssh -p 2222 root@localhost bash /tmp/cards_matrix.sh`. About 3 minutes; it restores the settings it changed. Send me the whole output. Look yourself at the phone during the cases with Custom Position Y 35 and 60 (before this batch the cards did not show there) and at Custom Scale 1.3.
+5. **Regression.** A single notice, a burst of four (the SSH script), Reduce Motion, tap and swipe on notice cards, Apple Mode on (no cards), the Minimal download pill, and the respring-loop guard (section 7) as before.
+
+### Batch 8: Installing state, card gate flash, preset positions removed (build `OITI-exp-2026-11-07-a`, Settings tag `OITIPrefs-0.3.0-2026-11-07-a`; compile-checked, migration modelled, not device-tested)
+
+Changes: see `OVERVIEW.md`, "batch 8". **This batch touches the launch path** (`preferencesChanged()` now runs a one-time migration, no UIKit), so use the safe first run (same recovery as the bootloop fix above: Dopamine > Settings > Tweak Injection off, jailbreak, then rename `OITI.plist`).
+0. **Before installing**, keep your settings: `defaults read com.wilburt.oiti.prefs > /var/mobile/oiti-prefs-before.txt` (phone). From the PC after the GitHub Actions build: install the new package, then do NOT respring yet.
+   - Disable it first and respring once without it: `mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off`, then `sbreload`. SpringBoard must come back normally.
+   - Second SSH session: `tail -F /tmp/OITIDebug.log`. First session: `mv .../OITI.plist.off .../OITI.plist`, then `sbreload`.
+   - In the log, expect one line `[PREF] preset positions migrated once: device iPhone10,2 (no table entry), Fix Island Position was ..., Fix Notification Positioning was ...` and then the normal start. SpringBoard must not restart. If it does, use the recovery path and send the last 40 lines of the log.
+   - `defaults read com.wilburt.oiti.prefs PresetPositionsMigrated` prints `1`. Your position and banner settings are unchanged (compare with `/var/mobile/oiti-prefs-before.txt`), because the 8 Plus has no table entry.
+   - Respring again: no second migration line.
+1. **Settings.** Main page: **Fix Island Position** is gone, the footers of Apple Mode and Custom Island Positioning say what they now say. Notifications page: **Fix Notification Positioning** is gone, the Custom Notification Positioning footer ends with "Stays on in Apple Mode." Island and banner are where you had them.
+2. **Apple Mode.** Turn it on: color, opacity, scale and size customizations go off as before; the Island and banner stay at your custom position and custom banner position (new in this batch). Turn it off again.
+3. **Card gate flash.** Stack on, Style Expanded, `DiagnosticsLevel` 1. Send one notice, wait a second, send another (or the SSH script at the end of this section). Look at the new notice: the cards must NOT flash under the small pill before the Island expands; they appear once the notice is open, with the older notice travelling down (batch 7). Then `grep STACKCARDS /tmp/OITIDebug.log | tail -n 12`: expect `cards hidden: ... newest on screen=1 (settled=0)` and then one `cards shown` under the expanded rectangle (height about 94, not 33). Report if you still see a blink, and send those lines.
+4. **Installing state (both looks).**
+   - Settings > Insula > Download Progress: Show Download Progress and Show App Store Downloads on. On the phone: `defaults write com.wilburt.oiti.prefs DownloadTestFractionOnly -bool true`, then `notifyutil -p com.wilburt.oiti/PrefsChanged` (there is no Settings switch for this one). Start the test download (**Start Test Download**). From 90 percent the Detailed look says `9x% · Installing…` and the Minimal look says `Installing…` above the bar with no time below it; at 100 percent it completes as before. Do it once with each look (Settings > Insula > Download Progress > **Style**: Minimal, Detailed). Afterwards `defaults delete com.wilburt.oiti.prefs DownloadTestFractionOnly`.
+   - Real install: start an App Store install or update, stay on the Home Screen. When the bytes are done the words change to Installing… and the percentage keeps moving to the end; then the completion check. `grep "installing" /tmp/OITIDebug.log | tail -n 6` (level 1) shows the start and end lines. Pausing and cancelling still say Paused and Cancelled.
+5. **Matrix script.** First `ls /var/jb/usr/bin | grep -i notify` on the phone. Then `scp -P 2222 tools/cards_matrix.sh root@localhost:/tmp/; and ssh -p 2222 root@localhost bash /tmp/cards_matrix.sh`. It prints `using <path>` first, then `settings before the run: ...`; send the whole output. If it says `notifyutil not found`, send me the output of `dpkg -L darwintools | grep notifyutil`.
+6. **Regression.** Single notice, burst of four, download card (batch 7 step 3), tap and swipe on cards, the respring-loop guard (section 7).
+
+### Tool: four test notifications over SSH (shuffled order, random gaps)
+
+Posts four test notices through the developer trigger (`DiagnosticsLevel` at least 1; the trigger file is polled once a second, so the gaps cannot be shorter than about 1.6 s). They go straight into the stack (so they exercise the stack and the cards), not through the stock banner path: no haptic, no stock banner to hide, and a tap on a card can only launch the app (no request). Paste into a `bash` or `zsh` shell on the phone (it needs `$RANDOM`):
+
+```sh
+for n in $(for i in 1 2 3 4; do echo "$RANDOM $i"; done | sort -n | cut -d' ' -f2); do
+  case $n in
+    1) t="Alex";     m="Are we still on for tonight?";  b=com.apple.MobileSMS ;;
+    2) t="Calendar"; m="Standup starts in 10 minutes";  b=com.apple.mobilecal ;;
+    3) t="Mail";     m="Your order has shipped";        b=com.apple.mobilemail ;;
+    4) t="Mom";      m="Call me when you get a chance"; b=com.apple.MobileSMS ;;
+  esac
+  printf '%s\n%s\n%s\n' "$t" "$m" "$b" > /tmp/OITIPoCSample.txt
+  touch /tmp/OITIPoC.trigger
+  d=$((160 + RANDOM % 90)); sleep $((d / 100)).$(printf %02d $((d % 100)))
+done
+```
+
+The four arrive in a random order over about 5 to 7.5 s. The last sample stays in `/tmp/OITIPoCSample.txt` and is reused by a plain `touch /tmp/OITIPoC.trigger`; `rm /tmp/OITIPoCSample.txt` restores the default test text. If `sleep` rejects decimals, use `sleep 2`. For the exact-notification tap use REAL notifications.
+
+## 21. v0.3.0 release-candidate test (the exact release `.deb` files)
+
+Test the `FINALPACKAGE=1` files from the release workflow (section 10, step 3), not the DEBUG build from the normal CI run. Release
+packages are quiet: `DiagnosticsLevel` is 0, so the log has only `SESSION`, `GUARD`, `SAFE`, `CHECK` and the level 0 warnings; the
+steps that need more say where to raise it. `iproxy 2222 22` must be running. Paths below assume the artifact is in
+`~/Downloads/oiti-rc` (Arch PC, fish). Tell me which step number fails, with the lines the step names.
+
+**This candidate touches the launch path again** (`preferencesChanged()` no longer reads the two retired Fix keys; no UIKit call
+was added, `tools/check_ctor_path.py` passes). So the first start of the package uses the safe first-run procedure in step 1.
+
+**0. What you are testing.** Copy the files to the phone and look at them:
+
+```
+scp -P 2222 ~/Downloads/oiti-rc/*/*.deb root@127.0.0.1:/var/mobile/
+ssh -p 2222 root@127.0.0.1 'ls -l /var/mobile/*.deb; for f in /var/mobile/com.wilburt.oit*.deb; do echo $f; dpkg-deb -f $f Package Version; done'
+```
+
+Expect `com.wilburt.oitcore` `0.1.0` and `com.wilburt.oiti` `0.3.0`, no `+debug` in a version or a file name.
+
+**1. Upgrade over 0.2.5** (the case most users are in).
+1. Put 0.2.5 on the phone and change some settings (Island on, Use Custom Position, a color, Notifications on):
+
+```
+mkdir -p ~/Downloads/oiti-025
+gh release download v0.2.5 -D ~/Downloads/oiti-025 --pattern '*.deb'
+ssh -p 2222 root@127.0.0.1 mkdir -p /var/mobile/oiti025
+scp -P 2222 ~/Downloads/oiti-025/*.deb root@127.0.0.1:/var/mobile/oiti025/
+```
+
+   On the phone: `dpkg -i /var/mobile/oiti025/*.deb && sbreload`. Your phone has run the batch 8 migration already, so run `defaults delete com.wilburt.oiti.prefs PresetPositionsMigrated` too, to see the migration run as it does for a user. Check that 0.2.5 works, then save the settings: `defaults read com.wilburt.oiti.prefs > /var/mobile/oiti-prefs-025.txt`.
+2. Install the candidate WITHOUT respringing: `dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb`.
+3. Safe first run. Disable the tweak, respring, then enable it with a log tail:
+
+```
+mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off
+sbreload
+```
+
+   SpringBoard must come back normally. Second SSH session: `tail -F /tmp/OITIDebug.log`. First session: `mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist`, then `sbreload`. If SpringBoard restarts or hangs: Dopamine > Settings > Tweak Injection off, jailbreak, `rm /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist*`, and send me the last 40 lines of the log.
+4. Expect one `PREF preset positions migrated once: device iPhone10,2 (no table entry) ...` line (the migration runs once on the first launch with 0.3.0, also over 0.2.5), a `SESSION` line with the build tag `OITI-0.3.0`, no `TRIPPED`. `defaults read com.wilburt.oiti.prefs PresetPositionsMigrated` prints `1`.
+5. `defaults read com.wilburt.oiti.prefs > /var/mobile/oiti-prefs-030.txt; diff /var/mobile/oiti-prefs-025.txt /var/mobile/oiti-prefs-030.txt`: only `PresetPositionsMigrated` is new. The Island, the banner position and your colors are where they were. Settings > Insula shows `0.3.0` at the bottom.
+
+**2. Clean install (no preferences).**
+
+```
+dpkg -r com.wilburt.oiti com.wilburt.oitcore
+rm -f /var/mobile/Library/Preferences/com.wilburt.oiti.prefs.plist /var/mobile/Library/Preferences/OITISafeMode.plist /var/mobile/Library/Preferences/OITIBootLog.plist /var/mobile/Library/Preferences/OITIRespringIntent.plist /tmp/OITIDebug.log
+killall cfprefsd
+sbreload
+dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb
+sbreload
+```
+
+Wait for the respring. Expect the stock iOS look (Island off until you turn **Enable Dynamic Island** on, then a respring), Settings > Insula opens, every switch at its default, `defaults read com.wilburt.oiti.prefs DiagnosticsLevel` says the key does not exist (level 0), `grep -i -e session -e guard -e safe /tmp/OITIDebug.log` shows `OITI-0.3.0` and no `TRIPPED`. Turn the Island on and respring once more.
+
+**3. Respring-loop guard** (section 7, with the release package): do the marker test (six Respring taps from Settings: every launch after the first says `launch not counted`, no `TRIPPED`), five `sbreload` over SSH about 10 s apart (the fifth logs `TRIPPED`, the banner appears, **Clear Safe Mode & Respring** brings OITI back) and the faked-launches block. All of it works at level 0.
+
+**4. Stock look with every Island setting at its default.** Enable Dynamic Island on; Use Custom Position, Use Custom Scale, Island Size sliders at 1.0, Use Custom Color, Use Custom Opacity, Hide Outline, Hide When Not in Use, Custom Notification Position all off; Island Notifications off; Download Progress off; Startup Animation off. With a timer, music and the charging animation running, the Island must look and behave like the stock one on this device, and a real notification shows the stock banner. Report anything that differs.
+
+**5. A burst of four notices** (level 1 and the stack on). `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1`, `notifyutil -p com.wilburt.oiti/PrefsChanged` (full path `/var/jb/usr/bin/notifyutil` if the shell does not find it), turn on Settings > Insula > Notifications > Show Notifications in the Island and Stack Multiple Notifications, respring, wait 2 minutes. Then the SSH script at the end of section 20 ("Tool: four test notifications over SSH"). Expect: the newest in the Island, the older ones as small cards that slide in, the demoted notice travelling down out of the Island, tap and swipe on each card, no blink. Then one real notification from another app.
+
+**6. Custom Scale 1.15 and 1.3** with the matrix script (level 1, notifications and stack on, Reduce Motion off, notice duration at the default 4 s or longer). On the phone first `ls /var/jb/usr/bin | grep -i notify`. From the PC:
+
+```
+scp -P 2222 ~/OITUI/tools/cards_matrix.sh root@127.0.0.1:/tmp/
+ssh -p 2222 root@127.0.0.1 bash /tmp/cards_matrix.sh | tee ~/Downloads/cards_matrix_rc.txt
+```
+
+About 4 minutes; it restores every key it changed. Look at the phone during the Custom Scale cases and the Y 35 and 60 cases. I need the whole output: for `custom scale 1.15` and `1.3` expect `cards shown`, a `cards placement` line without `WARNING`, and a `morph` count above 0 in the `refresh` lines instead of `island rectangle NOT found`; if the cards still do not show, the new line `island rectangle rejected: <rect> (width|height|y) ...; limits ...` says which limit failed. The last three blocks are the blink check: each ends with a `RESULT ...` line, and `Wide` and `Compact` must say `no blink`.
+
+**7. Wide and Compact, by eye.** Settings > Insula > Notifications > Style: Wide, then Compact. Send two or three notices and look at the cards for 3 to 4 seconds after the last one settles: no short disappearance about a second after they appear. (The script's blink check does the same from the log; report if the eye and the script disagree.)
+
+**8. A real download in both looks** (Download Progress and Show App Store Downloads on; Style Minimal, then Detailed). Start a real App Store install or update: percentage, estimate, pause and resume, then `Installing…` after the bytes are done, then the completion check and back to idle. `grep -i installing /tmp/OITIDebug.log | tail -n 6` (level 1) shows the start and end lines. With the Detailed look, send one notice while it runs: the download becomes a card under the notice.
+
+**9. Apple Mode.** Turn it on: the Island is stock (color, opacity, scale, size, notifications, download progress and Hello are off), the Island and the banner stay at your custom positions, every Settings page shows the Apple Mode banner. Turn it off: everything is back as it was.
+
+**10. The Settings pages.** Open every page (main, Color and Opacity, Scale, Notifications, Download Progress, Startup Animation): text fits, no stretched arrows, the three reset buttons (position, color, opacity) work, sliders feel responsive, no crash when a choice is picked (Notifications Style, Status Bar Layout, Download Style). Tap **Respring** and **Clear Safe Mode & Respring** once.
+
+**11. Put the phone back.** `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0`, `notifyutil -p com.wilburt.oiti/PrefsChanged`, respring.

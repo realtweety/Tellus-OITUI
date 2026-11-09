@@ -67,7 +67,7 @@ static BOOL OITIAppStoreIvarNumber(id object, const char *name, double *value) {
 
 // Reads one placeholder. Returns NO when the progress object is not where it was on iOS 16.7.16. fraction is -1 while
 // the progress is unknown.
-static BOOL OITIAppStoreRead(id placeholder, double *fractionOut, BOOL *pausedOut, NSString **detailOut) {
+static BOOL OITIAppStoreRead(id placeholder, double *fractionOut, BOOL *pausedOut, BOOL *installingOut, NSString **detailOut) {
     id proxy = OITIAppStoreIvarObject(placeholder, "_placeholderProxy");
     id progressObject = OITIAppStoreIvarObject(proxy, "_queue_progress");
     if (!progressObject) return NO;
@@ -89,11 +89,89 @@ static BOOL OITIAppStoreRead(id placeholder, double *fractionOut, BOOL *pausedOu
     BOOL placeholderPaused = OITISafeBool(placeholder, @"isPaused", &available);
     if (fractionOut) *fractionOut = fraction;
     if (pausedOut) *pausedOut = progressPaused || (available && placeholderPaused);
+    // Installing = installPhase 1. Seen in all three installs logged on 2026-11-06 (War Thunder Mobile, TikTok and an App Store
+    // update of TestFlight): it follows the download (installPhase 0), keeps the fraction moving and ends with the placeholder
+    // leaving the list and the app installed. The start is 3, a pause is 0 with state 2.
+    if (installingOut) *installingOut = (phase > 0.5 && phase < 1.5) && !(progressPaused || (available && placeholderPaused));
     if (detailOut) {
         *detailOut = [NSString stringWithFormat:@"installPhase=%.0f installState=%.0f nsProgress=%d progressPaused=%d placeholderPaused=%@",
                       phase, state, nsProgress != nil, (int)progressPaused, available ? (placeholderPaused ? @"YES" : @"NO") : @"?"];
     }
     return haveFraction;
+}
+
+// ---- Install phase recorder (v0.3.0 polish, batch 6, item 11, round 1: READ-ONLY) -------------------------------------------
+// What the App Store reports once the bytes are done (an "Installing" phase) is not known: the notes only have installPhase and
+// installState readings from the download itself and the placeholder leaving the list. This records what a tracked placeholder
+// says, one line (tag DOWNLOAD, text "PHASE ...") each time any of it changes, so one real install shows every transition and
+// when it happened. Level 1 or higher only; at level 0 it is one level check per tracked download per second.
+//
+// Safety: instance variables and public NSProgress API only (the same reads OITIAppStoreRead already does), no new private
+// method call, never pause or cancel. Each line has the time since tracking began, the fraction, installPhase, installState,
+// the progress object's own state, the expected final phase, the NSProgress counts and flags, its localized description with
+// the digits replaced by # (so a percentage alone is not a change but a new wording is), and the userInfo phase and state.
+// Round 2 (the Installing state itself) is designed from these lines.
+static NSMutableDictionary<NSString *, NSMutableDictionary *> *sAppStorePhaseLog;   // bundle ID -> signature, startedAt
+
+static NSString *OITIAppStoreDigitsHashed(NSString *text) {
+    if (!text.length) return @"";
+    return [text stringByReplacingOccurrencesOfString:@"[0-9]+" withString:@"#" options:NSRegularExpressionSearch range:NSMakeRange(0, text.length)];
+}
+
+static NSString *OITIAppStoreNumberText(id value) {
+    return [value isKindOfClass:[NSNumber class]] ? [(NSNumber *)value stringValue] : @"-";
+}
+
+static void OITIAppStoreRecordPhase(id placeholder, NSString *bundleID, double fraction, CFAbsoluteTime now) {
+    if (![sLog isLoggingAtLevel:1]) return;
+    if (!sAppStorePhaseLog) sAppStorePhaseLog = [NSMutableDictionary dictionary];
+    NSMutableDictionary *entry = sAppStorePhaseLog[bundleID];
+    if (!entry) {
+        entry = [NSMutableDictionary dictionary];
+        entry[@"startedAt"] = @(now);
+        sAppStorePhaseLog[bundleID] = entry;
+    }
+    @try {
+        id proxy = OITIAppStoreIvarObject(placeholder, "_placeholderProxy");
+        id progressObject = OITIAppStoreIvarObject(proxy, "_queue_progress");
+        if (!progressObject) return;
+        double phase = -1.0, state = -1.0, rawState = -1.0, finalPhase = -1.0;
+        OITIAppStoreIvarNumber(progressObject, "_installPhase", &phase);
+        OITIAppStoreIvarNumber(progressObject, "_installState", &state);
+        OITIAppStoreIvarNumber(progressObject, "_state", &rawState);
+        OITIAppStoreIvarNumber(progressObject, "_expectedFinalInstallPhase", &finalPhase);
+        BOOL available = NO;
+        BOOL placeholderPaused = OITISafeBool(placeholder, @"isPaused", &available);
+        NSString *progressText = @"nsProgress=none";
+        NSString *shapeText = @"";
+        id nsProgress = OITIAppStoreIvarObject(progressObject, "_progress");
+        if ([nsProgress isKindOfClass:[NSProgress class]]) {
+            NSProgress *progress = (NSProgress *)nsProgress;
+            NSString *description = progress.localizedDescription ?: @"";
+            NSString *additional = progress.localizedAdditionalDescription ?: @"";
+            NSDictionary *info = progress.userInfo;
+            NSDictionary *userInfo = [info isKindOfClass:[NSDictionary class]] ? info : @{};
+            progressText = [NSString stringWithFormat:@"units=%lld/%lld indeterminate=%d finished=%d cancelled=%d paused=%d userInfo[phase=%@ state=%@ final=%@] description=\"%@\" additional=\"%@\"",
+                            progress.completedUnitCount, progress.totalUnitCount, (int)progress.indeterminate, (int)progress.finished,
+                            (int)progress.cancelled, (int)progress.paused, OITIAppStoreNumberText(userInfo[@"installPhase"]),
+                            OITIAppStoreNumberText(userInfo[@"installState"]), OITIAppStoreNumberText(userInfo[@"expectedFinalInstallPhase"]),
+                            description, additional];
+            shapeText = [NSString stringWithFormat:@"%d%d%d%d|%@|%@|%@|%@|%@", (int)progress.indeterminate, (int)progress.finished,
+                         (int)progress.cancelled, (int)progress.paused, OITIAppStoreNumberText(userInfo[@"installPhase"]),
+                         OITIAppStoreNumberText(userInfo[@"installState"]), OITIAppStoreNumberText(userInfo[@"expectedFinalInstallPhase"]),
+                         OITIAppStoreDigitsHashed(description), OITIAppStoreDigitsHashed(additional)];
+        }
+        NSString *signature = [NSString stringWithFormat:@"%.0f|%.0f|%.0f|%.0f|%d%d|%@", phase, state, rawState, finalPhase,
+                               (int)available, (int)placeholderPaused, shapeText];
+        if ([entry[@"signature"] isEqualToString:signature]) return;
+        BOOL first = entry[@"signature"] == nil;
+        entry[@"signature"] = signature;
+        [sLog logLevel:1 tag:@"DOWNLOAD" format:@"PHASE %@ t=+%.1fs %@ fraction=%.4f installPhase=%.0f installState=%.0f progressState=%.0f expectedFinalPhase=%.0f placeholderPaused=%@ %@",
+         bundleID, now - [entry[@"startedAt"] doubleValue], first ? @"(first reading)" : @"CHANGED", fraction, phase, state, rawState, finalPhase,
+         available ? (placeholderPaused ? @"YES" : @"NO") : @"?", progressText];
+    } @catch (NSException *exception) {
+        [sLog logLevel:1 tag:@"DOWNLOAD" format:@"PHASE %@ recorder exception %@: %@", bundleID, exception.name, exception.reason];
+    }
 }
 
 static NSString *OITIAppStoreDisplayName(id placeholder, NSString *bundleID) {
@@ -128,9 +206,9 @@ static void OITIAppStorePoll(void) {
                 NSString *bundleID = key;
                 id placeholder = placeholders[bundleID];
                 double fraction = -1.0;
-                BOOL paused = NO;
+                BOOL paused = NO, installing = NO;
                 NSString *detail = nil;
-                BOOL readable = OITIAppStoreRead(placeholder, &fraction, &paused, &detail);
+                BOOL readable = OITIAppStoreRead(placeholder, &fraction, &paused, &installing, &detail);
                 NSMutableDictionary *tracked = sAppStoreTracked[bundleID];
                 if (!readable) {
                     if (![sAppStoreWarned containsObject:bundleID]) {
@@ -151,6 +229,11 @@ static void OITIAppStorePoll(void) {
                     [sLog logLevel:1 tag:@"DOWNLOAD" format:@"App Store source: tracking %@ (%@) at %d%% (%@)", bundleID, tracked[@"name"],
                      (int)lround(fraction * 100.0), detail];
                 }
+                if ([tracked[@"installing"] boolValue] != installing) {
+                    tracked[@"installing"] = @(installing);
+                    [sLog logLevel:1 tag:@"DOWNLOAD" format:@"App Store source: %@ %@ at %d%% (%@)", bundleID, installing ? @"installing" : @"no longer installing",
+                     (int)lround(fraction * 100.0), detail];
+                }
                 if ([tracked[@"paused"] boolValue] != paused) {
                     tracked[@"paused"] = @(paused);
                     [sLog logLevel:1 tag:@"DOWNLOAD" format:@"App Store source: %@ %@ at %d%% (%@)", bundleID, paused ? @"paused" : @"resumed",
@@ -158,7 +241,8 @@ static void OITIAppStorePoll(void) {
                 }
                 tracked[@"fraction"] = @(fraction);
                 [tracked removeObjectForKey:@"missingSince"];
-                OITIDownloadUpdateFraction(OITIAppStoreIdentifier(bundleID), @"App Store", tracked[@"name"], bundleID, fraction, paused);
+                OITIAppStoreRecordPhase(placeholder, bundleID, fraction, now);   // level 1: one line per change (batch 6, item 11)
+                OITIDownloadUpdateFraction(OITIAppStoreIdentifier(bundleID), @"App Store", tracked[@"name"], bundleID, fraction, paused, installing);
                 OITLOGGER_LOG_RATED(sLog, 2, @"DOWNLOAD", @"appstore-poll", 1, @"App Store source: %@ %.4f paused=%d %@",
                                     bundleID, fraction, (int)paused, detail);
             }
@@ -166,9 +250,15 @@ static void OITIAppStorePoll(void) {
         for (NSString *bundleID in sAppStoreTracked.allKeys) {
             if ([present containsObject:bundleID]) continue;
             NSMutableDictionary *tracked = sAppStoreTracked[bundleID];
-            if (!tracked[@"missingSince"]) tracked[@"missingSince"] = @(now);
+            BOOL firstMissing = !tracked[@"missingSince"];
+            if (firstMissing) tracked[@"missingSince"] = @(now);
             id applicationController = OITIInstallSharedInstance(NSClassFromString(@"SBApplicationController"), NULL);
             BOOL installed = OITIInstallApplicationForBundleID(applicationController, bundleID) != nil;
+            if (firstMissing && [sLog isLoggingAtLevel:1]) {
+                NSNumber *startedAt = sAppStorePhaseLog[bundleID][@"startedAt"];
+                [sLog logLevel:1 tag:@"DOWNLOAD" format:@"PHASE %@ t=+%.1fs the placeholder is no longer in the list (last fraction %.4f, app installed: %@)", bundleID,
+                 startedAt ? now - startedAt.doubleValue : 0.0, [tracked[@"fraction"] doubleValue], installed ? @"yes" : @"no"];
+            }
             BOOL waited = now - [tracked[@"missingSince"] doubleValue] >= kOITIAppStoreFinishGrace;
             if (!installed && !waited) continue;   // the app may still be about to appear
             double lastFraction = [tracked[@"fraction"] doubleValue];
@@ -177,6 +267,7 @@ static void OITIAppStorePoll(void) {
              (int)lround(lastFraction * 100.0), completed ? @"complete" : @"cancelled", installed ? @"yes" : @"no"];
             OITIDownloadFinish(OITIAppStoreIdentifier(bundleID), completed);
             [sAppStoreTracked removeObjectForKey:bundleID];
+            [sAppStorePhaseLog removeObjectForKey:bundleID];
         }
     } @catch (NSException *exception) {
         [sLog logTag:@"DOWNLOAD" format:@"App Store source: exception %@: %@", exception.name, exception.reason];
@@ -198,6 +289,7 @@ void OITIAppStoreSourceRefresh(void) {
         sAppStoreTimer = nil;
         for (NSString *bundleID in sAppStoreTracked.allKeys) OITIDownloadDrop(OITIAppStoreIdentifier(bundleID));
         [sAppStoreTracked removeAllObjects];
+        [sAppStorePhaseLog removeAllObjects];
         [sLog logLevel:1 tag:@"DOWNLOAD" format:@"App Store source off"];
     }
 }

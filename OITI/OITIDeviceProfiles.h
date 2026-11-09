@@ -16,8 +16,8 @@
 typedef struct {
     const char *model;     // machine identifier, e.g. "iPhone14,2"
     const char *name;      // marketing name (for logs and UI)
-    CGFloat islandY;       // SBSystemApertureWindow origin.y at scale 1.0 ("fixEnabled")
-    CGFloat bannerY;       // SBBannerWindow origin.y ("notificationFix")
+    CGFloat islandY;       // SBSystemApertureWindow origin.y at scale 1.0 (the old "Fix Island Position"; now used only by the one-time migration)
+    CGFloat bannerY;       // SBBannerWindow origin.y (the old "Fix Notification Positioning"; migration only)
     CGFloat bannerWidth;   // SBBannerWindow size
     CGFloat bannerHeight;
     BOOL verified;         // NO = estimated offsets

@@ -39,11 +39,9 @@ CGFloat yPos = 20.5;
 CGFloat xNot = 0.0;
 CGFloat yNot = 40;
 
-BOOL fixEnabled;
 BOOL islandEnabled;
 BOOL posEnabled;
 BOOL hideEnabled;
-BOOL notificationFix;
 BOOL notEnabled;
 BOOL colorEnabled;
 BOOL transEnabled;
@@ -53,7 +51,9 @@ BOOL islandNotificationsEnabled;       // OITI > Notifications: show notificatio
 BOOL islandNotificationsHideBanner;    // also fade the stock banner window out while our element is up (default NO)
 BOOL sIslandNotificationStackEnabled = YES; // Experimental multi-notification stack (default YES for existing behavior)
 BOOL sAppleMode;                        // appleMode: every customization below is forced off while YES
-BOOL islandStartupHelloEnabled;        // OITI > Startup Animation prototype (default NO)
+BOOL sNotificationHapticEnabled;        // OITI > Notifications > Notification Haptic (default NO); forced off by Apple Mode
+BOOL sIslandNotificationTapDismisses;   // OITI > Notifications > Dismiss When Tapped, key NotificationTapDismisses (default NO); forced off by Apple Mode
+BOOL islandStartupHelloEnabled;        // OITI > Startup Animation (default NO)
 CGFloat sIslandNoticeDuration = 4.0;   // seconds, key IslandNotificationsDuration, clamped 1 - 15
 
 
@@ -96,10 +96,10 @@ const OITIDeviceProfile *OITICurrentProfile(void) {
 
 NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
     return @{
-        @"fixEnabled": @(fixEnabled), @"islandEnabled": @(islandEnabled), @"posEnabled": @(posEnabled),
-        @"hideEnabled": @(hideEnabled), @"notificationFix": @(notificationFix), @"notEnabled": @(notEnabled),
+        @"islandEnabled": @(islandEnabled), @"posEnabled": @(posEnabled),
+        @"hideEnabled": @(hideEnabled), @"notEnabled": @(notEnabled),
         @"colorEnabled": @(colorEnabled), @"transEnabled": @(transEnabled), @"scaleEnabled": @(scaleEnabled), @"appleMode": @(sAppleMode), @"downloadProgress": @(sDownloadProgressEnabled), @"downloadAppStore": @(sDownloadAppStoreEnabled),
-        @"downloadStyle": @(sDownloadStyle), @"pillW": @(sDownloadPillWidth), @"pillBottom": @(sDownloadPillBottomPadding), @"pillNudge": @(sDownloadPillNudgeY), @"downloadIdleMB": @(sDownloadIdleAfterMB), @"downloadIdleSeconds": @(sDownloadIdleAfterSeconds),
+        @"downloadStyle": @(sDownloadStyle), @"pillW": @(sDownloadPillWidth), @"pillBottom": @(sDownloadPillBottomPadding), @"pillNudge": @(sDownloadPillNudgeY), @"downloadIdleMB": @(sDownloadIdleAfterMB), @"downloadIdleSeconds": @(sDownloadIdleAfterSeconds), @"downloadIdlePercent": @(sDownloadIdleAfterPercent),
         @"lineDisabled": @(lineDisabled),
         @"xPos": @(xPos), @"yPos": @(yPos), @"xNot": @(xNot), @"yNot": @(yNot),
         @"red": @(red), @"green": @(green), @"blue": @(blue), @"alpha": @(alpha), @"scaleX": @(scaleX), @"scaleY": @(scaleY),
@@ -110,7 +110,8 @@ NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
         @"IslandStartupHelloEnabled": @(islandStartupHelloEnabled),
         @"IslandNotificationsDuration": @(sIslandNoticeDuration),
         @"IslandNotificationsStyle": @([sOITIPreferences floatForKey:@"IslandNotificationsStyle" default:2]),
-        @"NotificationHaptic": @([sOITIPreferences boolForKey:@"NotificationHaptic" default:NO]),
+        @"NotificationHaptic": @(sNotificationHapticEnabled),   // the effective value (Apple Mode forces it off)
+        @"NotificationTapDismisses": @(sIslandNotificationTapDismisses),   // the effective value (Apple Mode forces it off)
         @"IslandNotificationsMessageLines": @([sOITIPreferences floatForKey:@"IslandNotificationsMessageLines" default:2]),
     };
 }

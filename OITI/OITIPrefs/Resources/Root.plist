@@ -7,6 +7,8 @@
       <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
+        <key>footerText</key>
+        <string>Turning this on or off needs a respring.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -26,7 +28,7 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>footerText</key>
-        <string>Turns off every Island customization and leaves a stock iOS Dynamic Island. Off while on: custom position, scale, Island size, color, opacity, outline hiding, hide when not in use, custom notification position, Island Notifications, download progress and the startup animation. Still active: Enable Dynamic Island, Fix Island Position, Fix Notification Positioning, Status Bar Layout and safe mode. Your settings are kept and return when Apple Mode is turned off.</string>
+        <string>Makes the Island look and behave like stock iOS. Your settings are kept, and your position settings stay on.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -45,28 +47,10 @@
       <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
-        <key>footerText</key>
-        <string>If your device isn't supported yet, use the custom positioning instead.</string>
-      </dict>
-      <dict>
-        <key>cell</key>
-        <string>PSSwitchCell</string>
-        <key>default</key>
-        <false/>
-        <key>defaults</key>
-        <string>com.wilburt.oiti.prefs</string>
-        <key>key</key>
-        <string>fixEnabled</string>
-        <key>label</key>
-        <string>Fix Island Position</string>
-        <key>PostNotification</key>
-        <string>com.wilburt.oiti/PrefsChanged</string>
-      </dict>
-      <dict>
-        <key>cell</key>
-        <string>PSGroupCell</string>
         <key>label</key>
         <string>Custom Island Positioning</string>
+        <key>footerText</key>
+        <string>Moves the Island to the X and Y you enter, in points. Applies when you leave a field or tap Save.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -110,9 +94,9 @@
         <key>prompt</key>
         <string>Enter Y Position</string>
         <key>bestGuess</key>
-        <string>20</string>
+        <string>20.5</string>
         <key>placeholder</key>
-        <string>20</string>
+        <string>20.5</string>
         <key>isNumeric</key>
         <false/>
         <key>PostNotification</key>
@@ -124,7 +108,7 @@
       </dict>
       <dict>
         <key>action</key>
-        <string>savePos</string>
+        <string>savePos:</string>
         <key>cell</key>
         <string>PSButtonCell</string>
         <key>label</key>
@@ -133,10 +117,20 @@
         <string>com.wilburt.oiti.prefs</string>
       </dict>
       <dict>
+        <key>action</key>
+        <string>resetPosition</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Reset Position to X 0, Y 20.5</string>
+      </dict>
+      <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
         <string>Misc</string>
+        <key>footerText</key>
+        <string>Hide When Not in Use needs a respring to turn on or off.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -165,6 +159,10 @@
         <string>Disable Island Outline</string>
         <key>PostNotification</key>
         <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
       </dict>
       <dict>
 	      <key>cell</key>
@@ -220,9 +218,9 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
-        <string>STATUS BAR (EXPERIMENTAL)</string>
+        <string>Status Bar (Experimental)</string>
         <key>footerText</key>
-        <string>If a red bar reading "rdar:45025538" shows at the top of the screen with the Island on, Automatic picks the status bar layout for your screen. The other layouts are for trying by hand. Respring after changing it. Only used while the Island is on.</string>
+        <string>If a red "rdar:45025538" bar shows with the Island on, try Automatic (supported notched iPhones only). Needs a respring.</string>
       </dict>
       <dict>
         <key>cell</key>

@@ -34,11 +34,13 @@ Never force-push `main` or rewrite its history.
 
 A commit on `main` is not automatically a release. A release is a version tag plus a GitHub Release with the packages attached. Only `main`, only tested work.
 
-- **Build on the Mac** (not the Arch PC: its arm64e objects warn about an incompatible ABI) with `FINALPACKAGE=1`, after clearing the old `packages/` folders. Ship **OITCore and OITI together** (OITI depends on OITCore). Do not ship OITS until it is verified.
-- **Versions** live in each module's `control` file (`Version:`). Keep them ascending: dpkg sorts `0.0.10` below `0.1.0`. Bump the version through a normal PR before tagging. Tag names are `vMAJOR.MINOR.PATCH`. OITI `0.2.0` supersedes the `0.2.0~beta.1` pre-release; OITCore remains `0.1.0`.
-- **Betas.** A beta for testers can be built from `experiments` once the work has run on the phone. Use a tilde version such as `0.2.0~beta.1` (which sorts below `0.2.0`), tag `v0.2.0-beta.1` and mark the GitHub Release as a pre-release. Build from an exact clean commit on the Mac and test those packages before tagging. Land the work on `main` by pull request after beta feedback, then cut the final release from `main`.
-- **Test the exact `.deb` files** on the phone (`scp`, `dpkg -i`, `sbreload`) before publishing.
-- Exact commands: `COMMANDS.md`, section 10 ("Releases"). Released: `v0.1.0` (`46cf122`), `v0.1.1`, pre-release `v0.2.0-beta.1`; `v0.2.0`; current release: `v0.2.5`.
+- **Release packages are built by GitHub Actions** (`.github/workflows/release-oiti.yml`, `FINALPACKAGE=1`, OITCore and OITI only, never OITS). Run it by hand (Actions > "Release build (OITCore + OITI)" > Run workflow, pick the branch) or push a `v*` tag; it uploads the two `.deb` files as an artifact (kept 30 days) and publishes nothing. Do not build release packages on the Arch PC (its arm64e objects warn about an incompatible ABI). Ship **OITCore and OITI together** (OITI depends on OITCore). Do not ship OITS until it is verified.
+- **Versions** live in each module's `control` file (`Version:`). Keep them ascending: dpkg sorts `0.0.10` below `0.1.0`. Bump the version through a normal PR before tagging. Tag names are `vMAJOR.MINOR.PATCH`. OITCore remains `0.1.0` until it changes.
+- **Release candidate.** Once the work has run on the phone, run the release workflow on `experiments`, download the artifact and test **those exact `.deb` files** (`scp`, `dpkg -i`, `sbreload`) before anything is merged or tagged. Then PR `experiments` to `main`, squash merge, recreate `experiments`, tag `main`, and create the GitHub Release by hand with the same `.deb` files attached (or re-run the workflow from the tag if the merge changed the code).
+- **Betas** (not used for 0.3.0): a tilde version such as `0.2.0~beta.1` sorts below `0.2.0`; tag `v0.2.0-beta.1` and mark the GitHub Release as a pre-release.
+- **Release notes (owner's decision, 8 Nov 2026):** the text of the GitHub Release is the only release note. Do not add `RELEASE_NOTES_*.md` files to the repo (the old ones are deleted). Create the Release with `--notes` or the web form, not `--notes-file`.
+- **CI:** `.github/workflows/build-oiti.yml` builds the `.deb` files on every push to `experiments` (a `DEBUG=1` build for testing; the version carries `+debug`). Those are never released. `release-oiti.yml` is the only workflow that builds release packages.
+- Exact commands: `COMMANDS.md`, section 10 ("Releases"). Released: `v0.1.0` (`46cf122`), `v0.1.1`, pre-release `v0.2.0-beta.1`; `v0.2.0`; `v0.2.5`. In preparation: `v0.3.0`.
 
 ## Logging policy
 

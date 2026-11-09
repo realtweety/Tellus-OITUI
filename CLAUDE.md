@@ -36,10 +36,14 @@ Treat this file as project guidance, not a substitute for inspecting the current
 ## Build and Test
 
 - Inspect the relevant Makefile and available targets before running build commands; run commands from the correct component directory.
-- Prefer build/package-only validation such as the project's supported `make package` target when available. Report the exact command used and whether it succeeded.
-- Do not run `make install`, `make package install`, deploy a package to a phone, respring a device, or change device settings unless the user explicitly requests that action in the current conversation.
-- Do not assume Theos, SDKs, a signing setup, or a test device is available. If validation cannot run, explain the specific limitation and perform appropriate static checks instead.
+- Builds run in GitHub Actions: `.github/workflows/build-oiti.yml` (DEBUG, every push to `experiments`) and `.github/workflows/release-oiti.yml` (`FINALPACKAGE=1`, manual or `v*` tag). Claude does not build or release packages itself; off the phone it runs `tools/offline_check.sh` (see below). Do not build release packages on the Arch PC.
+- Do not run `make install`, deploy a package to a phone, respring a device, or change device settings unless the user explicitly requests that action in the current conversation.
+- Do not assume Theos, SDKs, a signing setup, or a test device is available (a local `make package` needs Theos). If validation cannot run, explain the specific limitation and perform appropriate static checks instead.
 - After edits, inspect the final diff and check for accidental unrelated changes. Summarize what changed, what was tested, and any remaining risks.
+
+## Off-device checks (v0.3.0 polish)
+
+Where a Theos build is not available (a container, the chat), `tools/offline_check.sh` Logos-preprocesses every `OITI_FILES` source, syntax-compiles it for arm64 iOS 16 against a Theos SDK, checks that every OITI-owned symbol is defined, compiles the Settings bundle and runs `tools/check_ctor_path.py` and `tools/check_settings.py`. The setup is in the script's header. It is not a Theos build and not a device test: the v0.3.0 batch 1 bootloop compiled cleanly. `tools/guard_model.py` is a Python mirror of the respring-loop guard's logic (keep it in step with `OITI/Safety/OITISafety.xm`). Nothing on the launch path (the `%ctor`, `preferencesChanged()` and what they import) may call UIKit singletons, and the loop guard must run before `preferencesChanged()`; `tools/check_ctor_path.py` enforces both.
 
 ## Git and Branch Safety
 

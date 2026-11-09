@@ -7,6 +7,7 @@
 
 #import "Shared/OITIShared.h"
 #import "DownloadProgress/OITIDownloadProgress.h"
+#import "IslandNotifications/OITIIslandNotifications.h"
 
 // The download settings (DownloadProgressEnabled and the keys below), written by the preferences reload (Shared/OITIPreferences.xm).
 BOOL sDownloadProgressEnabled;          // DownloadProgressEnabled (default NO)
@@ -14,6 +15,7 @@ BOOL sDownloadAppStoreEnabled;          // DownloadAppStoreEnabled (default NO):
 BOOL sDownloadTestFractionOnly;         // DownloadTestFractionOnly (default NO, defaults write only): the test download reports a percentage only
 CGFloat sDownloadIdleAfterMB = 0;       // DownloadIdleAfterMB: return the Island to idle after this many MB downloaded, 0 = never
 CGFloat sDownloadIdleAfterSeconds = 0;  // DownloadIdleAfterSeconds: the same after this long on screen, 0 = never
+CGFloat sDownloadIdleAfterPercent = 0;  // DownloadIdleAfterPercent: the same after this percentage (1 to 99) is reached, 0 = never; works for every download
 CGFloat sDownloadTestSizeMB = 800;      // DownloadTestSizeMB: size of the test download
 NSInteger sDownloadStyle = 0;           // DownloadProgressStyle: 0 minimal (default), 1 detailed
 CGFloat sDownloadPillWidth = 296;         // DownloadPillWidth: the Minimal pill, in points (never narrower than the Island plus a margin)
@@ -43,7 +45,7 @@ static NSString *OITIDownloadBytesText(double bytes) {
 static NSDictionary *OITIDownloadSnapshot(void) {
     if (!sDownloads.count) return nil;
     double downloaded = 0, total = 0, speed = 0, fractionSum = 0, etaMax = 0;
-    BOOL totalKnown = YES, anyFraction = NO, allFraction = YES, allPaused = YES, etaKnown = YES;
+    BOOL totalKnown = YES, anyFraction = NO, allFraction = YES, allPaused = YES, etaKnown = YES, allInstalling = YES;
     NSString *title = nil, *bundleID = nil, *appName = nil;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     for (NSDictionary *download in sDownloads.allValues) {
@@ -58,7 +60,9 @@ static NSDictionary *OITIDownloadSnapshot(void) {
             fractionSum += fraction;
             double rate = [download[@"fractionRate"] doubleValue];
             BOOL stalled = now - [download[@"fractionChangeTime"] doubleValue] > 20.0;
-            if (rate > 0 && fraction < 1.0 && !stalled && ![download[@"paused"] boolValue]) {
+            if ([download[@"installing"] boolValue]) {
+                // Installing: no estimate is needed from this one (the others, if any, still decide it).
+            } else if (rate > 0 && fraction < 1.0 && !stalled && ![download[@"paused"] boolValue]) {
                 etaMax = MAX(etaMax, (1.0 - fraction) / rate);
             } else {
                 etaKnown = NO;
@@ -69,11 +73,12 @@ static NSDictionary *OITIDownloadSnapshot(void) {
             fractionSum += size > 0 ? MIN(1.0, itemDownloaded / size) : 0.0;
         }
         if (![download[@"paused"] boolValue]) allPaused = NO;
+        if (![download[@"installing"] boolValue]) allInstalling = NO;
         if (!title) { title = download[@"title"]; bundleID = download[@"bundleID"]; appName = download[@"appName"]; }
     }
     return @{ @"count": @(sDownloads.count), @"downloaded": @(downloaded), @"total": @(totalKnown ? total : 0.0),
               @"speed": @(speed), @"title": title ?: @"Download", @"appName": appName ?: @"", @"bundleID": bundleID ?: @"",
-              @"fractionMode": @(anyFraction), @"fraction": @(fractionSum / (double)sDownloads.count), @"paused": @(allPaused),
+              @"fractionMode": @(anyFraction), @"fraction": @(fractionSum / (double)sDownloads.count), @"paused": @(allPaused), @"installing": @(allInstalling),
               @"eta": @(allFraction && etaKnown ? etaMax : -1.0) };
 }
 
@@ -234,7 +239,7 @@ static void OITIIslandPillRect(CGRect *rectOut, NSString **sourceOut) {
 // One line describing why the pill is or is not on screen. Written right after it is shown and again 0.8 s later.
 - (void)logState:(NSString *)when {
     CALayer *shown = _pill.layer.presentationLayer;
-    [sLog logTag:@"DOWNLOAD" format:@"pill %@: window hidden=%d scene=%@ level=%.0f key=%d pillWindowMatches=%d pill hidden=%d alpha=%.2f onScreenFrame=%@ | %@",
+    [sLog logLevel:1 tag:@"DOWNLOAD" format:@"pill %@: window hidden=%d scene=%@ level=%.0f key=%d pillWindowMatches=%d pill hidden=%d alpha=%.2f onScreenFrame=%@ | %@",
      when, _window.hidden, _window.windowScene ? NSStringFromClass([_window.windowScene class]) : @"none", (double)_window.windowLevel,
      _window.isKeyWindow, _pill.window == _window, _pill.hidden, _pill.alpha, shown ? NSStringFromCGRect(shown.frame) : @"none",
      _geometryNote ?: @"no geometry"];
@@ -322,6 +327,32 @@ static NSString *OITIDownloadHeaderText(NSDictionary *snapshot) {
 
 // Writes the snapshot into whichever look is showing. complete shows the finished state.
 // ending: 0 = running, 1 = completed, 2 = cancelled (a short red "Cancelled" state).
+// The Detailed look's completion check: in the trailing slot a green circle with a drawn check replaces the percentage text
+// (the label keeps its text and size, only its colour is cleared, so nothing in the element's layout changes). Any later update
+// that is not a completion (a new download started, or the download was cancelled) puts the percentage back.
+static void OITIDownloadSetDetailedCheck(UILabel *trailing, BOOL show) {
+    OITICheckBadgeView *badge = nil;
+    for (UIView *subview in trailing.subviews) {
+        if ([subview isKindOfClass:[OITICheckBadgeView class]]) { badge = (OITICheckBadgeView *)subview; break; }
+    }
+    if (show) {
+        if (badge) return;   // the end state can be applied more than once
+        CGFloat d = 16.0;
+        badge = [[OITICheckBadgeView alloc] initWithFrame:CGRectMake(0, 0, d, d)];
+        badge.restoreColor = trailing.textColor;
+        badge.center = CGPointMake(trailing.bounds.size.width / 2.0, trailing.bounds.size.height / 2.0);
+        badge.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin |
+                                 UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
+        [trailing addSubview:badge];
+        trailing.textColor = [UIColor clearColor];
+        [badge playAnimated:!UIAccessibilityIsReduceMotionEnabled()];
+        [sLog logLevel:1 tag:@"DOWNLOAD" format:@"Detailed look: completion check shown in the trailing slot (label %@)", NSStringFromCGRect(trailing.frame)];
+    } else if (badge) {
+        trailing.textColor = badge.restoreColor ?: [UIColor whiteColor];
+        [badge removeFromSuperview];
+    }
+}
+
 static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     BOOL complete = ending == 1;
     BOOL cancelled = ending == 2;
@@ -333,7 +364,8 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     double speed = [snapshot[@"speed"] doubleValue];
     BOOL fractionMode = [snapshot[@"fractionMode"] boolValue];
     BOOL paused = [snapshot[@"paused"] boolValue];
-    NSString *etaText = (complete || paused) ? @"" : OITIDownloadETAText([snapshot[@"eta"] doubleValue]);
+    BOOL installing = !complete && !paused && [snapshot[@"installing"] boolValue];
+    NSString *etaText = (complete || paused || installing) ? @"" : OITIDownloadETAText([snapshot[@"eta"] doubleValue]);
     double fraction = complete ? 1.0 : (fractionMode ? [snapshot[@"fraction"] doubleValue] : (total > 0 ? downloaded / total : 0.0));
     NSString *percent = (fractionMode || total > 0 || complete) ? [NSString stringWithFormat:@"%d%%", (int)floor(fraction * 100.0 + 0.0001)] : @"…";
     NSString *header = OITIDownloadHeaderText(snapshot);
@@ -348,7 +380,7 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     if (minimal && fractionMode) {
         // A source that only knows a percentage: no sizes and no speed, a state word above the bar and the estimate below it.
         [minimal setHeader:header
-                downloaded:complete ? @"Download complete" : (paused ? @"Paused" : @"Downloading")
+                downloaded:complete ? @"Download complete" : (paused ? @"Paused" : (installing ? @"Installing…" : @"Downloading"))
                      total:etaText
                      speed:complete ? @"Done" : @""
                    percent:percent fraction:fraction complete:complete];
@@ -377,7 +409,7 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     } else if (complete) {
         detailText = fractionMode ? @"Download complete" : [NSString stringWithFormat:@"Download complete · %@", OITIDownloadBytesText(downloaded)];
     } else if (fractionMode) {
-        NSString *state = paused ? @"Paused" : etaText;
+        NSString *state = paused ? @"Paused" : (installing ? @"Installing…" : etaText);
         detailText = state.length ? [NSString stringWithFormat:@"%@ · %@", percent, state] : percent;
     } else if (total > 0) {
         detailText = [NSString stringWithFormat:@"%@ of %@ · %@/s", OITIDownloadBytesText(downloaded), OITIDownloadBytesText(total),
@@ -393,10 +425,20 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
         trailing.text = percent;
         [trailing sizeToFit];
     }
+    if ([trailing isKindOfClass:[UILabel class]]) OITIDownloadSetDetailedCheck(trailing, complete);
+    OITIStackCardsDownloadUpdate(header, percent, fraction, ending);   // the same state for the download's card, if a notice has pushed it down
 }
 
 static void OITIDownloadsEnsureTimer(void);
 static void OITIFakeDownloadAdvance(void);
+
+// The one-line progress text the Detailed look gives the element ("42%" or "12.3 MB of 80 MB").
+static NSString *OITIDownloadMessageText(NSDictionary *snapshot) {
+    return [snapshot[@"fractionMode"] boolValue]
+        ? [NSString stringWithFormat:@"%d%%", (int)floor([snapshot[@"fraction"] doubleValue] * 100.0 + 0.0001)]
+        : [NSString stringWithFormat:@"%@ of %@", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue]),
+           [snapshot[@"total"] doubleValue] > 0 ? OITIDownloadBytesText([snapshot[@"total"] doubleValue]) : @"?"];
+}
 
 // Presents, updates and ends the element for the current state. Called after every update and from the timer.
 void OITIDownloadsRefresh(void) {
@@ -410,15 +452,21 @@ void OITIDownloadsRefresh(void) {
     sDownloadCompleteGeneration++;   // a pending "complete" removal no longer applies
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
 
-    // Return to idle by size or by time, whichever look is showing.
+    // Return to idle by size, by percentage or by time, whichever look is showing.
     if (sDownloadItem || sDownloadPill) {
         double limitBytes = sDownloadIdleAfterMB * 1000.0 * 1000.0;   // decimal MB, like the size text
         BOOL byBytes = limitBytes > 0 && ![snapshot[@"fractionMode"] boolValue] && [snapshot[@"downloaded"] doubleValue] >= limitBytes;   // sizes are unknown in fraction mode
         BOOL byTime = sDownloadIdleAfterSeconds > 0 && now - sDownloadShownAt >= sDownloadIdleAfterSeconds;
-        if (byBytes || byTime) {
+        // The percentage is the snapshot's fraction (the same value the bar shows; the mean with several downloads), so it also
+        // works for App Store downloads, which report no sizes. Like the size limit it counts what is downloaded, not time on
+        // screen: a download that is already past the limit when it first appears never shows.
+        double percentNow = [snapshot[@"fraction"] doubleValue] * 100.0;
+        BOOL byPercent = sDownloadIdleAfterPercent > 0 && percentNow + 0.0001 >= sDownloadIdleAfterPercent;
+        if (byBytes || byPercent || byTime) {
             [sLog logTag:@"DOWNLOAD" format:@"limit reached (%@): the Island returns to idle, the download carries on",
              byBytes ? [NSString stringWithFormat:@"%@ downloaded", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue])]
-                     : [NSString stringWithFormat:@"%.0f s on screen", (double)(now - sDownloadShownAt)]];
+                     : (byPercent ? [NSString stringWithFormat:@"%.0f%% downloaded", percentNow]
+                                  : [NSString stringWithFormat:@"%.0f s on screen", (double)(now - sDownloadShownAt)])];
             sDownloadCollapsed = YES;
             if (sDownloadItem) OITIRemoveNoticeItem(sDownloadItem, @"download-limit");
             OITIDownloadPillDismiss(@"download-limit");
@@ -461,10 +509,7 @@ void OITIDownloadsRefresh(void) {
             }
         }
     } else if (!sDownloadCollapsed && now >= sDownloadNextPresentAttempt) {
-        NSString *message = [snapshot[@"fractionMode"] boolValue]
-            ? [NSString stringWithFormat:@"%d%%", (int)floor([snapshot[@"fraction"] doubleValue] * 100.0 + 0.0001)]
-            : [NSString stringWithFormat:@"%@ of %@", OITIDownloadBytesText([snapshot[@"downloaded"] doubleValue]),
-               [snapshot[@"total"] doubleValue] > 0 ? OITIDownloadBytesText([snapshot[@"total"] doubleValue]) : @"?"];
+        NSString *message = OITIDownloadMessageText(snapshot);
         NSDictionary *info = @{ @"bundleID": snapshot[@"bundleID"], @"appName": snapshot[@"appName"], @"title": snapshot[@"title"], @"message": message };
         if (OITIPresentNoticeElement(info, @"download-progress")) {
             [sLog logTag:@"DOWNLOAD" format:@"progress element up for %@", snapshot[@"title"]];
@@ -476,7 +521,9 @@ void OITIDownloadsRefresh(void) {
 }
 
 // Called from OITIRemoveNoticeItem when the download element leaves. Removals we made ourselves are recorded as such;
-// anything else (a swipe, a notification replacing it, stack capacity) keeps it away until the next download starts.
+// anything else (a swipe by the user, the system or a failure) keeps it away until the next download starts. A notification no
+// longer removes it: the presenter keeps the Detailed download in the stack (v0.3.0 polish, A8); the "capacity" and
+// "stack-disabled-replaced" reasons below stay only as a safety net.
 void OITIDownloadItemRemoved(NSDictionary *item, NSString *reason) {
     sDownloadItem = nil;
     NSArray<NSString *> *ours = @[@"download-limit", @"download-complete", @"download-cancelled", @"feature-disabled",
@@ -524,7 +571,9 @@ static void OITIDownloadUpdate(NSString *identifier, NSString *appName, NSString
 
 // Sources that only know a percentage (the App Store) call this instead. fraction is 0 to 1. The estimate of the time
 // left comes from how fast the fraction moves (smoothed, unknown while paused or when it has not moved for 20 s).
-void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSString *title, NSString *bundleID, double fraction, BOOL paused) {
+// `installing` is the App Store's install phase after the bytes are done (installPhase 1 in the device logs of 2026-11-06); the
+// download keeps moving its fraction, so the bar stays, only the words change.
+void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSString *title, NSString *bundleID, double fraction, BOOL paused, BOOL installing) {
     if (!identifier.length) return;
     if (!sDownloads) sDownloads = [NSMutableDictionary dictionary];
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
@@ -548,6 +597,7 @@ void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSStrin
     download[@"bundleID"] = bundleID ?: @"";
     download[@"fraction"] = @(clamped);
     download[@"paused"] = @(paused);
+    download[@"installing"] = @(installing && !paused);
     double last = [download[@"fractionLast"] doubleValue];
     if (clamped > last + 0.0005) {
         double dt = now - [download[@"fractionLastTime"] doubleValue];
@@ -648,7 +698,7 @@ static NSString * const kOITIFakeDownloadIdentifier = @"oiti.test-download";
 static void OITIFakeDownloadReport(double bytes) {
     if (sDownloadTestFractionOnly) {
         double fraction = sFakeDownloadTotal > 0 ? floor(bytes / sFakeDownloadTotal * 100.0) / 100.0 : 0.0;
-        OITIDownloadUpdateFraction(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", fraction, NO);
+        OITIDownloadUpdateFraction(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", fraction, NO, fraction >= 0.90 && fraction < 1.0);   // from 90 percent it shows the Installing state, so the look can be tried without a real install
     } else {
         OITIDownloadUpdate(kOITIFakeDownloadIdentifier, @"App Store", @"Test Download", @"com.apple.AppStore", bytes, sFakeDownloadTotal);
     }

@@ -9,6 +9,8 @@
         <string>PSGroupCell</string>
         <key>label</key>
         <string>Custom Opacity</string>
+        <key>footerText</key>
+        <string>How opaque the Island is. 1.0 is stock. Applies immediately.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -47,8 +49,22 @@
       <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>resetOpacity</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Reset Opacity to 1.0</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
         <key>label</key>
         <string>Custom Color</string>
+        <key>footerText</key>
+        <string>Sets the Island's background color. Applies immediately.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -141,6 +157,18 @@
         <string>com.wilburt.oiti.prefs</string>
         <key>key</key>
         <string>blue</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>resetColor</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Reset Color to Black</string>
       </dict>
     </array>
     <key>title</key>
