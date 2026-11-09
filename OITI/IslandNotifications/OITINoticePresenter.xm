@@ -216,15 +216,13 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
             return NO;
         }
         UIView *leadingView = nil, *trailingView = nil, *primaryView = nil, *secondaryView = nil;
-        UILabel *secondaryBody = nil;
-        OITIBuildNoticeViews(info, &leadingView, &trailingView, &primaryView, &secondaryView, &secondaryBody);
+        OITIBuildNoticeViews(info, &leadingView, &trailingView, &primaryView, &secondaryView);
         OITIProgressBarView *downloadBar = nil;
         UILabel *downloadDetail = nil;
         if (downloadProgress) {
             // The Detailed look: the same icon and headline as a notice; the body is the bar and its text line.
             // (The Minimal look is not an Apple element at all, see the download pill.)
             secondaryView = OITIBuildDownloadStack(&downloadBar, &downloadDetail);
-            secondaryBody = nil;
             CGRect headlineFrame = primaryView.frame;
             headlineFrame.size.width = 260;   // the headline text changes (name, "2 downloads"), so keep the width fixed
             primaryView.frame = headlineFrame;
@@ -238,7 +236,6 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
             trailingView = [[UIView alloc] initWithFrame:CGRectZero];
             primaryView = startupVideoView;
             secondaryView = [[UIView alloc] initWithFrame:CGRectZero];
-            secondaryBody = nil;
         }
         id leadingProvider = [[providerClass alloc] initWithView:leadingView];
         id trailingProvider = [[providerClass alloc] initWithView:trailingView];
@@ -268,7 +265,7 @@ BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSStri
         item = [NSMutableDictionary dictionary];
         item[@"leadingView"] = leadingView; item[@"trailingView"] = trailingView; item[@"leadingProvider"] = leadingProvider;
         item[@"primaryView"] = primaryView; item[@"secondaryView"] = secondaryView;
-        item[@"secondaryStack"] = secondaryView; item[@"secondaryBody"] = secondaryBody; item[@"info"] = [info copy];
+        item[@"info"] = [info copy];
         item[@"primaryProvider"] = primaryProvider; item[@"secondaryProvider"] = secondaryProvider;
         item[@"trailingProvider"] = trailingProvider; item[@"provider"] = provider; item[@"element"] = element; item[@"manager"] = registrar;
         item[@"postedAt"] = @(CFAbsoluteTimeGetCurrent());   // for the "how long ago" of a stack card

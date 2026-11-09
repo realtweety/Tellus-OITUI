@@ -1,0 +1,132 @@
+name: Release build (OITCore + OITI)
+
+# Builds the release packages with FINALPACKAGE=1 (no "+debug" in the version) and uploads them as artifacts.
+# It never publishes anything: the GitHub Release is created by hand after the exact .deb files have been tested.
+# OITS is never built here (it is not part of the release).
+#
+#   Manual:  Actions > "Release build (OITCore + OITI)" > Run workflow, choose the branch (experiments for a release candidate,
+#            main for the release itself).
+#   Tag:     pushing a tag that starts with v builds the tagged commit.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oiti-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-build:
+    name: Build OITCore + OITI (FINALPACKAGE=1)
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    env:
+      THEOS_COMMIT: 6e7b8c40e0f5f9f5b2377800dc1e42cd2560d24a
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check Xcode
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Cache Theos, iOS SDK, and Homebrew downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ runner.temp }}/theos
+            ~/Library/Caches/Homebrew
+          key: theos-${{ runner.os }}-${{ runner.arch }}-${{ env.THEOS_COMMIT }}-ios16.5-homebrew-v1
+          restore-keys: |
+            theos-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install build dependencies
+        run: |
+          brew install ldid fakeroot xz make
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+
+      - name: Install Theos
+        run: |
+          if [ ! -d "$RUNNER_TEMP/theos/.git" ]; then
+            rm -rf "$RUNNER_TEMP/theos"
+            git clone --depth=1 https://github.com/theos/theos.git "$RUNNER_TEMP/theos"
+          fi
+
+          if [ "$(git -C "$RUNNER_TEMP/theos" rev-parse HEAD)" != "$THEOS_COMMIT" ]; then
+            git -C "$RUNNER_TEMP/theos" fetch --depth=1 origin "$THEOS_COMMIT"
+            git -C "$RUNNER_TEMP/theos" checkout --force --detach FETCH_HEAD
+          fi
+
+          git -C "$RUNNER_TEMP/theos" submodule sync --recursive
+          git -C "$RUNNER_TEMP/theos" submodule update --init --recursive --depth 1
+          echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
+
+      - name: Install iOS 16.5 SDK
+        run: |
+          mkdir -p "$THEOS/sdks"
+
+          if [ ! -d "$THEOS/sdks/iPhoneOS16.5.sdk" ]; then
+            curl --fail --location --retry 3 "https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz" --output "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz"
+            tar -xJf "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" -C "$THEOS/sdks"
+          fi
+
+          test -d "$THEOS/sdks/iPhoneOS16.5.sdk"
+
+      - name: Build OITCore (release)
+        working-directory: OITCore
+        run: |
+          rm -rf packages
+          make clean package FINALPACKAGE=1
+          test -f "$THEOS/lib/iphone/rootless/OITCore.dylib"
+
+      - name: Build OITI (release)
+        working-directory: OITI
+        run: |
+          rm -rf packages
+          make clean package FINALPACKAGE=1
+
+      - name: Collect and check packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/tellus-packages"
+          cp OITCore/packages/*.deb OITI/packages/*.deb "$RUNNER_TEMP/tellus-packages/"
+          cd "$RUNNER_TEMP/tellus-packages"
+          ls -lh
+          shasum -a 256 *.deb
+
+          # A release package must be exactly the two expected files, with the versions from the control files and no debug marker.
+          test "$(ls *.deb | wc -l)" -eq 2
+          core_version="$(sed -n 's/^Version: //p' "$GITHUB_WORKSPACE/OITCore/control")"
+          oiti_version="$(sed -n 's/^Version: //p' "$GITHUB_WORKSPACE/OITI/control")"
+          ls com.wilburt.oitcore_${core_version}*.deb > /dev/null
+          ls com.wilburt.oiti_${oiti_version}*.deb > /dev/null
+          if ls *.deb | grep -qi "debug"; then
+            echo "A package name contains 'debug': this is not a release build." >&2
+            exit 1
+          fi
+          for deb in *.deb; do
+            echo "== $deb"
+            ar t "$deb"
+          done
+
+      - name: Remove generated OITCore output before caching
+        run: |
+          rm -f "$THEOS/lib/iphone/rootless/OITCore.dylib"
+          rm -rf "$THEOS/include/OITCore"
+
+      - name: Upload release packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: tellus-release-${{ github.ref_name }}-${{ github.sha }}
+          path: ${{ runner.temp }}/tellus-packages/*.deb
+          if-no-files-found: error
+          retention-days: 30

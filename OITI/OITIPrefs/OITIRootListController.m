@@ -4,7 +4,7 @@
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
 
-static NSString * const kOITIPrefsBuildTag = @"OITIPrefs-0.3.0-2026-11-07-b";
+static NSString * const kOITIPrefsBuildTag = @"OITIPrefs-0.3.0";
 static NSString * const kOITIPrefsLogPath = @"/tmp/OITIPrefsDebug.log";
 
 static NSString * const kOITIGestaltPlistPath = @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist";

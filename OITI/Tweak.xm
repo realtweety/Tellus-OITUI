@@ -1,6 +1,6 @@
 // OITI -- Dynamic Island positioning/appearance module for OITUI (fork of VisibleIsland by ethxnn88).
 //
-// OITI 0.2.0 notification stack (owner-tested on iPhone 8 Plus / iOS 16.7.16; still experimental). Build tag: see kOITIBuildTag.
+// OITI 0.3.0 notification stack (owner-tested on iPhone 8 Plus / iOS 16.7.16; still experimental). Build tag: see kOITIBuildTag.
 //
 // ISLAND NOTIFICATIONS (new in 0.2.0): an incoming notification banner is shown as a real Island element (app icon, title,
 // message) instead of the stock banner. Custom Island notifications are off by default (`islandNotificationsEnabled = NO`)
@@ -109,8 +109,8 @@
 // APPLE MODE: key appleMode (OITI main page). While on, every Island customization behaves as if it were
 // off and the Island is the stock iOS one: custom position, custom scale, Island size, color, opacity, outline hiding,
 // hide when not in use, custom notification position, Island Notifications (and hiding the banner for them, and with them
-// the notification stack), the notification haptic, download progress and the startup animation. Kept as the user set them: Enable Dynamic Island, Fix Island Position, Fix Notification
-// Positioning, the Status Bar Layout fix, safe mode and diagnostics. The stored settings are never changed, so
+// the notification stack), the notification haptic, download progress and the startup animation. Kept as the user set them: Enable Dynamic Island, Use Custom Position and Use Custom
+// Notification Position, the Status Bar Layout fix, safe mode and diagnostics. The stored settings are never changed, so
 // turning Apple Mode off brings every customization back as it was. Applied in one place (preferencesChanged).
 //
 // X/Y SCALE: separate width and height scales applied as one non-uniform transform on the Island window.
@@ -191,7 +191,7 @@
 #import "Safety/OITISafety.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-exp-2026-11-07-b";
+extern NSString * const kOITIBuildTag = @"OITI-0.3.0";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";

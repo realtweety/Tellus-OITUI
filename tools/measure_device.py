@@ -3,7 +3,7 @@
 
 Reads a copy of /tmp/OITIDebug.log written at DiagnosticsLevel 1 or higher and prints only what the log actually says:
 the machine identifier and screen, whether the device table has an entry, the Island window frames seen with every
-Island customization off (fix=0 pos=0 scale=0), and the banner window frames Apple asked for (BANNER ... in=).
+Island customization off (pos=0 scale=0), and the banner window frames Apple asked for (BANNER ... in=).
 It does not decide, estimate or suggest any offset. A row for OITI/OITIDeviceProfiles.h is built by a person from
 measured values (see DEVICES.md, "Adding a row"); nothing printed here is a table entry.
 
@@ -41,19 +41,19 @@ if screen:
     print("screen bounds       :", screen.group(1), " nativeBounds:", screen.group(2), " scale:", screen.group(3), "/", screen.group(4))
 print("device table        :", table.group(1) if table else "not found")
 
-print("\n== Island window frames with every customization off (fix=0 pos=0 scale=0) ==")
-rx = re.compile(r"\[ISLAND\]\s+(\S+)@\S+ changed: frame=(\{\{.*?\}\}) bounds=(\{\{.*?\}\}) xf=(\[.*?\]) fix=(\d) pos=(\d) scale=(\d)")
+print("\n== Island window frames with every customization off (pos=0 scale=0) ==")
+rx = re.compile(r"\[ISLAND\]\s+(\S+)@\S+ changed: frame=(\{\{.*?\}\}) bounds=(\{\{.*?\}\}) xf=(\[.*?\]) (?:fix=\d )?pos=(\d) scale=(\d)")
 seen = []
 for l in lines:
     m = rx.search(l)
-    if m and m.group(5) == "0" and m.group(6) == "0" and m.group(7) == "0":
+    if m and m.group(5) == "0" and m.group(6) == "0":
         key = (m.group(1), m.group(2), m.group(3), m.group(4))
         if key not in seen:
             seen.append(key)
 for cls, frame, bounds, xf in seen[:8]:
     print(f"{cls}: frame={frame} bounds={bounds} xf={xf}")
 if not seen:
-    print("none (turn Apple Mode on, keep Fix Island Position off, respring, show a timer, then trigger a dump)")
+    print("none (turn Apple Mode on, keep Use Custom Position off, respring, show a timer, then trigger a dump)")
 
 print("\n== Banner window: frames Apple asked for (BANNER setFrame in=, no override) ==")
 rb = re.compile(r"\[BANNER\]\s+(\S+)@\S+ setFrame in=(\{\{.*?\}\}) used=(\{\{.*?\}\}) ov=(\d)")

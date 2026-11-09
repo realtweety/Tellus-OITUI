@@ -34,6 +34,10 @@
 // Download card (batch 7, item 5). A running Detailed download that a notice has pushed behind is a card too: app name, a thin bar
 // and the percentage, kept current by the tracker through OITIStackCardsDownloadUpdate.
 //
+// Release candidate (v0.3.0). (1) The Island-rectangle limits follow Use Custom Scale (OITICardsIslandRect). (2) While the cards show,
+// a small step of the rectangle is drift and does not close the gate (kOITICardDriftTolerance, OITICardsTick). Both unverified on the
+// phone until the release package has been tested (COMMANDS.md, section 21).
+//
 // Launch path: nothing here runs at launch. The first call comes from OITIPresentNoticeElement after a notice exists.
 
 #import "Shared/OITIShared.h"
@@ -52,6 +56,11 @@ static const CFTimeInterval kOITICardStableAfter = 0.15;   // the Island's recta
 // and the cards flashed under the small pill (device log 2026-11-06: shown at 05.069 under an 88 x 33 pill, hidden at 05.129 when it
 // grew, shown again at 05.302). Batch 8.
 static const CFTimeInterval kOITICardNewestSettle = 0.30;
+// Drift (v0.3.0 release candidate): in Wide and Compact the Island's rectangle settles by about 8 pt roughly a second after the cards
+// show. A step this small, while the cards are showing, is not a new layout: the stored rectangle follows it and the gate stays open
+// (the tick already moves the cards with the rectangle). Bigger steps (a notice landing, the Island growing) still close the gate.
+// Scaled by Use Custom Scale, because the drift scales with the Island.
+static const CGFloat kOITICardDriftTolerance = 12.0;
 static NSDictionary *sDownloadCardState;    // header, percent, fraction, ending of the running Detailed download (OITIStackCardsDownloadUpdate)
 
 static const CGFloat kOITICardEnterOffset = 8.0;    // a new card starts this far above its place (flush with the Island's card)
@@ -276,6 +285,18 @@ static void OITICardsCollectContainers(UIView *view, Class containerClass, NSUIn
     for (UIView *subview in view.subviews) OITICardsCollectContainers(subview, containerClass, depth + 1, rects);
 }
 
+// Use Custom Scale scales the Island window (about its centre), so the Island's rectangle is bigger or smaller than stock and its
+// top can sit well above or below the usual 11 to 80 pt. The limits below therefore follow the scale while it is on (v0.3.0 release
+// candidate; before this the width limit rejected any scale above about 1.04). Width: certain, from the matrix log. The y limits
+// are suspected to need the same (the window scales about its centre) and are relaxed the same way; level 1 says why a rectangle
+// was rejected.
+static CGFloat OITICardsScaleFactor(CGFloat value) {
+    if (!isfinite(value) || value < 0.05) return 1.0;
+    return MIN(value, 3.0);
+}
+
+static NSString *sCardsLastRejection;
+
 static BOOL OITICardsIslandRect(CGRect *rectOut) {
     CGSize screen = [UIScreen mainScreen].bounds.size;
     Class containerClass = NSClassFromString(@"SBSystemApertureContainerView");
@@ -285,15 +306,43 @@ static BOOL OITICardsIslandRect(CGRect *rectOut) {
         OITICardsCollectContainers(view, containerClass, 0, rects);
     }
     CGRect best = CGRectNull;
+    CGFloat sx = scaleEnabled ? OITICardsScaleFactor(scaleX) : 1.0;
+    CGFloat sy = scaleEnabled ? OITICardsScaleFactor(scaleY) : 1.0;
+    // Custom Scale at 1.0 must behave exactly like Custom Scale off (the same rule as for the position), so the relaxed y rule only
+    // applies when the scale really differs from 1.
+    BOOL scaled = scaleEnabled && (fabs(sx - 1.0) > 0.01 || fabs(sy - 1.0) > 0.01);
     // The Island is near the top (y up to 80 pt with the built-in positions); Use Custom Position can move it down by the typed Y,
     // so the limit moves with it (batch 7, item 3: it used to be a fixed 80, so the cards never showed for a Y above about 55).
     CGFloat maxOriginY = MIN(screen.height - 60.0, 80.0 + (posEnabled ? MAX(0.0, (CGFloat)yPos) : 0.0));
+    CGFloat minWidth = 60.0 * MIN(1.0, sx), maxWidth = (screen.width - 8.0) * MAX(1.0, sx);
+    CGFloat minHeight = 20.0 * MIN(1.0, sy), maxHeight = 420.0 * MAX(1.0, sy);
+    BOOL logRejections = [sLog isLoggingAtLevel:1];
+    NSMutableArray<NSString *> *rejected = logRejections ? [NSMutableArray array] : nil;
     for (NSValue *value in rects) {
         CGRect rect = value.CGRectValue;
-        BOOL plausible = rect.size.width >= 60.0 && rect.size.width <= screen.width - 8.0 &&
-                         rect.origin.y >= -5.0 && rect.origin.y <= maxOriginY && rect.size.height >= 20.0 && rect.size.height <= 420.0;
-        if (!plausible) continue;
+        BOOL widthOK = rect.size.width >= minWidth && rect.size.width <= maxWidth;
+        BOOL heightOK = rect.size.height >= minHeight && rect.size.height <= maxHeight;
+        // Stock rule unless the scale differs from 1. Then the Island's top can be anywhere, so only its bottom edge has to be on screen.
+        BOOL yOK = scaled ? (CGRectGetMaxY(rect) >= 20.0 && rect.origin.y <= screen.height - 60.0)
+                                : (rect.origin.y >= -5.0 && rect.origin.y <= maxOriginY);
+        if (!(widthOK && heightOK && yOK)) {
+            if (rejected) [rejected addObject:[NSString stringWithFormat:@"%@ (%@%@%@)", NSStringFromCGRect(rect),
+                                               widthOK ? @"" : @"width ", heightOK ? @"" : @"height ", yOK ? @"" : @"y"]];
+            continue;
+        }
         if (CGRectIsNull(best) || CGRectGetMaxY(rect) > CGRectGetMaxY(best)) best = rect;
+    }
+    if (logRejections) {
+        // Level 1, on change only: why no rectangle was accepted (the cards stay hidden and nothing is guessed).
+        NSString *why = nil;
+        if (CGRectIsNull(best) && rejected.count) {
+            NSString *yLimit = scaled ? @"y: bottom edge on screen" : [NSString stringWithFormat:@"origin y -5 to %.0f", maxOriginY];
+            why = [NSString stringWithFormat:@"island rectangle rejected: %@; limits width %.0f-%.0f height %.0f-%.0f %@; scale=%d sx=%.2f sy=%.2f",
+                   [rejected componentsJoinedByString:@" "], minWidth, maxWidth, minHeight, maxHeight, yLimit,
+                   (int)scaleEnabled, (double)sx, (double)sy];
+        }
+        if (why && ![why isEqualToString:sCardsLastRejection]) [sLog logLevel:1 tag:@"STACKCARDS" format:@"%@", why];
+        sCardsLastRejection = why;
     }
     if ([sLog isLoggingAtLevel:2]) {
         NSMutableArray<NSString *> *parts = [NSMutableArray array];
@@ -563,9 +612,17 @@ static void OITICardsTick(void) {
         BOOL moved = fabs(island.origin.x - last.origin.x) > 0.75 || fabs(island.origin.y - last.origin.y) > 0.75 ||
                      fabs(island.size.width - last.size.width) > 0.75 || fabs(island.size.height - last.size.height) > 0.75;
         if (moved) {
-            sCardsStableSince = now;
+            // A small step while the cards are showing is drift (see kOITICardDriftTolerance): follow it, keep the gate open.
+            // Not while the gate is closed (sCardsShown is NO then), so the settle after a new notice is unchanged.
+            CGFloat scaleUp = scaleEnabled ? MAX(1.0, MAX(OITICardsScaleFactor(scaleX), OITICardsScaleFactor(scaleY))) : 1.0;
+            CGFloat tolerance = kOITICardDriftTolerance * scaleUp;
+            BOOL drift = sCardsShown && !CGRectIsEmpty(last) &&
+                         fabs(island.origin.x - last.origin.x) <= tolerance && fabs(island.origin.y - last.origin.y) <= tolerance &&
+                         fabs(island.size.width - last.size.width) <= tolerance && fabs(island.size.height - last.size.height) <= tolerance;
+            if (!drift) sCardsStableSince = now;
             sCardsLastRect = island;
-            [sLog logLevel:2 tag:@"STACKCARDS" format:@"island rectangle changed to %@ (was %@)", NSStringFromCGRect(island), NSStringFromCGRect(last)];
+            [sLog logLevel:2 tag:@"STACKCARDS" format:@"island rectangle changed to %@ (was %@)%@", NSStringFromCGRect(island), NSStringFromCGRect(last),
+             drift ? @" - drift while showing, gate stays open" : @""];
         }
     }
     // The places are kept current whenever the Island's rectangle is known, shown or not: a card's glide is an offset from its

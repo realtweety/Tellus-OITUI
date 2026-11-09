@@ -39,11 +39,9 @@ CGFloat yPos = 20.5;
 CGFloat xNot = 0.0;
 CGFloat yNot = 40;
 
-BOOL fixEnabled;
 BOOL islandEnabled;
 BOOL posEnabled;
 BOOL hideEnabled;
-BOOL notificationFix;
 BOOL notEnabled;
 BOOL colorEnabled;
 BOOL transEnabled;
@@ -98,8 +96,8 @@ const OITIDeviceProfile *OITICurrentProfile(void) {
 
 NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
     return @{
-        @"fixEnabled": @(fixEnabled), @"islandEnabled": @(islandEnabled), @"posEnabled": @(posEnabled),
-        @"hideEnabled": @(hideEnabled), @"notificationFix": @(notificationFix), @"notEnabled": @(notEnabled),
+        @"islandEnabled": @(islandEnabled), @"posEnabled": @(posEnabled),
+        @"hideEnabled": @(hideEnabled), @"notEnabled": @(notEnabled),
         @"colorEnabled": @(colorEnabled), @"transEnabled": @(transEnabled), @"scaleEnabled": @(scaleEnabled), @"appleMode": @(sAppleMode), @"downloadProgress": @(sDownloadProgressEnabled), @"downloadAppStore": @(sDownloadAppStoreEnabled),
         @"downloadStyle": @(sDownloadStyle), @"pillW": @(sDownloadPillWidth), @"pillBottom": @(sDownloadPillBottomPadding), @"pillNudge": @(sDownloadPillNudgeY), @"downloadIdleMB": @(sDownloadIdleAfterMB), @"downloadIdleSeconds": @(sDownloadIdleAfterSeconds), @"downloadIdlePercent": @(sDownloadIdleAfterPercent),
         @"lineDisabled": @(lineDisabled),

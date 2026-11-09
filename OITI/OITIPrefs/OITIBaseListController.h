@@ -10,8 +10,4 @@
 - (NSString *)oiti_plistName;
 - (void)oitiRefreshSettingsPage;
 
-// Shared by the pages that have a "Fix ..." switch (Root, Notifications).
-+ (void)oitiCheckDeviceFixSupportForKey:(NSString *)key;
-+ (void)showFixNoticeWithTitle:(NSString *)title message:(NSString *)message;
-
 @end

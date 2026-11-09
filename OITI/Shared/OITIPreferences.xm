@@ -106,11 +106,9 @@ void preferencesChanged(void) {
 
     OITIMigratePresetPositions();   // before the values below are read, so a migrated position applies in this same pass
 
-    fixEnabled = [sOITIPreferences boolForKey:@"fixEnabled" default:NO];   // no longer used for anything (see the migration)
     islandEnabled = [sOITIPreferences boolForKey:@"islandEnabled" default:NO];
     posEnabled = [sOITIPreferences boolForKey:@"posEnabled" default:NO];
     hideEnabled = [sOITIPreferences boolForKey:@"hideEnabled" default:NO];
-    notificationFix = [sOITIPreferences boolForKey:@"notificationFix" default:NO];
     notEnabled = [sOITIPreferences boolForKey:@"notEnabled" default:NO];
     colorEnabled = [sOITIPreferences boolForKey:@"colorEnabled" default:NO];
     transEnabled = [sOITIPreferences boolForKey:@"transEnabled" default:NO];

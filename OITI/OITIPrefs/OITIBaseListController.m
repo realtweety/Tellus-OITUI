@@ -853,42 +853,4 @@ static NSString *OITIPositionString(double value) {
     }
 }
 
-// Notice shown when one of the "Fix ..." switches is turned on. One shared table (OITIDeviceProfiles.h) decides what "supported"
-// means, so this can never disagree with the offsets the tweak actually uses. Fix Island Position (Root) and Fix Notification
-// Positioning (Notifications) read the same entry, so a device without one gets no effect from either.
-+ (void)oitiCheckDeviceFixSupportForKey:(NSString *)key {
-    BOOL banner = [key isEqualToString:@"notificationFix"];
-    const OITIDeviceProfile *profile = OITIProfileForModel([OITDeviceInfo machineIdentifier]);
-    if (!profile) {
-        [self showFixNoticeWithTitle:@"No built-in offsets"
-                             message:banner
-            ? @"Insula has no built-in banner position for this device, so this option will have no effect. Turn it off and use Use Custom Notification Position instead."
-            : @"Insula has no built-in offsets for this device, so this option will have no effect. Turn it off and use the custom position and banner offsets instead."];
-    } else if (!profile->verified) {
-        [self showFixNoticeWithTitle:@"Estimated offsets"
-                             message:banner
-            ? @"The built-in banner position for this device is an estimate and may not be pixel-perfect. If something looks off, turn this option off and use Use Custom Notification Position."
-            : @"The built-in offsets for this device are estimates and may not be pixel-perfect. If something looks off, turn this option off and use custom offsets."];
-    }
-}
-
-+ (void)showFixNoticeWithTitle:(NSString *)title message:(NSString *)message {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
-                                                                   message:message
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-    UIWindow *keyWindow = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (window.isKeyWindow) {
-                keyWindow = window;
-                break;
-            }
-        }
-        if (keyWindow) break;
-    }
-    [keyWindow.rootViewController presentViewController:alert animated:YES completion:nil];
-}
-
 @end

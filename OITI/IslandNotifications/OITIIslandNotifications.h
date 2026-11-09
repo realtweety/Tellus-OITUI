@@ -87,7 +87,7 @@ Class OITINoticeElementClass(void);
 // OITINoticeViews.xm
 NSString *OITIShortText(NSString *text, NSUInteger limit);
 NSDictionary<NSString *, NSString *> *OITINoticeInfoFromRequest(id request);
-void OITIBuildNoticeViews(NSDictionary<NSString *, NSString *> *info, UIView **leadingOut, UIView **trailingOut, UIView **primaryOut, UIView **secondaryOut, UILabel **secondaryBodyOut);
+void OITIBuildNoticeViews(NSDictionary<NSString *, NSString *> *info, UIView **leadingOut, UIView **trailingOut, UIView **primaryOut, UIView **secondaryOut);
 NSString *OITICornerChain(UIView *view);
 void OITIApplyCornerExtra(UIView *view, CGFloat extra);
 void OITIRestoreCorners(void);

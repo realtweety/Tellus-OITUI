@@ -48,7 +48,7 @@ static UIImage *OITIRoundedIcon(UIImage *image, CGFloat side) {
 @end
 
 void OITIBuildNoticeViews(NSDictionary<NSString *, NSString *> *info, UIView **leadingOut, UIView **trailingOut,
-                                 UIView **primaryOut, UIView **secondaryOut, UILabel **secondaryBodyOut) {
+                                 UIView **primaryOut, UIView **secondaryOut) {
     NSString *bundleID = info[@"bundleID"] ?: @"";
     NSString *title = info[@"title"] ?: @"";
     NSString *subtitle = info[@"subtitle"] ?: @"";
@@ -118,7 +118,6 @@ void OITIBuildNoticeViews(NSDictionary<NSString *, NSString *> *info, UIView **l
     *trailingOut = trailing;
     *primaryOut = primary;
     *secondaryOut = secondaryStack;
-    if (secondaryBodyOut) *secondaryBodyOut = secondary;
 }
 
 // ---- Corner radius adjustment (IslandNotificationsCornerExtra) -------------------------------

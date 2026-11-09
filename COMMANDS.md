@@ -86,6 +86,7 @@ THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install
 Build notes:
 - The arm64e linker warnings ("incompatible arm64e ABI compiler") on the Arch PC are harmless for your iPhone 8 Plus. Do not publish `.deb` files built on the Arch PC.
 - dpkg's "downgrading" warning is harmless. Each machine counts the package build number separately.
+- GitHub Actions builds the `.deb` files (every push to `experiments`: DEBUG; the release workflow: `FINALPACKAGE=1`, see section 10). The local commands above are for quick tests on the phone only; never publish a package built on the Arch PC.
 
 ## 4. Respring and settings on the phone
 
@@ -465,97 +466,92 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases are created only from tested work on `main`. Build on the **Mac**, ship OITCore and OITI together, and do not ship OITS until it is verified. The current release is `v0.2.5` (OITI package version `0.2.5`; OITCore remains `0.1.0`).
+Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.2.5` (OITI `0.2.5`; OITCore remains `0.1.0`); `v0.3.0` is in preparation (OITI `0.3.0`).
 
-After the PR is merged, run on the Mac from a clean checkout of `main`:
-
-```
-cd ~/theos-projects/OITUI
-git fetch --prune origin
-git switch main
-git pull --ff-only
-git log --oneline -3
-git status --short
-```
-
-Clear old build outputs and build release packages (no install, no `+debug`):
-
-```
-rm -f OITCore/packages/*.deb OITI/packages/*.deb
-cd OITCore
-make clean package FINALPACKAGE=1
-cd ../OITI
-make clean package FINALPACKAGE=1
-ls ../OITCore/packages ../OITI/packages
-```
-
-Each folder should list one `.deb`. Test those exact files on the phone (with `iproxy 2222 22` running):
-
-```
-scp -P 2222 ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb root@127.0.0.1:/var/mobile/
-```
-
-On the phone:
-
-```
-dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb
-sbreload
-```
-
-Then check the Island, the settings pages and the sliders. When it all works, publish from the Mac. For `v0.2.5`:
-
-```
-git tag -a v0.2.5 -m "OITUI 0.2.5"
-git push origin v0.2.5
-gh release create v0.2.5 --title "OITUI 0.2.5" --notes-file RELEASE_NOTES_0.2.5.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
-```
-
-| Command | What it does | Where |
-| --- | --- | --- |
-| `git tag -l` | Lists existing tags. | Arch PC, Mac |
-| `git show v0.1.0 --stat` | Shows what the v0.1.0 tag points at. | Arch PC, Mac |
-| `gh release list` | Lists GitHub Releases. | Arch PC, Mac |
-| `gh release view v0.1.0` | Shows the v0.1.0 release and its attached files. | Arch PC, Mac |
-
-Pre-releases (betas). A beta for testers can be built from `experiments` once the work has run on the phone. `OITI/control` says `0.2.0~beta.1` (the tilde sorts it below `0.2.0`), the tag is `v0.2.0-beta.1` and the GitHub Release is marked pre-release. First commit and push the version, docs and code from the Arch PC:
+**1. Push the release candidate** (Arch PC, fish; the archive is the delta Claude gives you):
 
 ```
 cd ~/OITUI
 git switch experiments
 git status --short
+tar -xzf ~/Downloads/oitui-v030-rc.tar.gz -C ~/OITUI .
+git status --short
 git add -A
-git commit -m "OITI 0.2.0 Beta 1: Island Notifications, docs"
+git commit -m "v0.3.0 release candidate"
 git push
 git log --oneline -1
 ```
 
-Then on the Mac, build from that exact commit with a clean tree (the `git status` line must print nothing):
+The release-note files are already gone from `experiments`. If one ever comes back, quote the pattern for fish (fish stops on an unmatched `*`): `git rm -f --ignore-unmatch 'RELEASE_NOTES_*.md'`.
+
+**2. The normal CI run** (DEBUG build) must be green:
 
 ```
-cd ~/theos-projects/OITUI
-git fetch --prune origin
-git switch experiments
+gh run list --branch experiments --limit 3
+gh run watch
+```
+
+**3. Build the release packages** (`FINALPACKAGE=1`, OITCore and OITI). Try the manual run first:
+
+```
+gh workflow run release-oiti.yml --ref experiments
+gh run list --workflow=release-oiti.yml --limit 3
+gh run watch
+```
+
+I believe GitHub only offers `workflow_dispatch` for a workflow file that exists on the default branch, and this file is new on `experiments`, so the first line may fail (for example `HTTP 404: workflow ... not found`). That is unverified. If it does, use the tag trigger instead (a release-candidate tag on the pushed commit; it is deleted after the test):
+
+```
+git tag v0.3.0-rc.1
+git push origin v0.3.0-rc.1
+gh run list --workflow=release-oiti.yml --limit 3
+gh run watch
+```
+
+Download and check the artifact (the step "Collect and check packages" in the run prints the file names and SHA-256 sums):
+
+```
+rm -rf ~/Downloads/oiti-rc
+gh run download <run-id> -D ~/Downloads/oiti-rc
+ls -lR ~/Downloads/oiti-rc
+shasum -a 256 ~/Downloads/oiti-rc/*/*.deb
+```
+
+There must be exactly two files, `com.wilburt.oitcore_0.1.0...deb` and `com.wilburt.oiti_0.3.0...deb`, with no `debug` in the names. Then test **those** files, section 21. After the test, delete the candidate tag if you made one:
+
+```
+git push origin --delete v0.3.0-rc.1
+git tag -d v0.3.0-rc.1
+```
+
+**4. Land it** (only after the test passed and we both agreed): `gh pr create --base main --head experiments --title "OITUI 0.3.0" --body "Polish release, see the release notes."`, review the diff (`gh pr diff`), `gh pr merge --squash`, then recreate `experiments` from `main` (the block above). Check that the squash commit has the same tree as the tested commit, so the tested `.deb` files are the release:
+
+```
+git rev-parse origin/main^{tree}
+git rev-parse <the hash of the commit you tested>^{tree}
+```
+
+The two tree hashes must be identical. Then tag `main` and publish the Release with the tested files (the Release body is the only release note):
+
+```
+git switch main
 git pull --ff-only
-git status --short
-git log --oneline -1
-rm -f OITCore/packages/*.deb OITI/packages/*.deb
-cd OITCore
-make clean package FINALPACKAGE=1
-cd ../OITI
-make clean package FINALPACKAGE=1
-ls ../OITCore/packages ../OITI/packages
+git tag -a v0.3.0 -m "OITUI 0.3.0"
+git push origin v0.3.0
+gh release create v0.3.0 --title "OITUI 0.3.0" --notes "<the release text>" ~/Downloads/oiti-rc/*/*.deb
 ```
 
-The two `git log` hashes must match. Test those exact `.deb` files on the phone (with `iproxy 2222 22` running), the same way as a release (`scp`, `dpkg -i`, `sbreload`), and check section 13 before tagging. Then publish from the Mac, in this order (never tag before the `.deb` files are built and tested from that commit):
+Pushing the tag also runs the release workflow on the tagged commit (a second, untested build of identical sources). Do not attach that one; keep the artifact you tested. Use `--notes-file` with a file outside the repo (for example `~/oiti-0.3.0-notes.md`) if the text is long.
 
-```
-cd ~/theos-projects/OITUI
-git tag -a v0.2.0-beta.1 -m "OITI 0.2.0 Beta 1"
-git push origin v0.2.0-beta.1
-gh release create v0.2.0-beta.1 --prerelease --title "OITI 0.2.0 Beta 1" --notes-file RELEASE_NOTES_0.2.0-beta.1.md ~/theos-projects/OITUI/OITCore/packages/*.deb ~/theos-projects/OITUI/OITI/packages/*.deb
-```
+| Command | What it does | Where |
+| --- | --- | --- |
+| `git tag -l` | Lists existing tags. | Arch PC |
+| `git show v0.1.0 --stat` | Shows what the v0.1.0 tag points at. | Arch PC |
+| `gh release list` | Lists GitHub Releases. | Arch PC |
+| `gh release view v0.2.5` | Shows a release and its attached files. | Arch PC |
+| `gh workflow list` | Lists the workflows GitHub knows. | Arch PC |
 
-GitHub shows the tilde in the file name as a dot (`0.2.0.beta.1`); `dpkg` uses the version in the package's `control` file. If the tag or release is wrong, delete it with `gh release delete v0.2.0-beta.1 --cleanup-tag --yes` and start again from the build.
+Pre-releases (betas, not used for 0.3.0). Use a tilde version such as `0.2.0~beta.1` (sorts below `0.2.0`), tag `v0.2.0-beta.1`, and create the Release with `--prerelease`. If a tag or release is wrong, delete it with `gh release delete <tag> --cleanup-tag --yes` and build again.
 
 ## 11. Gotchas
 
@@ -722,7 +718,7 @@ Color, opacity, outline hiding and the custom banner position now apply while th
 5. Bottom of the main OITI page: the line under the credit should read `OITI version 0.2.0-1+debug` for a debug build, or `0.2.0` for a release package. It comes from the package database (`/var/jb/var/lib/dpkg/status`). If Settings is not allowed to read that file it shows the version taken from `control` at build time with `(built-in)` after it, which for a debug build lacks the `-1+debug` part.
 
 6. Settings > Insula > Scale, **Use Custom Scale** (build `OITI-exp-2026-10-21-b`). The width and height sliders are relative to Apple's size now, so 1.0 is the stock Island. With the switch on and both sliders at 1.0, the Island must look the same as with the switch off, **position included**: turn it on and off and confirm nothing moves. Then change the sliders: below 1.0 shrinks the Island and its content, above 1.0 grows them. **Reset Scale** puts both back to 1.0. Anyone who had Custom Scale on before this build starts at 1.0 (the old values are not carried over).
-7. Apple Mode, main page, the switch under **Enable Dynamic Island**. Set a few customizations first (a custom color, Island size 0.65 / 0.70, Use Custom Position, Island Notifications on). Turn **Apple Mode** on: a blue banner appears at the top of every page, and the Island should go back to the stock iOS one without a respring (custom color and size gone, notification stack cleared, banners back to the system banner). **Fix Island Position**, **Enable Dynamic Island**, Status Bar Layout and safe mode must keep working as set. On another page the banner has **Turn Off Apple Mode**. Turn it off and every customization must return exactly as it was. Log lines: `grep -e "Apple Mode" /tmp/OITIDebug.log` shows `PREF Apple Mode ON: ...` and `OFF`.
+7. Apple Mode, main page, the switch under **Enable Dynamic Island**. Set a few customizations first (a custom color, Island size 0.65 / 0.70, Use Custom Position, Island Notifications on). Turn **Apple Mode** on: a blue banner appears at the top of every page, and the Island should go back to the stock iOS one without a respring (custom color and size gone, notification stack cleared, banners back to the system banner). **Enable Dynamic Island**, Use Custom Position, Use Custom Notification Position (both stay on in Apple Mode since 0.3.0), Status Bar Layout and safe mode must keep working as set. On another page the banner has **Turn Off Apple Mode**. Turn it off and every customization must return exactly as it was. Log lines: `grep -e "Apple Mode" /tmp/OITIDebug.log` shows `PREF Apple Mode ON: ...` and `OFF`.
 
 Check the log (level 1 shows COLOR, level 2 shows TOUCHPASS):
 
@@ -975,8 +971,8 @@ Run the check (`python3 tools/check_split.py --old HEAD --allow-wrapper OITIInst
 1. Every setting at its default (or **Apple Mode** on): the Island looks stock, and a banner drops from the stock position.
 2. **Scale** page, **Island Size**: drag **Island Width** and **Island Height**; the Island resizes live without a respring and returns to stock at 1.0 (**Reset Island Size to 1.0**).
 3. **Scale** page, **Custom Island Scale**: switch on **Use Custom Scale** and drag **Width (X)** and **Height (Y)**; the whole Island scales around Apple's own size and returns at 1.0 (**Reset Width and Height to 1.0**).
-4. **Fix Island Position** on and off. Then **Custom Island Positioning**: **Use Custom Position** with **X Position:** and **Y Position:**, and **Save**.
-5. **Notifications** page: **Fix Notification Positioning**, then **Custom Notification Positioning** (**Use Custom Notification Position**, X and Y, **Save**). Send yourself a notification; the banner appears where the setting says.
+4. (The Fix Island Position switch was removed in 0.3.0.) **Custom Island Positioning**: **Use Custom Position** with **X Position:** and **Y Position:**, and **Save**.
+5. **Notifications** page (the Fix Notification Positioning switch was removed in 0.3.0): **Custom Notification Positioning** (**Use Custom Notification Position**, X and Y, **Save**). Send yourself a notification; the banner appears where the setting says.
 6. **Color and Opacity** page: **Use Custom Color** with Red, Green and Blue, and **Use Custom Opacity**. Both apply live and switch off cleanly. Main page, **Misc**: **Hide When Not in Use** and **Disable Island Outline**, each on and off.
 7. **Apple Mode** on: every customization above is off; the built-in position and notification fixes stay.
 
@@ -1285,3 +1281,83 @@ done
 ```
 
 The four arrive in a random order over about 5 to 7.5 s. The last sample stays in `/tmp/OITIPoCSample.txt` and is reused by a plain `touch /tmp/OITIPoC.trigger`; `rm /tmp/OITIPoCSample.txt` restores the default test text. If `sleep` rejects decimals, use `sleep 2`. For the exact-notification tap use REAL notifications.
+
+## 21. v0.3.0 release-candidate test (the exact release `.deb` files)
+
+Test the `FINALPACKAGE=1` files from the release workflow (section 10, step 3), not the DEBUG build from the normal CI run. Release
+packages are quiet: `DiagnosticsLevel` is 0, so the log has only `SESSION`, `GUARD`, `SAFE`, `CHECK` and the level 0 warnings; the
+steps that need more say where to raise it. `iproxy 2222 22` must be running. Paths below assume the artifact is in
+`~/Downloads/oiti-rc` (Arch PC, fish). Tell me which step number fails, with the lines the step names.
+
+**This candidate touches the launch path again** (`preferencesChanged()` no longer reads the two retired Fix keys; no UIKit call
+was added, `tools/check_ctor_path.py` passes). So the first start of the package uses the safe first-run procedure in step 1.
+
+**0. What you are testing.** Copy the files to the phone and look at them:
+
+```
+scp -P 2222 ~/Downloads/oiti-rc/*/*.deb root@127.0.0.1:/var/mobile/
+ssh -p 2222 root@127.0.0.1 'ls -l /var/mobile/*.deb; for f in /var/mobile/com.wilburt.oit*.deb; do echo $f; dpkg-deb -f $f Package Version; done'
+```
+
+Expect `com.wilburt.oitcore` `0.1.0` and `com.wilburt.oiti` `0.3.0`, no `+debug` in a version or a file name.
+
+**1. Upgrade over 0.2.5** (the case most users are in).
+1. Put 0.2.5 on the phone and change some settings (Island on, Use Custom Position, a color, Notifications on):
+
+```
+mkdir -p ~/Downloads/oiti-025
+gh release download v0.2.5 -D ~/Downloads/oiti-025 --pattern '*.deb'
+ssh -p 2222 root@127.0.0.1 mkdir -p /var/mobile/oiti025
+scp -P 2222 ~/Downloads/oiti-025/*.deb root@127.0.0.1:/var/mobile/oiti025/
+```
+
+   On the phone: `dpkg -i /var/mobile/oiti025/*.deb && sbreload`. Your phone has run the batch 8 migration already, so run `defaults delete com.wilburt.oiti.prefs PresetPositionsMigrated` too, to see the migration run as it does for a user. Check that 0.2.5 works, then save the settings: `defaults read com.wilburt.oiti.prefs > /var/mobile/oiti-prefs-025.txt`.
+2. Install the candidate WITHOUT respringing: `dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb`.
+3. Safe first run. Disable the tweak, respring, then enable it with a log tail:
+
+```
+mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off
+sbreload
+```
+
+   SpringBoard must come back normally. Second SSH session: `tail -F /tmp/OITIDebug.log`. First session: `mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist`, then `sbreload`. If SpringBoard restarts or hangs: Dopamine > Settings > Tweak Injection off, jailbreak, `rm /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist*`, and send me the last 40 lines of the log.
+4. Expect one `PREF preset positions migrated once: device iPhone10,2 (no table entry) ...` line (the migration runs once on the first launch with 0.3.0, also over 0.2.5), a `SESSION` line with the build tag `OITI-0.3.0`, no `TRIPPED`. `defaults read com.wilburt.oiti.prefs PresetPositionsMigrated` prints `1`.
+5. `defaults read com.wilburt.oiti.prefs > /var/mobile/oiti-prefs-030.txt; diff /var/mobile/oiti-prefs-025.txt /var/mobile/oiti-prefs-030.txt`: only `PresetPositionsMigrated` is new. The Island, the banner position and your colors are where they were. Settings > Insula shows `0.3.0` at the bottom.
+
+**2. Clean install (no preferences).**
+
+```
+dpkg -r com.wilburt.oiti com.wilburt.oitcore
+rm -f /var/mobile/Library/Preferences/com.wilburt.oiti.prefs.plist /var/mobile/Library/Preferences/OITISafeMode.plist /var/mobile/Library/Preferences/OITIBootLog.plist /var/mobile/Library/Preferences/OITIRespringIntent.plist /tmp/OITIDebug.log
+killall cfprefsd
+sbreload
+dpkg -i /var/mobile/com.wilburt.oitcore_*.deb /var/mobile/com.wilburt.oiti_*.deb
+sbreload
+```
+
+Wait for the respring. Expect the stock iOS look (Island off until you turn **Enable Dynamic Island** on, then a respring), Settings > Insula opens, every switch at its default, `defaults read com.wilburt.oiti.prefs DiagnosticsLevel` says the key does not exist (level 0), `grep -i -e session -e guard -e safe /tmp/OITIDebug.log` shows `OITI-0.3.0` and no `TRIPPED`. Turn the Island on and respring once more.
+
+**3. Respring-loop guard** (section 7, with the release package): do the marker test (six Respring taps from Settings: every launch after the first says `launch not counted`, no `TRIPPED`), five `sbreload` over SSH about 10 s apart (the fifth logs `TRIPPED`, the banner appears, **Clear Safe Mode & Respring** brings OITI back) and the faked-launches block. All of it works at level 0.
+
+**4. Stock look with every Island setting at its default.** Enable Dynamic Island on; Use Custom Position, Use Custom Scale, Island Size sliders at 1.0, Use Custom Color, Use Custom Opacity, Hide Outline, Hide When Not in Use, Custom Notification Position all off; Island Notifications off; Download Progress off; Startup Animation off. With a timer, music and the charging animation running, the Island must look and behave like the stock one on this device, and a real notification shows the stock banner. Report anything that differs.
+
+**5. A burst of four notices** (level 1 and the stack on). `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1`, `notifyutil -p com.wilburt.oiti/PrefsChanged` (full path `/var/jb/usr/bin/notifyutil` if the shell does not find it), turn on Settings > Insula > Notifications > Show Notifications in the Island and Stack Multiple Notifications, respring, wait 2 minutes. Then the SSH script at the end of section 20 ("Tool: four test notifications over SSH"). Expect: the newest in the Island, the older ones as small cards that slide in, the demoted notice travelling down out of the Island, tap and swipe on each card, no blink. Then one real notification from another app.
+
+**6. Custom Scale 1.15 and 1.3** with the matrix script (level 1, notifications and stack on, Reduce Motion off, notice duration at the default 4 s or longer). On the phone first `ls /var/jb/usr/bin | grep -i notify`. From the PC:
+
+```
+scp -P 2222 ~/OITUI/tools/cards_matrix.sh root@127.0.0.1:/tmp/
+ssh -p 2222 root@127.0.0.1 bash /tmp/cards_matrix.sh | tee ~/Downloads/cards_matrix_rc.txt
+```
+
+About 4 minutes; it restores every key it changed. Look at the phone during the Custom Scale cases and the Y 35 and 60 cases. I need the whole output: for `custom scale 1.15` and `1.3` expect `cards shown`, a `cards placement` line without `WARNING`, and a `morph` count above 0 in the `refresh` lines instead of `island rectangle NOT found`; if the cards still do not show, the new line `island rectangle rejected: <rect> (width|height|y) ...; limits ...` says which limit failed. The last three blocks are the blink check: each ends with a `RESULT ...` line, and `Wide` and `Compact` must say `no blink`.
+
+**7. Wide and Compact, by eye.** Settings > Insula > Notifications > Style: Wide, then Compact. Send two or three notices and look at the cards for 3 to 4 seconds after the last one settles: no short disappearance about a second after they appear. (The script's blink check does the same from the log; report if the eye and the script disagree.)
+
+**8. A real download in both looks** (Download Progress and Show App Store Downloads on; Style Minimal, then Detailed). Start a real App Store install or update: percentage, estimate, pause and resume, then `Installing…` after the bytes are done, then the completion check and back to idle. `grep -i installing /tmp/OITIDebug.log | tail -n 6` (level 1) shows the start and end lines. With the Detailed look, send one notice while it runs: the download becomes a card under the notice.
+
+**9. Apple Mode.** Turn it on: the Island is stock (color, opacity, scale, size, notifications, download progress and Hello are off), the Island and the banner stay at your custom positions, every Settings page shows the Apple Mode banner. Turn it off: everything is back as it was.
+
+**10. The Settings pages.** Open every page (main, Color and Opacity, Scale, Notifications, Download Progress, Startup Animation): text fits, no stretched arrows, the three reset buttons (position, color, opacity) work, sliders feel responsive, no crash when a choice is picked (Notifications Style, Status Bar Layout, Download Style). Tap **Respring** and **Clear Safe Mode & Respring** once.
+
+**11. Put the phone back.** `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0`, `notifyutil -p com.wilburt.oiti/PrefsChanged`, respring.
