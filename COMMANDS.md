@@ -463,10 +463,10 @@ GitHub login (once per computer):
 One-time repository settings (†). Allows only squash merges and deletes merged branches:
 
 ```
-gh api -X PATCH repos/realtweety/OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
+gh api -X PATCH repos/realtweety/Tellus-OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.2.5` (OITI `0.2.5`; OITCore remains `0.1.0`); `v0.3.0` is in preparation (OITI `0.3.0`).
+Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.3.0` (OITI `0.3.0`; OITCore remains `0.1.0`); `v0.3.1` is in preparation (OITI `0.3.1`).
 
 **1. Push the release candidate** (Arch PC, fish; the archive is the delta Claude gives you):
 
@@ -499,7 +499,7 @@ gh run list --workflow=release-oiti.yml --limit 3
 gh run watch
 ```
 
-I believe GitHub only offers `workflow_dispatch` for a workflow file that exists on the default branch, and this file is new on `experiments`, so the first line may fail (for example `HTTP 404: workflow ... not found`). That is unverified. If it does, use the tag trigger instead (a release-candidate tag on the pushed commit; it is deleted after the test):
+GitHub only dispatches a workflow file that exists on the default branch. `release-oiti.yml` has been on `main` since 0.3.0, so the first line works. (For 0.3.0 the file existed only on `experiments` and the run answered `HTTP 404: workflow release-oiti.yml not found on the default branch`; a workflow file that is new on a branch needs the tag trigger instead. A release-candidate tag on the pushed commit builds it; delete the tag after the test):
 
 ```
 git tag v0.3.0-rc.1
@@ -1361,3 +1361,15 @@ About 4 minutes; it restores every key it changed. Look at the phone during the 
 **10. The Settings pages.** Open every page (main, Color and Opacity, Scale, Notifications, Download Progress, Startup Animation): text fits, no stretched arrows, the three reset buttons (position, color, opacity) work, sliders feel responsive, no crash when a choice is picked (Notifications Style, Status Bar Layout, Download Style). Tap **Respring** and **Clear Safe Mode & Respring** once.
 
 **11. Put the phone back.** `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0`, `notifyutil -p com.wilburt.oiti/PrefsChanged`, respring.
+
+## 22. v0.3.1 checks (the blink when a notice pushes older cards down)
+
+Changes: see `OVERVIEW.md`, "Current state". One behavior change: cards that are already showing stay up while a new notice settles (`cards held ...` at level 1) instead of fading out and in. Compile-checked, not device-tested. The launch path is untouched. Test the release package (section 10 builds it; install it as in section 21, step 1 for the upgrade over 0.3.0; the safe first run is optional this time because the launch path did not change).
+1. **Stock look and Settings:** Settings > Insula shows `0.3.1`; every Island setting at its default still looks stock.
+2. **One older card pushed down.** Notifications and Stack on, Style Expanded, `DiagnosticsLevel` 1 (`defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1`, `notifyutil -p com.wilburt.oiti/PrefsChanged`). Send two notices (cards show for the first), then a third (the SSH script at the end of section 20 sends four). Look at the cards when the third lands: they must NOT fade out and back in. They should stay up and slide down by one slot while the demoted notice travels down out of the Island. Report anything else you see: a card floating under the small pill, a jump, a double copy.
+3. **Two cards already showing, a third notice pushes them down** (the same, with the four-notice script): the same expectation, for both cards.
+4. **Wide and Compact:** the same two checks in both styles.
+5. **Reduce Motion on:** the cards stay up and move without the glide; no blink.
+6. **Regression:** a single notice (no cards), tap and swipe on cards, a notice timing out while cards show, the download card, Apple Mode on (no cards), the respring-loop guard (section 7).
+7. **Log:** `grep STACKCARDS /tmp/OITIDebug.log | tail -n 20`. Expect `cards held under the last settled rectangle ...` followed by `cards shown`, and no `cards hidden` between them. For a number, run the matrix script (section 21, step 6): each blink check ends with `RESULT ...: no blink`.
+8. Put the phone back: `DiagnosticsLevel` 0.

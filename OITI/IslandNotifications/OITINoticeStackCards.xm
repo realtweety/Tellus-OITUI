@@ -61,6 +61,9 @@ static const CFTimeInterval kOITICardNewestSettle = 0.30;
 // (the tick already moves the cards with the rectangle). Bigger steps (a notice landing, the Island growing) still close the gate.
 // Scaled by Use Custom Scale, because the drift scales with the Island.
 static const CGFloat kOITICardDriftTolerance = 12.0;
+// The longest cards that are already showing stay put while a new notice settles (see the hold in OITICardsTick). The settle
+// (0.30 s) plus the Island growing back is about 0.5 s; this is only the safety limit.
+static const CFTimeInterval kOITICardHoldMax = 1.2;
 static NSDictionary *sDownloadCardState;    // header, percent, fraction, ending of the running Detailed download (OITIStackCardsDownloadUpdate)
 
 static const CGFloat kOITICardEnterOffset = 8.0;    // a new card starts this far above its place (flush with the Island's card)
@@ -245,6 +248,8 @@ static NSDictionary *sCardsPreviousNewest;                     // the Island's n
 static NSTimer *sCardsTimer;
 static BOOL sCardsShown;                  // the cards are faded in
 static CGRect sCardsLastRect;             // the Island rectangle seen on the last tick
+static CGRect sCardsHeldRect;             // the rectangle of the last tick that passed the gate (the cards stay under it while a new notice settles)
+static CFTimeInterval sCardsHoldSince;    // when the current hold began (0 = not holding)
 static CFTimeInterval sCardsStableSince;
 static CFAbsoluteTime sCardsLastSecond;   // when the time labels were last refreshed
 static NSString *sCardsLastCandidates;    // for the level 2 probe log (log on change only)
@@ -550,6 +555,8 @@ static void OITICardsHideWindow(NSString *why) {
     sCardsWindow.rootViewController.view.alpha = 0.0;
     sCardsWindow.hidden = YES;
     sCardsLastRect = CGRectZero;
+    sCardsHeldRect = CGRectZero;
+    sCardsHoldSince = 0.0;
     OITICardsDecision(0, ^NSString *{ return [NSString stringWithFormat:@"cards removed (%@)", why]; });
 }
 
@@ -625,20 +632,43 @@ static void OITICardsTick(void) {
              drift ? @" - drift while showing, gate stays open" : @""];
         }
     }
+    BOOL stable = haveIsland && now - sCardsStableSince >= kOITICardStableAfter;
+    BOOL wanted = haveIsland && onScreen && settled && stable && !landscape;
+    // Hold (v0.3.1). A new notice makes the Island shrink to its small pill and grow again, so the gate closes until the new
+    // notice has settled. That is right for cards that are not showing yet (they flashed under the small pill), but cards that are
+    // ALREADY showing faded out and in again: the blink when a notice pushes the older ones down. They now stay visible, placed
+    // under the rectangle of the last tick that passed the gate, until the new notice settles; then they follow the live rectangle
+    // (the glide of a card that changed slot runs meanwhile). New cards still wait for the gate. A hold ends after
+    // kOITICardHoldMax, or at once if the Island has nothing on screen or is not found (then the cards hide as before).
+    BOOL holding = NO;
+    if (wanted) {
+        sCardsHeldRect = island;
+        sCardsHoldSince = 0.0;
+    } else if (sCardsShown && haveIsland && onScreen && !landscape && !CGRectIsEmpty(sCardsHeldRect)) {
+        if (sCardsHoldSince == 0.0) sCardsHoldSince = now;
+        holding = now - sCardsHoldSince < kOITICardHoldMax;
+    } else {
+        sCardsHoldSince = 0.0;
+    }
     // The places are kept current whenever the Island's rectangle is known, shown or not: a card's glide is an offset from its
     // new place, so the place must already be the new one when the glide starts. Only the visibility waits for the gate.
     if (haveIsland) {
+        CGRect placeRect = holding ? sCardsHeldRect : island;
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
         for (OITINoticeCardView *card in sCardViews) {
-            CGRect frame = OITICardFrame(island, card.slot);
+            CGRect frame = OITICardFrame(placeRect, card.slot);
             card.bounds = CGRectMake(0.0, 0.0, frame.size.width, frame.size.height);
             card.center = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
         }
         [CATransaction commit];
     }
-    BOOL stable = haveIsland && now - sCardsStableSince >= kOITICardStableAfter;
-    BOOL wanted = haveIsland && onScreen && settled && stable && !landscape;
+    if (holding) {
+        OITICardsDecision(2000, ^NSString *{
+            return [NSString stringWithFormat:@"cards held under the last settled rectangle %@: newest settled=%d, stable=%d", NSStringFromCGRect(sCardsHeldRect), settled, stable];
+        });
+        return;
+    }
     if (!wanted) {
         OITICardsDecision(100 + haveIsland + 2 * onScreen + 4 * stable + 8 * landscape + 16 * settled, ^NSString *{
             return [NSString stringWithFormat:@"cards hidden: island rectangle %@, newest on screen=%d (settled=%d), stable=%d, landscape=%d",

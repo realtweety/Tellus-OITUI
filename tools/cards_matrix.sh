@@ -11,9 +11,9 @@
 #   scp -P 2222 tools/cards_matrix.sh root@localhost:/tmp/ && ssh -p 2222 root@localhost bash /tmp/cards_matrix.sh
 #
 # Release candidate: also runs Custom Scale 1.15 and 1.3 (the cards must show, where the Island is wider than the screen) and a
-# blink check for Wide, Compact and Expanded: it marks the log at the fourth notice and reports whether the cards were hidden again
-# after they showed within the next 3.2 s (the Island rectangle drifts about 8 pt about a second after the cards show in Wide and
-# Compact; that must not close the cards any more). The blink check assumes the notice duration is the default 4 s or longer.
+# blink check for Wide, Compact and Expanded: it marks the log at the fourth notice and reports whether the cards hid at all in the
+# next 3.2 s. They must not: cards already showing stay up while a new notice settles (0.3.1), and the Island rectangle's drift
+# in Wide and Compact does not close them either (0.3.0). The blink check assumes the notice duration is the default 4 s or longer.
 #
 # Send me the output. About 4 minutes. Reduce Motion should be off. Ctrl-C is safe: the original values are restored on exit.
 
@@ -97,7 +97,7 @@ run_case() { # name, then the apply arguments
   before=$(wc -c < "$LOG")
   fire
   sleep 5
-  tail -c +$((before + 1)) "$LOG" | grep "STACKCARDS" | grep -E "placement|refresh|cards (hidden|shown|removed|leaving)|morph|rejected" | cut -c1-420 | head -n 14
+  tail -c +$((before + 1)) "$LOG" | grep "STACKCARDS" | grep -E "placement|refresh|cards (hidden|shown|held|removed|leaving)|morph|rejected" | cut -c1-420 | head -n 14
   sleep 8   # let the notices time out before the next case
 }
 
@@ -108,18 +108,14 @@ blink_case() { # name, then the apply arguments: do the four notices, then look 
   sleep 3
   fire
   sleep 1.4   # 3.2 s after the fourth notice; the default notice duration (4 s) has not ended yet
-  seg=$(tail -c +$((LAST_MARK + 1)) "$LOG" | grep "STACKCARDS" | grep -E "cards (shown|hidden)" | cut -c1-300)
+  seg=$(tail -c +$((LAST_MARK + 1)) "$LOG" | grep "STACKCARDS" | grep -E "cards (shown|hidden|held)" | cut -c1-300)
   echo "$seg" | head -n 8
-  # The fourth notice first closes the gate (the new notice has not settled yet), then the cards show again: that hide is
-  # expected. Any hide AFTER the cards showed again is the blink. (Old cards still up before the fourth notice only count as "shown".)
-  res=$(echo "$seg" | awk '/cards hidden/ { if (st == 0) st = 1; else if (st == 2) n++ }
-                           /cards shown/  { sh++; if (st == 1) st = 2 }
-                           END { print st + 0, n + 0, sh + 0 }')
-  st=${res%% *}; rest=${res#* }; n=${rest%% *}; sh=${rest#* }
-  if [ "$st" -eq 2 ] && [ "$n" -eq 0 ]; then echo "RESULT $name: no blink (the cards showed again and stayed)"
-  elif [ "$st" -eq 2 ]; then echo "RESULT $name: BLINK (hidden again after showing: $n)"
-  elif [ "$st" -eq 0 ] && [ "$sh" -gt 0 ]; then echo "RESULT $name: the cards never closed (no hide at all)"
-  else echo "RESULT $name: the cards did not show again after the fourth notice (see the lines above)"; fi
+  # Since 0.3.1 cards that are already showing stay up while the fourth notice settles ("cards held ..."): the cards must not hide at
+  # all after the fourth notice. Any "cards hidden" in this window is the blink.
+  hid=$(echo "$seg" | grep -c "cards hidden")
+  held=$(grep -c "cards held" "$LOG")   # whole log, only to say whether the hold was used at all
+  if [ "$hid" -eq 0 ]; then echo "RESULT $name: no blink (cards hidden after the fourth notice: 0; hold lines in the log so far: $held)"
+  else echo "RESULT $name: BLINK (cards hidden after the fourth notice: $hid)"; fi
   sleep 8
 }
 
