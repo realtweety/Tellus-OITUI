@@ -57,9 +57,9 @@ The shared library the tweaks use. It installs automatically with Insula.
 
 # Installation
 
-You need a rootless jailbreak on iOS 16. Install both `.deb` files from the [latest release](https://github.com/realtweety/OITUI/releases/latest): **OITCore** first (or both in one `dpkg -i`), then **Insula**. To remove everything, remove Insula before OITCore.
+You need a rootless jailbreak on iOS 16. Install both `.deb` files from the [latest release](https://github.com/realtweety/Tellus-OITUI/releases/latest): **OITCore** first (or both in one `dpkg -i`), then **Insula**. To remove everything, remove Insula before OITCore.
 
-Older releases: [v0.2.5](https://github.com/realtweety/OITUI/releases/tag/v0.2.5), [v0.2.0](https://github.com/realtweety/OITUI/releases/tag/v0.2.0), [v0.1.0](https://github.com/realtweety/OITUI/releases/tag/v0.1.0), [first_release](https://github.com/realtweety/OITUI/releases/tag/first_release) (the only release of Litus).
+Older releases: [v0.3.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.3.0), [v0.2.5](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.2.5), [v0.2.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.2.0), [v0.1.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.1.0), [first_release](https://github.com/realtweety/Tellus-OITUI/releases/tag/first_release) (the only release of Litus).
 
 # Documentation
 
