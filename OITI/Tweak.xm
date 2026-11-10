@@ -189,9 +189,10 @@
 #import "Startup/OITIStartup.h"
 #import "StatusBar/OITIStatusBar.h"
 #import "Safety/OITISafety.h"
+#import "Browser/OITIBrowser.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-0.3.1";
+extern NSString * const kOITIBuildTag = @"OITI-exp-0.3.5-browser-a";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";
@@ -200,8 +201,14 @@ static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
 
 %ctor {
     // OITI.plist also loads this dylib into every UIKit app, but every class hooked below exists only in
-    // SpringBoard, so there is nothing to do anywhere else.
-    if (![[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
+    // SpringBoard, so there is nothing to do anywhere else. The one exception is the browser research of 0.3.5
+    // (Browser/OITIBrowserDump.xm): it compares the bundle ID against a hardcoded allowlist first and returns for every other
+    // app, and for the allowlisted browsers it does nothing unless an enable file exists in the app's own tmp folder.
+    NSString *processBundleID = [NSBundle mainBundle].bundleIdentifier;
+    if (![processBundleID isEqualToString:@"com.apple.springboard"]) {
+        OITIBrowserDumpStartIfAllowed(processBundleID);
+        return;
+    }
 
     sLog = [OITLogger loggerWithName:@"oiti" path:kOITILogPath];
     sLog.ignoredImageNames = @[@"OITI.dylib", @"OITCore.dylib"];
@@ -249,6 +256,7 @@ static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
         OITObserveDarwinNotification(kOITITestDownloadStopNotification, ^{
             dispatch_async(dispatch_get_main_queue(), ^{ OITIFakeDownloadStop(); });
         });
+        OITIBrowserProbeObserveInSpringBoard();   // 0.3.5 research: logs at level 1 only; notifications and libnotify state, nothing else
         OITIInstallIslandSizeHooks();
         OITIInstallResearchHooks();
         if (sLog.enabled && sLog.level >= 1) {

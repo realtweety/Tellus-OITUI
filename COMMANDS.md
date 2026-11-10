@@ -466,7 +466,7 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/Tellus-OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.3.0` (OITI `0.3.0`; OITCore remains `0.1.0`); `v0.3.1` is in preparation (OITI `0.3.1`).
+Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.3.1` (OITI `0.3.1`; OITCore remains `0.1.0`).
 
 **1. Push the release candidate** (Arch PC, fish; the archive is the delta Claude gives you):
 
@@ -538,10 +538,10 @@ git switch main
 git pull --ff-only
 git tag -a v0.3.0 -m "OITUI 0.3.0"
 git push origin v0.3.0
-gh release create v0.3.0 --title "OITUI 0.3.0" --notes "<the release text>" ~/Downloads/oiti-rc/*/*.deb
+gh release create v0.3.0 --verify-tag --title "OITUI 0.3.0" --notes "<the release text>" ~/Downloads/oiti-rc/*/*.deb
 ```
 
-Pushing the tag also runs the release workflow on the tagged commit (a second, untested build of identical sources). Do not attach that one; keep the artifact you tested. Use `--notes-file` with a file outside the repo (for example `~/oiti-0.3.0-notes.md`) if the text is long.
+Pushing the tag also runs the release workflow on the tagged commit (a second, untested build of identical sources). Do not attach that one; keep the artifact you tested. Always push the tag first and keep `--verify-tag` in the command: without it, `gh release create` makes a missing tag on the default branch's newest commit (0.3.1 was tagged on the 0.3.0 commit that way and the tag had to be moved). Use `--notes-file` with a file outside the repo (for example `~/oiti-0.3.0-notes.md`) if the text is long.
 
 | Command | What it does | Where |
 | --- | --- | --- |
@@ -1373,3 +1373,42 @@ Changes: see `OVERVIEW.md`, "Current state". One behavior change: cards that are
 6. **Regression:** a single notice (no cards), tap and swipe on cards, a notice timing out while cards show, the download card, Apple Mode on (no cards), the respring-loop guard (section 7).
 7. **Log:** `grep STACKCARDS /tmp/OITIDebug.log | tail -n 20`. Expect `cards held under the last settled rectangle ...` followed by `cards shown`, and no `cards hidden` between them. For a number, run the matrix script (section 21, step 6): each blink check ends with `RESULT ...: no blink`.
 8. Put the phone back: `DiagnosticsLevel` 0.
+
+## 23. Browser downloads research (0.3.5, batch 1: Arc Search first, Safari second)
+
+Logging only: no setting, no user-visible change. It runs only in `company.thebrowser.ArcMobile2` (Arc Search) and `com.apple.mobilesafari`, and only in a browser whose tmp folder holds the file `OITIBrowserDump.enable`. Every other app returns at the first line of the `%ctor` branch. This touches the `%ctor` (SpringBoard side: two notification observers; other processes: one string comparison), so it needs the safe first run. Test the DEBUG build from the normal CI run (the build tag is `OITI-exp-0.3.5-browser-a`). `iproxy 2222 22` must be running. The browser log cannot be `/tmp/OITIDebug.log` (an app cannot write there); it is `OITIBrowser.log` in the app's own tmp folder.
+
+**1. Install with the safe first run** (same procedure as section 21, step 1, items 2 and 3): `dpkg -i` the OITI package without respringing, rename `/var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist` to `OITI.plist.off`, `sbreload`, then rename it back with `tail -F /tmp/OITIDebug.log` running in a second session and `sbreload` again. SpringBoard must come back and the log must show the session line `OITI-exp-0.3.5-browser-a`. If it does not: Dopamine > Settings > Tweak Injection off, jailbreak again, remove `OITI.plist*`, and send me the last 40 lines.
+Then open three or four ordinary apps (Settings, Photos, Notes, Arc): all must launch normally. OITI loads into every UIKit app, and the change is one early return in each.
+
+**2. Find the two app folders and create the enable files** (replace nothing; the commands print what they find):
+
+```
+ssh -p 2222 root@127.0.0.1 'for d in /var/mobile/Containers/Data/Application/*; do for id in ArcMobile2 com.apple.mobilesafari; do grep -q $id "$d/.com.apple.mobile_container_manager.metadata.plist" 2>/dev/null && echo "$id $d"; done; done'
+```
+
+That prints one line per app: the app and its data folder. (It assumes the container metadata file contains the bundle ID; if it prints nothing, send me `ls -a` of one folder and I will give another way.) For each folder, with the real path from the line:
+
+```
+ssh -p 2222 root@127.0.0.1 'mkdir -p "/var/mobile/Containers/Data/Application/<UUID>/tmp" && touch "/var/mobile/Containers/Data/Application/<UUID>/tmp/OITIBrowserDump.enable"'
+```
+
+(Type the UUID in; do not paste the angle brackets.) Safari's folder may sit elsewhere on iOS 16; if Safari prints no line, skip Safari for now.
+
+**3. Start the test server on the PC** (`tools/throttle_server.py`; the PC and the phone on the same network, the port open in the PC's firewall):
+
+```
+python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1
+```
+
+It prints the link, for example `http://192.168.x.y:8099/test.bin`, and the download then takes about 7 minutes. If Arc refuses an `http://` link, tell me and try Safari.
+
+**4. The run** (Arc, then the same for Safari if its folder was found). DiagnosticsLevel 1 for the SpringBoard side: `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1`, `notifyutil -p com.wilburt.oiti/PrefsChanged`.
+1. Force-quit Arc and open it again (the enable file is read at launch). In the app's tmp folder `OITIBrowser.log` must now exist and start with `browser research dump is on in company.thebrowser.ArcMobile2`.
+2. `tail -F <the app folder>/tmp/OITIBrowser.log` in a second session. It shows either `WKDownload -setDelegate: hook installed` or `WKDownload class is not loaded` (both are results).
+3. Post the census and channel test: `notifyutil -p com.wilburt.oiti/BrowserDump` (full path `/var/jb/usr/bin/notifyutil` if the shell does not find it). The log gets a `census:` block and one `channel test #1 sent: ... register_check=<n> set_state=<n> post=<n>` line (0 means ok).
+4. In SpringBoard's log: `grep BROWSER /tmp/OITIDebug.log`. Expect up to two lines, `the plain Darwin notification ... arrived` and `the libnotify notification ... arrived`. Which of them arrive is the result.
+5. Open the test link in Arc and start the download. Let Arc show its progress. Pause it, resume it and, on a second run, cancel it; let one run finish if you can (shorten it with `--size-mb 100`). Note the times, because the log has timestamps.
+6. Post `notifyutil -p com.wilburt.oiti/BrowserDump` once more while a download runs.
+
+**5. Send me:** the whole `OITIBrowser.log` (`scp -P 2222 root@127.0.0.1:"<the app folder>/tmp/OITIBrowser.log" ~/Downloads/`), `grep BROWSER /tmp/OITIDebug.log`, what Arc showed (its own progress, pause, resume, cancel, finish, any error), and whether any other app misbehaved. Nothing needs cleaning up afterwards except the enable file: remove it to switch the research off (`rm <the app folder>/tmp/OITIBrowserDump.enable`), then force-quit the browser. `DiagnosticsLevel` back to 0.

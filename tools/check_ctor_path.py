@@ -18,7 +18,7 @@ Usage (repo root): python3 tools/check_ctor_path.py       Exit status 1 when som
 import os, re, sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "OITI")
-START = ["Tweak.xm", "Shared/OITIPreferences.xm", "Shared/OITIState.xm", "Safety/OITISafety.xm"]
+START = ["Tweak.xm", "Shared/OITIPreferences.xm", "Shared/OITIState.xm", "Safety/OITISafety.xm", "Browser/OITIBrowserDump.xm"]
 BAD = re.compile(r"\[\s*(UIScreen|UIDevice|UIApplication|UIWindow|UIView|UIViewController)\s+[A-Za-z_]"
                  r"|\[\s*OITDeviceInfo\s+(isFullScreenDevice|hasDynamicIsland)\b")
 
