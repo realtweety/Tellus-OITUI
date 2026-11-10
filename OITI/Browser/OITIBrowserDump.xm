@@ -14,10 +14,11 @@
 //
 // Risk rules. OITI.plist already loads this dylib into every UIKit app, so the code that runs in every process is one string
 // comparison against the allowlist. For an allowlisted browser nothing happens unless the owner created the enable file in that
-// app's tmp folder (COMMANDS.md, section 23), so a normal install runs no hook and no observer in any browser. No UIKit call is
-// made at load time, no private method is called, nothing is written outside the app's own tmp folder.
+// app's Library folder (COMMANDS.md, section 23), so a normal install runs no hook and no observer in any browser. (Batch 1 and 2 kept
+// the file in tmp; iOS may purge tmp while the app is not running, the file was gone and nothing ran.) No UIKit call is
+// made at load time, no private method is called, nothing is written outside the app's own Library folder.
 //
-// Log: <the app's tmp folder>/OITIBrowser.log (an app cannot write /tmp). Reference: DIAGNOSTICS.md, "Browser research".
+// Log: <the app's Library folder>/OITIBrowser.log (an app cannot write /tmp). Reference: DIAGNOSTICS.md, "Browser research".
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -233,11 +234,11 @@ static void OITIBrowserPostProbe(void) {
 void OITIBrowserDumpStartIfAllowed(NSString *bundleID) {
     // Every process that is not SpringBoard gets here. The allowlist comparison comes first and is all that runs elsewhere.
     if (![bundleID isEqualToString:kOITIBrowserBundleArc] && ![bundleID isEqualToString:kOITIBrowserBundleSafari]) return;
-    NSString *tmp = NSTemporaryDirectory();
-    if (!tmp.length) return;
-    if (![[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:kOITIBrowserEnableFile]]) return;
+    NSString *library = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    if (!library.length) return;
+    if (![[NSFileManager defaultManager] fileExistsAtPath:[library stringByAppendingPathComponent:kOITIBrowserEnableFile]]) return;
 
-    sBrowserLog = [OITLogger loggerWithName:@"oiti-browser" path:[tmp stringByAppendingPathComponent:kOITIBrowserLogFile]];
+    sBrowserLog = [OITLogger loggerWithName:@"oiti-browser" path:[library stringByAppendingPathComponent:kOITIBrowserLogFile]];
     sBrowserLog.level = 2;
     sBrowserLog.ignoredImageNames = @[@"OITI.dylib", @"OITCore.dylib"];
     [sBrowserLog logSessionStartWithBuildTag:kOITIBuildTag];
