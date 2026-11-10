@@ -1374,41 +1374,37 @@ Changes: see `OVERVIEW.md`, "Current state". One behavior change: cards that are
 7. **Log:** `grep STACKCARDS /tmp/OITIDebug.log | tail -n 20`. Expect `cards held under the last settled rectangle ...` followed by `cards shown`, and no `cards hidden` between them. For a number, run the matrix script (section 21, step 6): each blink check ends with `RESULT ...: no blink`.
 8. Put the phone back: `DiagnosticsLevel` 0.
 
-## 23. Browser downloads research (0.3.5, batch 1: Arc Search first, Safari second)
+## 23. Browser downloads research (0.3.5: Arc Search first, Safari later)
 
-Logging only: no setting, no user-visible change. It runs only in `company.thebrowser.ArcMobile2` (Arc Search) and `com.apple.mobilesafari`, and only in a browser whose tmp folder holds the file `OITIBrowserDump.enable`. Every other app returns at the first line of the `%ctor` branch. This touches the `%ctor` (SpringBoard side: two notification observers; other processes: one string comparison), so it needs the safe first run. Test the DEBUG build from the normal CI run (the build tag is `OITI-exp-0.3.5-browser-a`). `iproxy 2222 22` must be running. The browser log cannot be `/tmp/OITIDebug.log` (an app cannot write there); it is `OITIBrowser.log` in the app's own tmp folder.
+Logging only: no setting, no user-visible change. It runs only in `company.thebrowser.ArcMobile2` (Arc Search) and `com.apple.mobilesafari`, and only in a browser whose tmp folder holds the file `OITIBrowserDump.enable`. Every other app returns at the first line of the `%ctor` branch. The log cannot be `/tmp/OITIDebug.log` (an app cannot write there); it is `OITIBrowser.log` in the app's own tmp folder. `iproxy 2222 22` must be running.
 
-**1. Install with the safe first run** (same procedure as section 21, step 1, items 2 and 3): `dpkg -i` the OITI package without respringing, rename `/var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist` to `OITI.plist.off`, `sbreload`, then rename it back with `tail -F /tmp/OITIDebug.log` running in a second session and `sbreload` again. SpringBoard must come back and the log must show the session line `OITI-exp-0.3.5-browser-a`. If it does not: Dopamine > Settings > Tweak Injection off, jailbreak again, remove `OITI.plist*`, and send me the last 40 lines.
-Then open three or four ordinary apps (Settings, Photos, Notes, Arc): all must launch normally. OITI loads into every UIKit app, and the change is one early return in each.
+**Batch 1 result (9 Nov 2026, Arc Search 1.49.0):** Arc uses the public `WKDownload`; the delegate is its private Swift class `DownloadSession`; the public `NSProgress` has a known total after about a second, updates every second and reaches `finished=1`. Not answered: the channel test never ran, because the census crashed Arc twice and the test was posted after it (the census is removed). Pause and cancel were not distinguishable.
 
-**2. Find the two app folders and create the enable files** (replace nothing; the commands print what they find):
+**Batch 2 (build tag `OITI-exp-0.3.5-browser-b`): the channel test, and Arc's cancel and resume calls.** Setup is already done from batch 1 (enable file in Arc's tmp folder, DiagnosticsLevel 1, the safe first run; installing a new build over it needs none of that again; do the quick check that SpringBoard and the other apps are fine).
 
-```
-ssh -p 2222 root@127.0.0.1 'for d in /var/mobile/Containers/Data/Application/*; do for id in ArcMobile2 com.apple.mobilesafari; do grep -q $id "$d/.com.apple.mobile_container_manager.metadata.plist" 2>/dev/null && echo "$id $d"; done; done'
-```
-
-That prints one line per app: the app and its data folder. (It assumes the container metadata file contains the bundle ID; if it prints nothing, send me `ls -a` of one folder and I will give another way.) For each folder, with the real path from the line:
+1. Install the new DEBUG build, `sbreload`, force-quit Arc and open it again. Check the start of the log:
 
 ```
-ssh -p 2222 root@127.0.0.1 'mkdir -p "/var/mobile/Containers/Data/Application/<UUID>/tmp" && touch "/var/mobile/Containers/Data/Application/<UUID>/tmp/OITIBrowserDump.enable"'
+ssh -p 2222 root@127.0.0.1 'tail -n 6 /var/mobile/Containers/Data/Application/*/tmp/OITIBrowser.log'
 ```
 
-(Type the UUID in; do not paste the angle brackets.) Safari's folder may sit elsewhere on iOS 16; if Safari prints no line, skip Safari for now.
-
-**3. Start the test server on the PC** (`tools/throttle_server.py`; the PC and the phone on the same network, the port open in the PC's firewall):
+   It must show `build=OITI-exp-0.3.5-browser-b` and three or four lines about the hooks (`-setDelegate:`, `-cancel:`, `resumeDownloadFromResumeData:completionHandler:`: installed or not; both answers are results).
+2. The channel test (first, with Arc open, before any download):
 
 ```
-python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; notifyutil -p com.wilburt.oiti/BrowserDump'
+ssh -p 2222 root@127.0.0.1 'tail -n 3 /var/mobile/Containers/Data/Application/*/tmp/OITIBrowser.log; grep BROWSER /tmp/OITIDebug.log'
 ```
 
-It prints the link, for example `http://192.168.x.y:8099/test.bin`, and the download then takes about 7 minutes. If Arc refuses an `http://` link, tell me and try Safari.
+   Expect `channel test #1 sent: libnotify register_check=<n> set_state=<n> post=<n>` in Arc's log and up to two `channel test ... arrived` lines in SpringBoard's. Which arrive is the result. If Arc stops again after this, tell me.
+3. Start the server (`python3 ~/OITUI/tools/throttle_server.py --size-mb 200 --rate-mb 1`) and download in Arc. Do these in order and write down the clock time of each (the log has timestamps): start; **pause** in Arc (wait 15 s); **resume**; **cancel** (wait 10 s); start the same download again and let it run to the end (`--size-mb 100 --rate-mb 2` finishes in under a minute).
+4. Send me `OITIBrowser-all.log` (command below) and `grep BROWSER /tmp/OITIDebug.log`, with your notes of what you pressed when:
 
-**4. The run** (Arc, then the same for Safari if its folder was found). DiagnosticsLevel 1 for the SpringBoard side: `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1`, `notifyutil -p com.wilburt.oiti/PrefsChanged`.
-1. Force-quit Arc and open it again (the enable file is read at launch). In the app's tmp folder `OITIBrowser.log` must now exist and start with `browser research dump is on in company.thebrowser.ArcMobile2`.
-2. `tail -F <the app folder>/tmp/OITIBrowser.log` in a second session. It shows either `WKDownload -setDelegate: hook installed` or `WKDownload class is not loaded` (both are results).
-3. Post the census and channel test: `notifyutil -p com.wilburt.oiti/BrowserDump` (full path `/var/jb/usr/bin/notifyutil` if the shell does not find it). The log gets a `census:` block and one `channel test #1 sent: ... register_check=<n> set_state=<n> post=<n>` line (0 means ok).
-4. In SpringBoard's log: `grep BROWSER /tmp/OITIDebug.log`. Expect up to two lines, `the plain Darwin notification ... arrived` and `the libnotify notification ... arrived`. Which of them arrive is the result.
-5. Open the test link in Arc and start the download. Let Arc show its progress. Pause it, resume it and, on a second run, cancel it; let one run finish if you can (shorten it with `--size-mb 100`). Note the times, because the log has timestamps.
-6. Post `notifyutil -p com.wilburt.oiti/BrowserDump` once more while a download runs.
+```
+ssh -p 2222 root@127.0.0.1 'for f in /var/mobile/Containers/Data/Application/*/tmp/OITIBrowser.log; do echo "== $f"; cat "$f"; done' > ~/Downloads/OITIBrowser-all.log
+ssh -p 2222 root@127.0.0.1 'grep BROWSER /tmp/OITIDebug.log' > ~/Downloads/OITIDebug-browser.txt
+```
 
-**5. Send me:** the whole `OITIBrowser.log` (`scp -P 2222 root@127.0.0.1:"<the app folder>/tmp/OITIBrowser.log" ~/Downloads/`), `grep BROWSER /tmp/OITIDebug.log`, what Arc showed (its own progress, pause, resume, cancel, finish, any error), and whether any other app misbehaved. Nothing needs cleaning up afterwards except the enable file: remove it to switch the research off (`rm <the app folder>/tmp/OITIBrowserDump.enable`), then force-quit the browser. `DiagnosticsLevel` back to 0.
+5. Switch off: remove `OITIBrowserDump.enable`, DiagnosticsLevel 0, force-quit Arc (the commands are in step 11 of the batch 1 list; unchanged).
+
+Safari is a separate run later (its enable file is created the same way; I will give the steps when we get there).

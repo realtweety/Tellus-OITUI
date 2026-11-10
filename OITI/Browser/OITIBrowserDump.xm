@@ -5,9 +5,10 @@
 //  * Outside SpringBoard the browser's own progress UI is the only thing we know about. iOS 16 browsers (outside the EU) use
 //    WebKit, and WebKit has a public download API (WKDownload, iOS 14.5, with a public NSProgress). WHETHER Arc or Safari use it
 //    is exactly what this dump finds out; Safari in particular may use something internal.
-//  * So the dump does three things, all read-only. (1) A census, on request: the names of classes and methods that contain
-//    "download" (names only, nothing is called). (2) A passive probe: if the public WKDownload class exists, its -setDelegate: is
-//    hooked and the download's public NSProgress is polled once a second and logged when it changes. (3) A channel test: the
+//  * So the dump does three things, all read-only. (1) (Removed in batch 2: a census of class names, it stopped Arc twice.)
+//    (2) A passive probe: if the public WKDownload class exists, its -setDelegate: is hooked and the download's public NSProgress
+//    is polled once a second and logged when it changes; batch 2 adds logging of the public -[WKDownload cancel:] and
+//    -[WKWebView resumeDownloadFromResumeData:completionHandler:]. (3) A channel test: the
 //    browser process posts a plain Darwin notification and a libnotify notification with a 64-bit state; SpringBoard logs what
 //    arrives (OITIBrowserProbeObserveInSpringBoard). Whether a sandboxed app is allowed to do this is unverified.
 //
@@ -32,7 +33,7 @@ static NSString * const kOITIBrowserBundleArc = @"company.thebrowser.ArcMobile2"
 static NSString * const kOITIBrowserBundleSafari = @"com.apple.mobilesafari";
 static NSString * const kOITIBrowserEnableFile = @"OITIBrowserDump.enable";
 static NSString * const kOITIBrowserLogFile = @"OITIBrowser.log";
-static NSString * const kOITIBrowserDumpNotification = @"com.wilburt.oiti/BrowserDump";           // posted by the owner: run the census and the channel test
+static NSString * const kOITIBrowserDumpNotification = @"com.wilburt.oiti/BrowserDump";           // posted by the owner: run the channel test
 static NSString * const kOITIBrowserProbeNotification = @"com.wilburt.oiti/BrowserProbe";         // CF Darwin notification (no payload)
 static NSString * const kOITIBrowserProbeStateName = @"com.wilburt.oiti/BrowserProbeState";       // libnotify name that carries a 64-bit state
 
@@ -67,6 +68,30 @@ static void OITIBrowserNoteDownload(id download, id delegate);
 - (void)setDelegate:(id)delegate {
     %orig;
     OITIBrowserNoteDownload((id)self, delegate);
+}
+%end
+%end
+
+static void OITIBrowserNoteCancel(id download, BOOL hasHandler);
+static void OITIBrowserNoteResume(id webView, NSData *data, BOOL hasHandler);
+
+// Public -[WKDownload cancel:] (the pause of a download that can resume goes through it with resume data) and public
+// -[WKWebView resumeDownloadFromResumeData:completionHandler:). Logging only; each group is installed only when the class
+// answers the selector, because hooking a missing method would leave %orig empty.
+%group OITIWKDownloadCancelProbe
+%hook WKDownload
+- (void)cancel:(id)completionHandler {
+    OITIBrowserNoteCancel((id)self, completionHandler != nil);
+    %orig;
+}
+%end
+%end
+
+%group OITIWKWebViewResumeProbe
+%hook WKWebView
+- (void)resumeDownloadFromResumeData:(NSData *)resumeData completionHandler:(id)completionHandler {
+    OITIBrowserNoteResume((id)self, resumeData, completionHandler != nil);
+    %orig;
 }
 %end
 %end
@@ -138,8 +163,23 @@ static void OITIBrowserNoteDownload(id download, id delegate) {
     }
 }
 
+static void OITIBrowserNoteCancel(id download, BOOL hasHandler) {
+    NSMutableDictionary *state = download ? [sBrowserDownloads objectForKey:download] : nil;
+    id progress = OITIBrowserGetter(download, "progress");
+    NSString *detail = [progress isKindOfClass:[NSProgress class]]
+        ? [NSString stringWithFormat:@"fraction=%.4f units=%lld/%lld", ((NSProgress *)progress).fractionCompleted,
+           ((NSProgress *)progress).completedUnitCount, ((NSProgress *)progress).totalUnitCount] : @"no progress";
+    OITI_BLOG(@"WKDownload %@ cancel: called (completion handler %@; it receives the resume data); %@",
+              state[@"id"] ?: [NSString stringWithFormat:@"%p", download], hasHandler ? @"given" : @"none", detail);
+}
+
+static void OITIBrowserNoteResume(id webView, NSData *data, BOOL hasHandler) {
+    OITI_BLOG(@"WKWebView resumeDownloadFromResumeData: called (resume data %lu bytes, completion handler %@)",
+              (unsigned long)data.length, hasHandler ? @"given" : @"none");
+}
+
 // Installs the hook once, when the public class exists. WebKit may not be loaded yet when the dylib loads, so this is tried at
-// start, 3 s later and at every census request.
+// start, 3 s later and at every channel test request.
 static void OITIBrowserInstallDownloadProbe(NSString *when) {
     if (sBrowserProbeInstalled) return;
     if (!objc_getClass("WKDownload")) {
@@ -149,59 +189,24 @@ static void OITIBrowserInstallDownloadProbe(NSString *when) {
     sBrowserProbeInstalled = YES;
     %init(OITIWKDownloadProbe);
     OITI_BLOG(@"WKDownload -setDelegate: hook installed (%@)", when);
-}
-
-// ---------------------------------------------------------------------------------------------
-// MARK: Census (names only, nothing is called)
-// ---------------------------------------------------------------------------------------------
-
-static void OITIBrowserRunCensus(NSString *bundleID) {
-    NSBundle *main = [NSBundle mainBundle];
-    OITI_BLOG(@"census: bundle=%@ version=%@ build=%@ executable=%@ WKDownload=%d WKDownloadDelegate protocol=%d WKNavigationDelegate protocol=%d",
-              bundleID, [main objectForInfoDictionaryKey:@"CFBundleShortVersionString"], [main objectForInfoDictionaryKey:@"CFBundleVersion"],
-              main.executablePath.lastPathComponent, objc_getClass("WKDownload") != NULL, objc_getProtocol("WKDownloadDelegate") != NULL,
-              objc_getProtocol("WKNavigationDelegate") != NULL);
-    const char *appPath = main.bundlePath.fileSystemRepresentation;
-    size_t appPathLength = appPath ? strlen(appPath) : 0;
-    unsigned int count = 0;
-    Class *classes = objc_copyClassList(&count);
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    for (unsigned int i = 0; i < count && lines.count < 600; i++) {
-        const char *name = class_getName(classes[i]);
-        if (!name) continue;
-        const char *image = class_getImageName(classes[i]);
-        BOOL inApp = image && appPathLength && strncmp(image, appPath, appPathLength) == 0;
-        BOOL hasDownload = strcasestr(name, "download") != NULL;
-        BOOL appProgress = inApp && (strcasestr(name, "progress") != NULL || strcasestr(name, "transfer") != NULL);
-        if (!hasDownload && !appProgress) continue;
-        NSMutableString *line = [NSMutableString stringWithFormat:@"class %s [%@]%@", name,
-                                 image ? [@(image) lastPathComponent] : @"?", inApp ? @" (in the app)" : @""];
-        BOOL listMethods = inApp || strncmp(name, "WKDownload", 10) == 0 || strncmp(name, "_WKDownload", 11) == 0 ||
-                           (image && strcasestr(image, "Safari") != NULL);
-        if (listMethods) {
-            unsigned int methodCount = 0;
-            Method *methods = class_copyMethodList(classes[i], &methodCount);
-            int shown = 0;
-            for (unsigned int m = 0; m < methodCount && shown < 40; m++) {
-                const char *selectorName = sel_getName(method_getName(methods[m]));
-                if (strcasestr(selectorName, "ownload") || strcasestr(selectorName, "progress") || strcasestr(selectorName, "fractionCompleted")) {
-                    [line appendFormat:@"\n    - %s", selectorName];
-                    shown++;
-                }
-            }
-            if (methods) free(methods);
-        }
-        [lines addObject:line];
+    if (class_getInstanceMethod(objc_getClass("WKDownload"), NSSelectorFromString(@"cancel:"))) {
+        %init(OITIWKDownloadCancelProbe);
+        OITI_BLOG(@"WKDownload -cancel: hook installed");
+    } else {
+        OITI_BLOG(@"WKDownload does not answer cancel: (no hook)");
     }
-    if (classes) free(classes);
-    [lines sortUsingSelector:@selector(compare:)];
-    OITI_BLOG(@"census: %lu classes match (names containing download, plus progress or transfer inside the app)", (unsigned long)lines.count);
-    for (NSUInteger i = 0; i < lines.count; i += 12) {
-        NSUInteger length = MIN((NSUInteger)12, lines.count - i);
-        OITI_BLOG(@"census classes %lu-%lu:\n%@", (unsigned long)(i + 1), (unsigned long)(i + length),
-                  [[lines subarrayWithRange:NSMakeRange(i, length)] componentsJoinedByString:@"\n"]);
+    Class webViewClass = objc_getClass("WKWebView");
+    if (webViewClass && class_getInstanceMethod(webViewClass, NSSelectorFromString(@"resumeDownloadFromResumeData:completionHandler:"))) {
+        %init(OITIWKWebViewResumeProbe);
+        OITI_BLOG(@"WKWebView -resumeDownloadFromResumeData:completionHandler: hook installed");
+    } else {
+        OITI_BLOG(@"WKWebView does not answer resumeDownloadFromResumeData:completionHandler: (no hook)");
     }
 }
+
+// The census of batch 1 (a walk over every Objective-C class with class_getImageName and class_copyMethodList) is gone: it was posted
+// twice in Arc Search 1.49.0 and the app stopped both times right after the first line (cause unknown: the class walk is the
+// suspect). What it was for is answered by the live probe: Arc uses the public WKDownload (LEARNINGS.md).
 
 // ---------------------------------------------------------------------------------------------
 // MARK: Channel test: browser process -> SpringBoard
@@ -236,13 +241,12 @@ void OITIBrowserDumpStartIfAllowed(NSString *bundleID) {
     sBrowserLog.level = 2;
     sBrowserLog.ignoredImageNames = @[@"OITI.dylib", @"OITCore.dylib"];
     [sBrowserLog logSessionStartWithBuildTag:kOITIBuildTag];
-    OITI_BLOG(@"browser research dump is on in %@ (pid %d); log %@. Post %@ for the census and the channel test.",
+    OITI_BLOG(@"browser research dump is on in %@ (pid %d); log %@. Post %@ for the channel test.",
               bundleID, getpid(), kOITIBrowserLogFile, kOITIBrowserDumpNotification);
 
     OITObserveDarwinNotification(kOITIBrowserDumpNotification, ^{
         dispatch_async(dispatch_get_main_queue(), ^{
-            OITIBrowserInstallDownloadProbe(@"census request");
-            OITIBrowserRunCensus(bundleID);
+            OITIBrowserInstallDownloadProbe(@"channel test request");
             OITIBrowserPostProbe();
         });
     });
