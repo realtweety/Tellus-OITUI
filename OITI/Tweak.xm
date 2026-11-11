@@ -192,7 +192,7 @@
 #import "Browser/OITIBrowser.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-exp-0.3.5-browser-c";
+extern NSString * const kOITIBuildTag = @"OITI-exp-0.3.5-arc-a";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";
@@ -201,12 +201,13 @@ static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
 
 %ctor {
     // OITI.plist also loads this dylib into every UIKit app, but every class hooked below exists only in
-    // SpringBoard, so there is nothing to do anywhere else. The one exception is the browser research of 0.3.5
+    // SpringBoard, so there is nothing to do anywhere else. The one exception is the browser downloads of 0.3.5
     // (Browser/OITIBrowserDump.xm): it compares the bundle ID against a hardcoded allowlist first and returns for every other
-    // app, and for the allowlisted browsers it does nothing unless an enable file exists in the app's own tmp folder.
+    // app; in Arc Search it waits for SpringBoard's switch (off by default), and the research log needs an enable file in the
+    // app's own Library folder.
     NSString *processBundleID = [NSBundle mainBundle].bundleIdentifier;
     if (![processBundleID isEqualToString:@"com.apple.springboard"]) {
-        OITIBrowserDumpStartIfAllowed(processBundleID);
+        OITIBrowserStartIfAllowed(processBundleID);
         return;
     }
 

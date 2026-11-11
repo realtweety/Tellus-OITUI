@@ -1374,98 +1374,103 @@ Changes: see `OVERVIEW.md`, "Current state". One behavior change: cards that are
 7. **Log:** `grep STACKCARDS /tmp/OITIDebug.log | tail -n 20`. Expect `cards held under the last settled rectangle ...` followed by `cards shown`, and no `cards hidden` between them. For a number, run the matrix script (section 21, step 6): each blink check ends with `RESULT ...: no blink`.
 8. Put the phone back: `DiagnosticsLevel` 0.
 
-## 23. Browser downloads research (0.3.5: Arc Search first, Safari later)
+## 23. Browser downloads research log (finished for Arc; still there for Safari and for checks)
 
-Logging only: no setting, no user-visible change. It runs only in `company.thebrowser.ArcMobile2` (Arc Search) and `com.apple.mobilesafari`, and only in a browser whose **Library** folder holds the file `OITIBrowserDump.enable` (batch 1 and 2 used the tmp folder; iOS may purge tmp, the file was gone and nothing ran). The log is `OITIBrowser.log` in the same Library folder (an app cannot write `/tmp/OITIDebug.log`). Every phone-side step is in `tools/browser_research.sh` (run on the phone with `sh`; the phone's own shell is zsh and aborts a command whose `*` matches nothing, so no globs are typed by hand). `iproxy 2222 22` must be running on the PC.
+The research of 9 and 10 Nov 2026 is done for Arc Search (results in `LEARNINGS.md`: Arc uses the public `WKDownload`, the progress is a public `NSProgress`, the channel from an app to SpringBoard works). The research log stays in the build: it runs in Arc Search (`company.thebrowser.ArcMobile2`) and Safari (`com.apple.mobilesafari`) only when the file `OITIBrowserDump.enable` exists in that app's **Library** folder (not tmp: iOS may purge tmp, which cost one test round), and writes `OITIBrowser.log` next to it (an app cannot write `/tmp`). Everything phone-side is in `tools/browser_research.sh` (run on the phone with `sh`; the phone's shell is zsh and aborts a command whose `*` matches nothing). Put it on the phone once: `scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh`; log in once with `ssh -p 2222 root@127.0.0.1` and type the commands on the phone: `sh /var/mobile/br.sh enable` (then force-quit and reopen the browser), `status`, `test` (the channel test), `mark TEXT`, `log`, `clear`, `level 0|1`, `source on|off`, `disable`; a trailing `safari` addresses Safari. Safari has not been researched yet (a separate run, later).
 
-**Results so far.** Batch 1 (Arc 1.49.0): Arc uses the public `WKDownload`; the delegate is its private Swift class `DownloadSession`; the public `NSProgress` has a known total after about a second, updates every second and reaches `finished=1`. The census crashed Arc twice (crash reports 21:47:55 and 21:50:56) and was removed. Batch 2 run: nothing ran, because the enable file in tmp had vanished. Still open: the channel test (a Darwin notification and a libnotify state from Arc to SpringBoard), and what pause, resume and cancel look like.
+## 24. 0.3.5: Arc Search downloads in Download Progress (build tag `OITI-exp-0.3.5-arc-a`)
 
-**Batch 3 (build tag `OITI-exp-0.3.5-browser-c`): the same tests, with the enable file and the log in Library and one script for the phone.**
+New: **Settings > Insula > Download Progress > Show Arc Downloads** (key `DownloadBrowserEnabled`, default off, experimental; it needs Show Download Progress; Apple Mode and safe mode switch it off). Arc's newest download appears in the Island with its percentage (no file name yet: 0.3.6), in both looks, with the finished and cancelled states and the return to idle by percentage. Written and compile-checked, **not device-tested**. Arc has no pause button, so nothing is ever shown as paused.
 
-*On the PC, terminal 1 (fish): push the batch and get the DEBUG build.*
+**1. Push the batch and get the DEBUG build (PC, fish).** Check `git rev-parse` after the push: last time two commits never left the PC and an old package was installed.
 
 ```
 cd ~/OITUI
-tar -xzf ~/Downloads/oitui-v035-browser-research-c.tar.gz -C ~/OITUI .
+tar -xzf ~/Downloads/oitui-v035-arc-source.tar.gz -C ~/OITUI .
 git status --short
 git add -A
-git commit -m "0.3.5 batch 3: enable file and log in Library, phone script"
-git push
-set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId')
+git commit -m "0.3.5: Arc Search downloads in Download Progress"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+`git status --short` must list exactly the files named in the batch report; the last command must print the same hash twice (if not, stop: the push did not happen). Then wait for the CI run of that exact commit:
+
+```
+set SHA (git rev-parse HEAD)
+set -e RUN
+for i in (seq 36)
+    set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId")
+    if test -n "$RUN"
+        break
+    end
+    sleep 5
+end
+echo $RUN
 gh run watch $RUN --exit-status
 rm -rf ~/Downloads/oiti-debug
 gh run download $RUN -D ~/Downloads/oiti-debug
 find ~/Downloads/oiti-debug -name '*.deb'
 ```
 
-`git status --short` must list exactly `COMMANDS.md`, `DIAGNOSTICS.md`, `LEARNINGS.md`, `OITI/Browser/OITIBrowser.h`, `OITI/Browser/OITIBrowserDump.xm`, `OITI/Tweak.xm`, `OVERVIEW.md` (modified) and `tools/browser_research.sh` (new). The last command must list two `.deb` files. If the run fails, send me the failing step.
+`echo $RUN` must print one number, the last command two `.deb` files.
 
-*Install on the phone and put the script there (still the PC):*
+**2. Install (PC).**
 
 ```
-ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-c; mkdir /var/mobile/oiti-c'
-scp -P 2222 (find ~/Downloads/oiti-debug -name '*.deb') root@127.0.0.1:/var/mobile/oiti-c/
-ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-c/*.deb; sbreload'
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-d; mkdir /var/mobile/oiti-d'
+scp -P 2222 (find ~/Downloads/oiti-debug -name '*.deb') root@127.0.0.1:/var/mobile/oiti-d/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-d/*.deb; sbreload'
 scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh
 ```
 
-Wait about 20 seconds for the respring. Open Settings and Photos on the phone once; both must launch normally. Then log in once (everything below the next line is typed on the phone):
+Wait about 20 s. Open Settings, Photos and Arc once: all must launch normally (the dylib loads into every app). Then log in once and type the rest on the phone:
 
 ```
 ssh -p 2222 root@127.0.0.1
 ```
 
-*On the phone, in that session:*
-
 ```
 grep "START build" /tmp/OITIDebug.log | tail -n 1
 sh /var/mobile/br.sh level 1
-sh /var/mobile/br.sh clear
 sh /var/mobile/br.sh enable
 ```
 
-The first line must contain `OITI-exp-0.3.5-browser-c`. After `enable`: on the phone, force-quit Arc (swipe it away in the app switcher) and open it again. Then:
+The first line must say `OITI-exp-0.3.5-arc-a`. `enable` also switches the Arc research log on, so the Arc side of every test below is logged too. Force-quit Arc and open it again, then:
 
 ```
+sh /var/mobile/br.sh clear
 sh /var/mobile/br.sh status
 ```
 
-Expect: the enable file listed, a browser log, Arc running, and log lines `browser research dump is on in company.thebrowser.ArcMobile2` and hook lines (`-setDelegate:` etc., installed or "no hook" are both results). If the log is missing, tell me what `status` printed.
+**3. Default off.** Open Settings > Insula > Download Progress: **Show Arc Downloads** is off. With it off (and Arc restarted), start a download in Arc (see 5): Arc works as before, and the Island shows nothing. In `status`, the Arc log must say `source off` or nothing about a source, and no `sent` lines.
 
-*The channel test (Arc open, no download running):*
+**4. Switch it on.** In Settings turn on **Show Download Progress** and **Show Arc Downloads** (or on the phone: `sh /var/mobile/br.sh source on`). Then `sh /var/mobile/br.sh status`: the SpringBoard part must show `browser source on` (DOWNLOAD lines) and the Arc log `source on (SpringBoard's "Show Arc Downloads" state)` and the hook lines, without restarting Arc (Arc must still be open when you switch it on).
 
-```
-sh /var/mobile/br.sh mark channel-test
-sh /var/mobile/br.sh test
-sleep 3
-sh /var/mobile/br.sh status
-```
+**5. The test downloads.** PC, terminal 2: `python3 ~/OITUI/tools/throttle_server.py --size-mb 200 --rate-mb 1`; open its link in Arc. Watch the Island and run `mark` on the phone at each step (`sh /var/mobile/br.sh mark TEXT`):
+1. **Start.** The Island shows Arc's download once Arc reports a size (the first 9 to 25 s Arc reports none, so nothing shows). Then the percentage rises about once a second. Check both looks (Settings > Download Progress > Look: Minimal, Detailed). Mark `bar-visible`.
+2. **Cancel** in Arc after about 30 s. The Island shows the short red "Cancelled" state, then goes. Mark `cancel-pressed`.
+3. **Finish.** Stop the server (Ctrl+C) and run `python3 ~/OITUI/tools/throttle_server.py --size-mb 100 --rate-mb 2`, open the link, let it finish. The Island shows complete with the check, then goes (by your idle setting). Mark `finished`. Stay in Arc's downloads list: Arc calls cancel about 17 s after the finish; the Island must NOT show "Cancelled" for it. Mark `after-finish-17s`.
+4. **Arc killed.** Start another download, force-quit Arc from the app switcher while the bar shows. Within about 2 s the Island shows "Cancelled" and goes. Mark `arc-killed`.
+5. **Two downloads.** Start a download, then open the same link again in a second tab: the Island follows the newest download. Mark `second-download`.
+6. **Switches during a download.** Start a download and turn **Show Arc Downloads** off in Settings: the bar goes at once, Arc keeps downloading, nothing crashes. Turn it on again and start a new one. Then turn **Apple Mode** on during a download: the bar goes; turn it off. Mark each.
+7. **Regression.** The App Store source (a real install or update) and the test download in Settings still work; the Island, cards and notices look as before.
 
-Look at Arc: it must still be open. Expect `channel test #1 sent: libnotify register_check=... set_state=... post=...` in the log and up to two `channel test ... arrived` lines in the SpringBoard part. Which arrive is the result. If Arc closes, stop and tell me.
-
-*The download run.* PC, terminal 2:
-
-```
-python3 ~/OITUI/tools/throttle_server.py --size-mb 200 --rate-mb 1
-```
-
-It prints `Open this on the phone: http://...`. Type that link into Arc. In the phone session, run a `mark` right after each press:
-
-1. The download starts when the link opens: `sh /var/mobile/br.sh mark download-started`
-2. After about 30 s press pause in Arc: `sh /var/mobile/br.sh mark pause-pressed` (no pause button: `sh /var/mobile/br.sh mark no-pause-button`)
-3. After 15 s press resume: `sh /var/mobile/br.sh mark resume-pressed`
-4. After about 20 s press cancel: `sh /var/mobile/br.sh mark cancel-pressed`
-5. Wait 10 s. In terminal 2 press Ctrl+C and run `python3 ~/OITUI/tools/throttle_server.py --size-mb 100 --rate-mb 2`, open its link in Arc and let it finish (under a minute): `sh /var/mobile/br.sh mark finished`
-
-*Collect (PC, terminal 1; leave the phone session with `exit` first, then):*
+**6. Collect (type `exit` first, then PC terminal 1).**
 
 ```
 ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh log' > ~/Downloads/OITIBrowser-all.log
 ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh marks' > ~/Downloads/oiti-marks.txt
 ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh status' > ~/Downloads/oiti-status.txt
-ls -l ~/Downloads/OITIBrowser-all.log ~/Downloads/oiti-marks.txt ~/Downloads/oiti-status.txt
+ssh -p 2222 root@127.0.0.1 'grep -E "DOWNLOAD|BROWSER" /tmp/OITIDebug.log' > ~/Downloads/oiti-download-lines.txt
 ```
 
-Send me the three files. Each `ssh` asks for the password. *Switch off:* `ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh disable; sh /var/mobile/br.sh level 0'`, then force-quit Arc. Stop the server with Ctrl+C.
+Send me the four files, and what you saw on the Island at each marked step (bar, percentage, look, any glitch).
 
-Safari is a separate run later: the same commands with the word `safari` at the end (`sh /var/mobile/br.sh enable safari`).
+**7. Put the phone back.**
+
+```
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh disable; sh /var/mobile/br.sh level 0'
+```
+
+Keep **Show Arc Downloads** on if you like it; it is off by default for everyone else.

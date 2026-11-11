@@ -12,6 +12,7 @@
 // The download settings (DownloadProgressEnabled and the keys below), written by the preferences reload (Shared/OITIPreferences.xm).
 BOOL sDownloadProgressEnabled;          // DownloadProgressEnabled (default NO)
 BOOL sDownloadAppStoreEnabled;          // DownloadAppStoreEnabled (default NO): feed the tracker from App Store downloads
+BOOL sDownloadBrowserEnabled;           // DownloadBrowserEnabled (default NO): feed the tracker from Arc Search downloads (OITIBrowserSource.xm)
 BOOL sDownloadTestFractionOnly;         // DownloadTestFractionOnly (default NO, defaults write only): the test download reports a percentage only
 CGFloat sDownloadIdleAfterMB = 0;       // DownloadIdleAfterMB: return the Island to idle after this many MB downloaded, 0 = never
 CGFloat sDownloadIdleAfterSeconds = 0;  // DownloadIdleAfterSeconds: the same after this long on screen, 0 = never
