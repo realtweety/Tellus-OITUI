@@ -854,7 +854,7 @@ Download Progress stage 2. Settings > Insula > **Download Progress** has a new g
 
 Steps:
 
-1. Percentage-only look with the test download. Turn on `DownloadTestFractionOnly` (above), leave the size limit on Never, tap **Start Test Download**. Minimal: header `App Store - Test Download`, `Downloading` above the bar, the percentage on the right, nothing on the left, and under the bar `~N s left` (it appears after the percentage has moved a few times). Detailed: a line like `42% · ~1 min left`. At the end the Minimal text fades into a green check (Detailed: `Download complete`); stop it with **Stop Test Download** instead and the bar turns red with `Cancelled` for a moment. The **size** limit does nothing in this mode (set it to 100 MB and check); the **time** limit works. Turn the key off and confirm the byte look is unchanged.
+1. Percentage-only look with the test download. Turn on `DownloadTestFractionOnly` (above), leave the size limit on Never, tap **Start Test Download**. Minimal: header `App Store - Test Download`, `Downloading` above the bar, the percentage on the right, nothing on the left, and under the bar `~N s left` (it appears after the percentage has moved a few times). Detailed: a line under the bar like `Downloading · ~1 min left` (`Downloading` alone before the estimate exists; since 0.3.5 it no longer repeats the percentage, which is the label on the right). At the end the Minimal text fades into a green check (Detailed: `Download complete`); stop it with **Stop Test Download** instead and the bar turns red with `Cancelled` for a moment. The **size** limit does nothing in this mode (set it to 100 MB and check); the **time** limit works. Turn the key off and confirm the byte look is unchanged.
 2. A real App Store download. Turn on **Show Download Progress** and **Show App Store Downloads**, set DiagnosticsLevel 1, start a new install of a large app (1 GB or more) and stay on the Home Screen. Within about a second the bar should appear with the header `App Store - <app name>`, `Downloading`, a percentage that rises in whole steps and an estimate after a few steps. The log should show `App Store source on`, then `tracking <bundle ID> (<name>) at N% (installPhase=... installState=... ...)`.
 3. Pause: tap the downloading icon to pause. The bar should say `Paused` with no estimate. The log shows `paused at N% (...)`: please report that line, its `progressPaused` and `placeholderPaused` values tell which one reflects a pause. If neither changes the bar will not say Paused and the number just stops; report that too. Resume: `resumed`, and `Downloading` again.
 4. The end: let it finish. Expect the completion animation in the Minimal look (the text fades, the bar contracts into a green circle and a white check is drawn in it, about 0.8 s; with Reduce Motion on it appears at once) or `Download complete` in Detailed, held for about 3 seconds, then the Island returns to idle, and the log shows `left the placeholder list at N%: complete (app installed: yes)`. Report how long it took from the last percentage change to that line (the earlier dump saw the fraction sit at 76 percent while the install phase changed).
@@ -1474,3 +1474,144 @@ ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh disable; sh /var/mobile/br.sh l
 ```
 
 Keep **Show Arc Downloads** on if you like it; it is off by default for everyone else.
+
+## 25. 0.3.5 release candidate: test the exact release package, then release
+
+Changes since the Arc test (section 24): the Detailed look no longer repeats the percentage (percentage-only sources, so App Store and Arc: the line under the bar is `Downloading · ~1 min left`, the label on the right is the percentage), OITI `control` `0.3.5`, build tag `OITI-0.3.5`, Settings tag `OITIPrefs-0.3.5`, docs. OITCore stays `0.1.0`. The release package is `FINALPACKAGE=1`, `DiagnosticsLevel` 0.
+
+**1. Push (PC, fish).** Check the push with `git rev-parse`:
+
+```
+cd ~/OITUI
+tar -xzf ~/Downloads/oitui-v035-rc.tar.gz -C ~/OITUI .
+git status --short
+git add -A
+git commit -m "OITI 0.3.5 release candidate"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+`git status --short` must list exactly the files in the batch report; the last line must print the same hash twice.
+
+**2. The normal CI run of that commit must be green, then run the release workflow** (the release workflow file is on `main`, so the manual run works):
+
+```
+set SHA (git rev-parse HEAD)
+set -e RUN
+for i in (seq 36)
+    set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId")
+    if test -n "$RUN"
+        break
+    end
+    sleep 5
+end
+echo $RUN
+gh run watch $RUN --exit-status
+gh workflow run release-oiti.yml --ref experiments
+set -e RELRUN
+for i in (seq 36)
+    set RELRUN (gh run list --workflow=release-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -n 1)
+    if test -n "$RELRUN"
+        break
+    end
+    sleep 5
+end
+echo $RELRUN
+gh run watch $RELRUN --exit-status
+rm -rf ~/Downloads/oiti-rc
+gh run download $RELRUN -D ~/Downloads/oiti-rc
+find ~/Downloads/oiti-rc -name '*.deb'
+shasum -a 256 (find ~/Downloads/oiti-rc -name '*.deb')
+```
+
+Both `echo` lines must print one number. The `find` must list exactly two files, `com.wilburt.oitcore_0.1.0...deb` and `com.wilburt.oiti_0.3.5...deb`, with no `debug` in the names. If the manual `gh workflow run` answers an HTTP error, tell me; the fallback is a release-candidate tag (`git tag v0.3.5-rc.1`, `git push origin v0.3.5-rc.1`, find the run by `--branch v0.3.5-rc.1`).
+
+**3. Install those exact files and check what is installed.**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-rc; mkdir /var/mobile/oiti-rc'
+scp -P 2222 (find ~/Downloads/oiti-rc -name '*.deb') root@127.0.0.1:/var/mobile/oiti-rc/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-rc/*.deb; sbreload'
+```
+
+Wait about 20 s, open Settings, Photos and Arc once, then:
+
+```
+ssh -p 2222 root@127.0.0.1
+```
+
+On the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.oitcore | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+defaults read com.wilburt.oiti.prefs DiagnosticsLevel
+defaults read com.wilburt.oiti.prefs DownloadBrowserEnabled
+sh /var/mobile/br.sh level 0
+sh /var/mobile/br.sh disable
+```
+
+Expect `Version: 0.3.5` (no `+debug`), `Version: 0.1.0`, `build=OITI-0.3.5`, and for the two `defaults read` lines either `0` or `does not exist` (default off; a `1` is only fine if you turned it on yourself). `level 0` and `disable` (the Arc research file) put the phone in the state a user has. If `dpkg -s` shows anything else, stop and send me the lines.
+
+**4. The checks on the release package** (answer yes or no to each, and tell me what you saw if it is not a plain yes):
+1. Settings > Insula shows `0.3.5` at the bottom; every page opens; Download Progress shows **Show Arc Downloads**, off.
+2. Stock look: with every Island setting at its default the Island and a real notification look stock.
+3. Respring-loop guard (section 7 and section 21, step 3): five `sbreload` about 10 s apart trip it, the banner appears, **Clear Safe Mode & Respring** brings OITI back.
+4. Show Download Progress and Show Arc Downloads on (Settings, or `sh /var/mobile/br.sh source on`), Arc already open: start a download (cellular is fine). The bar appears with Arc's percentage once Arc reports a size. **Detailed look: one percentage** (on the right), the line under the bar says `Downloading` or `Downloading · ~N s left`. **Minimal look:** one percentage right of the bar.
+5. Cancel in Arc: short red `Cancelled`, then idle.
+6. A download that finishes: complete with the check, then idle; about 17 s later no `Cancelled` appears.
+7. Force-quit Arc during a download: `Cancelled` within about 2 s.
+8. **Show Arc Downloads** off during a download: the bar goes, Arc keeps going. **Apple Mode** on during a download: the bar goes.
+9. A real App Store install or update, if you have one, in the Detailed look: the same one-percentage line.
+10. Set the phone back: `sh /var/mobile/br.sh level 0`.
+
+**5. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
+
+**6. Release (only after we both agree; I give the notes text).** Save the notes (outside the repo):
+
+```
+nano ~/oiti-0.3.5-notes.md
+```
+
+The text:
+
+```
+**Browser downloads for Download Progress.** Arc Search downloads now show in the Island with their percentage, in both looks, with the finished and cancelled states and the return to idle by percentage. Turn it on in Settings > Insula > Download Progress > Show Arc Downloads (off by default, experimental).
+
+**Detailed look:** for percentage-only downloads (Arc and the App Store) the line under the bar no longer repeats the percentage.
+
+**Known limits:** Arc Search only (tested with 1.49.0), percentage only (no file name yet), no pause (Arc has none); Safari and Chrome are not supported yet. Tested only on an iPhone 8 Plus (iOS 16.7.16, Dopamine 3). Download Progress, the notification stack and Status Bar are still experimental.
+```
+
+Then, one block at a time (the squash merge deletes `experiments` on GitHub; check the PR state first):
+
+```
+cd ~/OITUI
+git status --short
+gh pr create --base main --head experiments --title "OITUI 0.3.5" --body "Arc Search downloads in Download Progress."
+gh pr diff --name-only
+gh pr merge --squash
+gh pr view --json state,mergeCommit
+```
+
+The state must say `MERGED`. Then check the tested tree is what landed (the release run's commit is `$SHA` from step 2; if the variable is gone, use the hash printed by `git rev-parse HEAD` in step 1):
+
+```
+git fetch --prune origin
+git switch main
+git pull --ff-only
+git rev-parse $SHA^{tree}
+git rev-parse origin/main^{tree}
+```
+
+The two hashes must be identical. Tag first, then the Release with `--verify-tag`:
+
+```
+git tag -a v0.3.5 -m "OITUI 0.3.5"
+git push origin v0.3.5
+gh release create v0.3.5 --verify-tag --title "OITUI 0.3.5" --notes-file ~/oiti-0.3.5-notes.md (find ~/Downloads/oiti-rc -name '*.deb')
+gh release view v0.3.5
+```
+
+Attach the files from `~/Downloads/oiti-rc` (the tested artifact), not a rebuild: pushing the tag starts a second, untested release build of the same sources. Last, recreate `experiments` from `main` (the block in `WORKFLOW.md`).

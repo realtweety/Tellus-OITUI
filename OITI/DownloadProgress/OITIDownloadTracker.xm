@@ -410,8 +410,9 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     } else if (complete) {
         detailText = fractionMode ? @"Download complete" : [NSString stringWithFormat:@"Download complete · %@", OITIDownloadBytesText(downloaded)];
     } else if (fractionMode) {
-        NSString *state = paused ? @"Paused" : (installing ? @"Installing…" : etaText);
-        detailText = state.length ? [NSString stringWithFormat:@"%@ · %@", percent, state] : percent;
+        // The percentage is the label on the right (the same number the Minimal look shows right of its bar), so this line does not
+        // repeat it (0.3.5: it used to read "42% · ~1 min left" beside a "42%" label).
+        detailText = paused ? @"Paused" : (installing ? @"Installing…" : (etaText.length ? [NSString stringWithFormat:@"Downloading · %@", etaText] : @"Downloading"));
     } else if (total > 0) {
         detailText = [NSString stringWithFormat:@"%@ of %@ · %@/s", OITIDownloadBytesText(downloaded), OITIDownloadBytesText(total),
                       OITIDownloadBytesText(speed)];

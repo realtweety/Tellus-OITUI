@@ -1,6 +1,6 @@
 // OITI -- Dynamic Island positioning/appearance module for OITUI (fork of VisibleIsland by ethxnn88).
 //
-// OITI 0.3.1 notification stack (owner-tested on iPhone 8 Plus / iOS 16.7.16; still experimental). Build tag: see kOITIBuildTag.
+// OITI 0.3.5 notification stack (owner-tested on iPhone 8 Plus / iOS 16.7.16; still experimental). Build tag: see kOITIBuildTag.
 //
 // ISLAND NOTIFICATIONS (new in 0.2.0): an incoming notification banner is shown as a real Island element (app icon, title,
 // message) instead of the stock banner. Custom Island notifications are off by default (`islandNotificationsEnabled = NO`)
@@ -192,7 +192,7 @@
 #import "Browser/OITIBrowser.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-exp-0.3.5-arc-a";
+extern NSString * const kOITIBuildTag = @"OITI-0.3.5";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";
