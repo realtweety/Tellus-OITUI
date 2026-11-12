@@ -13,6 +13,7 @@ OITI_FILES += IslandSize/OITIIslandHooks.xm
 OITI_FILES += IslandNotifications/OITINoticePresenter.xm IslandNotifications/OITINoticeSupport.xm IslandNotifications/OITINoticeElement.xm
 OITI_FILES += IslandNotifications/OITINoticeViews.xm IslandNotifications/OITINoticeStackCards.xm IslandNotifications/OITIBannerHide.xm IslandNotifications/OITINoticeActions.xm IslandNotifications/OITINotificationHooks.xm
 OITI_FILES += Browser/OITIBrowserDump.xm
+OITI_FILES += DownloadProgress/OITIBrowserSource.xm
 OITI_FILES += Startup/OITIStartupHello.xm
 OITI_FILES += StatusBar/OITIStatusBarProvider.xm
 OITI_FILES += Shared/OITIState.xm Shared/OITIPreferences.xm Safety/OITISafety.xm

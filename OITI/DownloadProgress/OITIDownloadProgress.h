@@ -9,6 +9,7 @@
 // The settings (defined in OITIDownloadTracker.xm, written by the preferences reload in Shared/OITIPreferences.xm).
 extern BOOL sDownloadProgressEnabled;
 extern BOOL sDownloadAppStoreEnabled;
+extern BOOL sDownloadBrowserEnabled;
 extern BOOL sDownloadTestFractionOnly;
 extern CGFloat sDownloadIdleAfterMB;
 extern CGFloat sDownloadIdleAfterSeconds;
@@ -71,3 +72,4 @@ void OITIFakeDownloadStop(void);
 
 // OITIAppStoreSource.xm
 void OITIAppStoreSourceRefresh(void);
+void OITIBrowserSourceRefresh(void);   // OITIBrowserSource.xm: the flag the browser reads and the listener for its messages

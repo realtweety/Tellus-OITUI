@@ -12,6 +12,7 @@
 // The download settings (DownloadProgressEnabled and the keys below), written by the preferences reload (Shared/OITIPreferences.xm).
 BOOL sDownloadProgressEnabled;          // DownloadProgressEnabled (default NO)
 BOOL sDownloadAppStoreEnabled;          // DownloadAppStoreEnabled (default NO): feed the tracker from App Store downloads
+BOOL sDownloadBrowserEnabled;           // DownloadBrowserEnabled (default NO): feed the tracker from Arc Search downloads (OITIBrowserSource.xm)
 BOOL sDownloadTestFractionOnly;         // DownloadTestFractionOnly (default NO, defaults write only): the test download reports a percentage only
 CGFloat sDownloadIdleAfterMB = 0;       // DownloadIdleAfterMB: return the Island to idle after this many MB downloaded, 0 = never
 CGFloat sDownloadIdleAfterSeconds = 0;  // DownloadIdleAfterSeconds: the same after this long on screen, 0 = never
@@ -409,8 +410,9 @@ static void OITIDownloadUpdateViews(NSDictionary *snapshot, NSInteger ending) {
     } else if (complete) {
         detailText = fractionMode ? @"Download complete" : [NSString stringWithFormat:@"Download complete · %@", OITIDownloadBytesText(downloaded)];
     } else if (fractionMode) {
-        NSString *state = paused ? @"Paused" : (installing ? @"Installing…" : etaText);
-        detailText = state.length ? [NSString stringWithFormat:@"%@ · %@", percent, state] : percent;
+        // The percentage is the label on the right (the same number the Minimal look shows right of its bar), so this line does not
+        // repeat it (0.3.5: it used to read "42% · ~1 min left" beside a "42%" label).
+        detailText = paused ? @"Paused" : (installing ? @"Installing…" : (etaText.length ? [NSString stringWithFormat:@"Downloading · %@", etaText] : @"Downloading"));
     } else if (total > 0) {
         detailText = [NSString stringWithFormat:@"%@ of %@ · %@/s", OITIDownloadBytesText(downloaded), OITIDownloadBytesText(total),
                       OITIDownloadBytesText(speed)];

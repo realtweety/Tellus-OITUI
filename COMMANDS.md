@@ -854,7 +854,7 @@ Download Progress stage 2. Settings > Insula > **Download Progress** has a new g
 
 Steps:
 
-1. Percentage-only look with the test download. Turn on `DownloadTestFractionOnly` (above), leave the size limit on Never, tap **Start Test Download**. Minimal: header `App Store - Test Download`, `Downloading` above the bar, the percentage on the right, nothing on the left, and under the bar `~N s left` (it appears after the percentage has moved a few times). Detailed: a line like `42% · ~1 min left`. At the end the Minimal text fades into a green check (Detailed: `Download complete`); stop it with **Stop Test Download** instead and the bar turns red with `Cancelled` for a moment. The **size** limit does nothing in this mode (set it to 100 MB and check); the **time** limit works. Turn the key off and confirm the byte look is unchanged.
+1. Percentage-only look with the test download. Turn on `DownloadTestFractionOnly` (above), leave the size limit on Never, tap **Start Test Download**. Minimal: header `App Store - Test Download`, `Downloading` above the bar, the percentage on the right, nothing on the left, and under the bar `~N s left` (it appears after the percentage has moved a few times). Detailed: a line under the bar like `Downloading · ~1 min left` (`Downloading` alone before the estimate exists; since 0.3.5 it no longer repeats the percentage, which is the label on the right). At the end the Minimal text fades into a green check (Detailed: `Download complete`); stop it with **Stop Test Download** instead and the bar turns red with `Cancelled` for a moment. The **size** limit does nothing in this mode (set it to 100 MB and check); the **time** limit works. Turn the key off and confirm the byte look is unchanged.
 2. A real App Store download. Turn on **Show Download Progress** and **Show App Store Downloads**, set DiagnosticsLevel 1, start a new install of a large app (1 GB or more) and stay on the Home Screen. Within about a second the bar should appear with the header `App Store - <app name>`, `Downloading`, a percentage that rises in whole steps and an estimate after a few steps. The log should show `App Store source on`, then `tracking <bundle ID> (<name>) at N% (installPhase=... installState=... ...)`.
 3. Pause: tap the downloading icon to pause. The bar should say `Paused` with no estimate. The log shows `paused at N% (...)`: please report that line, its `progressPaused` and `placeholderPaused` values tell which one reflects a pause. If neither changes the bar will not say Paused and the number just stops; report that too. Resume: `resumed`, and `Downloading` again.
 4. The end: let it finish. Expect the completion animation in the Minimal look (the text fades, the bar contracts into a green circle and a white check is drawn in it, about 0.8 s; with Reduce Motion on it appears at once) or `Download complete` in Detailed, held for about 3 seconds, then the Island returns to idle, and the log shows `left the placeholder list at N%: complete (app installed: yes)`. Report how long it took from the last percentage change to that line (the earlier dump saw the fraction sit at 76 percent while the install phase changed).
@@ -1374,41 +1374,244 @@ Changes: see `OVERVIEW.md`, "Current state". One behavior change: cards that are
 7. **Log:** `grep STACKCARDS /tmp/OITIDebug.log | tail -n 20`. Expect `cards held under the last settled rectangle ...` followed by `cards shown`, and no `cards hidden` between them. For a number, run the matrix script (section 21, step 6): each blink check ends with `RESULT ...: no blink`.
 8. Put the phone back: `DiagnosticsLevel` 0.
 
-## 23. Browser downloads research (0.3.5, batch 1: Arc Search first, Safari second)
+## 23. Browser downloads research log (finished for Arc; still there for Safari and for checks)
 
-Logging only: no setting, no user-visible change. It runs only in `company.thebrowser.ArcMobile2` (Arc Search) and `com.apple.mobilesafari`, and only in a browser whose tmp folder holds the file `OITIBrowserDump.enable`. Every other app returns at the first line of the `%ctor` branch. This touches the `%ctor` (SpringBoard side: two notification observers; other processes: one string comparison), so it needs the safe first run. Test the DEBUG build from the normal CI run (the build tag is `OITI-exp-0.3.5-browser-a`). `iproxy 2222 22` must be running. The browser log cannot be `/tmp/OITIDebug.log` (an app cannot write there); it is `OITIBrowser.log` in the app's own tmp folder.
+The research of 9 and 10 Nov 2026 is done for Arc Search (results in `LEARNINGS.md`: Arc uses the public `WKDownload`, the progress is a public `NSProgress`, the channel from an app to SpringBoard works). The research log stays in the build: it runs in Arc Search (`company.thebrowser.ArcMobile2`) and Safari (`com.apple.mobilesafari`) only when the file `OITIBrowserDump.enable` exists in that app's **Library** folder (not tmp: iOS may purge tmp, which cost one test round), and writes `OITIBrowser.log` next to it (an app cannot write `/tmp`). Everything phone-side is in `tools/browser_research.sh` (run on the phone with `sh`; the phone's shell is zsh and aborts a command whose `*` matches nothing). Put it on the phone once: `scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh`; log in once with `ssh -p 2222 root@127.0.0.1` and type the commands on the phone: `sh /var/mobile/br.sh enable` (then force-quit and reopen the browser), `status`, `test` (the channel test), `mark TEXT`, `log`, `clear`, `level 0|1`, `source on|off`, `disable`; a trailing `safari` addresses Safari. Safari has not been researched yet (a separate run, later).
 
-**1. Install with the safe first run** (same procedure as section 21, step 1, items 2 and 3): `dpkg -i` the OITI package without respringing, rename `/var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist` to `OITI.plist.off`, `sbreload`, then rename it back with `tail -F /tmp/OITIDebug.log` running in a second session and `sbreload` again. SpringBoard must come back and the log must show the session line `OITI-exp-0.3.5-browser-a`. If it does not: Dopamine > Settings > Tweak Injection off, jailbreak again, remove `OITI.plist*`, and send me the last 40 lines.
-Then open three or four ordinary apps (Settings, Photos, Notes, Arc): all must launch normally. OITI loads into every UIKit app, and the change is one early return in each.
+## 24. 0.3.5: Arc Search downloads in Download Progress (build tag `OITI-exp-0.3.5-arc-a`)
 
-**2. Find the two app folders and create the enable files** (replace nothing; the commands print what they find):
+New: **Settings > Insula > Download Progress > Show Arc Downloads** (key `DownloadBrowserEnabled`, default off, experimental; it needs Show Download Progress; Apple Mode and safe mode switch it off). Arc's newest download appears in the Island with its percentage (no file name yet: 0.3.6), in both looks, with the finished and cancelled states and the return to idle by percentage. Written and compile-checked, **not device-tested**. Arc has no pause button, so nothing is ever shown as paused.
 
-```
-ssh -p 2222 root@127.0.0.1 'for d in /var/mobile/Containers/Data/Application/*; do for id in ArcMobile2 com.apple.mobilesafari; do grep -q $id "$d/.com.apple.mobile_container_manager.metadata.plist" 2>/dev/null && echo "$id $d"; done; done'
-```
-
-That prints one line per app: the app and its data folder. (It assumes the container metadata file contains the bundle ID; if it prints nothing, send me `ls -a` of one folder and I will give another way.) For each folder, with the real path from the line:
+**1. Push the batch and get the DEBUG build (PC, fish).** Check `git rev-parse` after the push: last time two commits never left the PC and an old package was installed.
 
 ```
-ssh -p 2222 root@127.0.0.1 'mkdir -p "/var/mobile/Containers/Data/Application/<UUID>/tmp" && touch "/var/mobile/Containers/Data/Application/<UUID>/tmp/OITIBrowserDump.enable"'
+cd ~/OITUI
+tar -xzf ~/Downloads/oitui-v035-arc-source.tar.gz -C ~/OITUI .
+git status --short
+git add -A
+git commit -m "0.3.5: Arc Search downloads in Download Progress"
+git push origin experiments
+git rev-parse HEAD origin/experiments
 ```
 
-(Type the UUID in; do not paste the angle brackets.) Safari's folder may sit elsewhere on iOS 16; if Safari prints no line, skip Safari for now.
-
-**3. Start the test server on the PC** (`tools/throttle_server.py`; the PC and the phone on the same network, the port open in the PC's firewall):
+`git status --short` must list exactly the files named in the batch report; the last command must print the same hash twice (if not, stop: the push did not happen). Then wait for the CI run of that exact commit:
 
 ```
-python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1
+set SHA (git rev-parse HEAD)
+set -e RUN
+for i in (seq 36)
+    set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId")
+    if test -n "$RUN"
+        break
+    end
+    sleep 5
+end
+echo $RUN
+gh run watch $RUN --exit-status
+rm -rf ~/Downloads/oiti-debug
+gh run download $RUN -D ~/Downloads/oiti-debug
+find ~/Downloads/oiti-debug -name '*.deb'
 ```
 
-It prints the link, for example `http://192.168.x.y:8099/test.bin`, and the download then takes about 7 minutes. If Arc refuses an `http://` link, tell me and try Safari.
+`echo $RUN` must print one number, the last command two `.deb` files.
 
-**4. The run** (Arc, then the same for Safari if its folder was found). DiagnosticsLevel 1 for the SpringBoard side: `defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1`, `notifyutil -p com.wilburt.oiti/PrefsChanged`.
-1. Force-quit Arc and open it again (the enable file is read at launch). In the app's tmp folder `OITIBrowser.log` must now exist and start with `browser research dump is on in company.thebrowser.ArcMobile2`.
-2. `tail -F <the app folder>/tmp/OITIBrowser.log` in a second session. It shows either `WKDownload -setDelegate: hook installed` or `WKDownload class is not loaded` (both are results).
-3. Post the census and channel test: `notifyutil -p com.wilburt.oiti/BrowserDump` (full path `/var/jb/usr/bin/notifyutil` if the shell does not find it). The log gets a `census:` block and one `channel test #1 sent: ... register_check=<n> set_state=<n> post=<n>` line (0 means ok).
-4. In SpringBoard's log: `grep BROWSER /tmp/OITIDebug.log`. Expect up to two lines, `the plain Darwin notification ... arrived` and `the libnotify notification ... arrived`. Which of them arrive is the result.
-5. Open the test link in Arc and start the download. Let Arc show its progress. Pause it, resume it and, on a second run, cancel it; let one run finish if you can (shorten it with `--size-mb 100`). Note the times, because the log has timestamps.
-6. Post `notifyutil -p com.wilburt.oiti/BrowserDump` once more while a download runs.
+**2. Install (PC).**
 
-**5. Send me:** the whole `OITIBrowser.log` (`scp -P 2222 root@127.0.0.1:"<the app folder>/tmp/OITIBrowser.log" ~/Downloads/`), `grep BROWSER /tmp/OITIDebug.log`, what Arc showed (its own progress, pause, resume, cancel, finish, any error), and whether any other app misbehaved. Nothing needs cleaning up afterwards except the enable file: remove it to switch the research off (`rm <the app folder>/tmp/OITIBrowserDump.enable`), then force-quit the browser. `DiagnosticsLevel` back to 0.
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-d; mkdir /var/mobile/oiti-d'
+scp -P 2222 (find ~/Downloads/oiti-debug -name '*.deb') root@127.0.0.1:/var/mobile/oiti-d/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-d/*.deb; sbreload'
+scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh
+```
+
+Wait about 20 s. Open Settings, Photos and Arc once: all must launch normally (the dylib loads into every app). Then log in once and type the rest on the phone:
+
+```
+ssh -p 2222 root@127.0.0.1
+```
+
+```
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+sh /var/mobile/br.sh level 1
+sh /var/mobile/br.sh enable
+```
+
+The first line must say `OITI-exp-0.3.5-arc-a`. `enable` also switches the Arc research log on, so the Arc side of every test below is logged too. Force-quit Arc and open it again, then:
+
+```
+sh /var/mobile/br.sh clear
+sh /var/mobile/br.sh status
+```
+
+**3. Default off.** Open Settings > Insula > Download Progress: **Show Arc Downloads** is off. With it off (and Arc restarted), start a download in Arc (see 5): Arc works as before, and the Island shows nothing. In `status`, the Arc log must say `source off` or nothing about a source, and no `sent` lines.
+
+**4. Switch it on.** In Settings turn on **Show Download Progress** and **Show Arc Downloads** (or on the phone: `sh /var/mobile/br.sh source on`). Then `sh /var/mobile/br.sh status`: the SpringBoard part must show `browser source on` (DOWNLOAD lines) and the Arc log `source on (SpringBoard's "Show Arc Downloads" state)` and the hook lines, without restarting Arc (Arc must still be open when you switch it on).
+
+**5. The test downloads.** PC, terminal 2: `python3 ~/OITUI/tools/throttle_server.py --size-mb 200 --rate-mb 1`; open its link in Arc. Watch the Island and run `mark` on the phone at each step (`sh /var/mobile/br.sh mark TEXT`):
+1. **Start.** The Island shows Arc's download once Arc reports a size (the first 9 to 25 s Arc reports none, so nothing shows). Then the percentage rises about once a second. Check both looks (Settings > Download Progress > Look: Minimal, Detailed). Mark `bar-visible`.
+2. **Cancel** in Arc after about 30 s. The Island shows the short red "Cancelled" state, then goes. Mark `cancel-pressed`.
+3. **Finish.** Stop the server (Ctrl+C) and run `python3 ~/OITUI/tools/throttle_server.py --size-mb 100 --rate-mb 2`, open the link, let it finish. The Island shows complete with the check, then goes (by your idle setting). Mark `finished`. Stay in Arc's downloads list: Arc calls cancel about 17 s after the finish; the Island must NOT show "Cancelled" for it. Mark `after-finish-17s`.
+4. **Arc killed.** Start another download, force-quit Arc from the app switcher while the bar shows. Within about 2 s the Island shows "Cancelled" and goes. Mark `arc-killed`.
+5. **Two downloads.** Start a download, then open the same link again in a second tab: the Island follows the newest download. Mark `second-download`.
+6. **Switches during a download.** Start a download and turn **Show Arc Downloads** off in Settings: the bar goes at once, Arc keeps downloading, nothing crashes. Turn it on again and start a new one. Then turn **Apple Mode** on during a download: the bar goes; turn it off. Mark each.
+7. **Regression.** The App Store source (a real install or update) and the test download in Settings still work; the Island, cards and notices look as before.
+
+**6. Collect (type `exit` first, then PC terminal 1).**
+
+```
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh log' > ~/Downloads/OITIBrowser-all.log
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh marks' > ~/Downloads/oiti-marks.txt
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh status' > ~/Downloads/oiti-status.txt
+ssh -p 2222 root@127.0.0.1 'grep -E "DOWNLOAD|BROWSER" /tmp/OITIDebug.log' > ~/Downloads/oiti-download-lines.txt
+```
+
+Send me the four files, and what you saw on the Island at each marked step (bar, percentage, look, any glitch).
+
+**7. Put the phone back.**
+
+```
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh disable; sh /var/mobile/br.sh level 0'
+```
+
+Keep **Show Arc Downloads** on if you like it; it is off by default for everyone else.
+
+## 25. 0.3.5 release candidate: test the exact release package, then release
+
+Changes since the Arc test (section 24): the Detailed look no longer repeats the percentage (percentage-only sources, so App Store and Arc: the line under the bar is `Downloading · ~1 min left`, the label on the right is the percentage), OITI `control` `0.3.5`, build tag `OITI-0.3.5`, Settings tag `OITIPrefs-0.3.5`, docs. OITCore stays `0.1.0`. The release package is `FINALPACKAGE=1`, `DiagnosticsLevel` 0.
+
+**1. Push (PC, fish).** Check the push with `git rev-parse`:
+
+```
+cd ~/OITUI
+tar -xzf ~/Downloads/oitui-v035-rc.tar.gz -C ~/OITUI .
+git status --short
+git add -A
+git commit -m "OITI 0.3.5 release candidate"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+`git status --short` must list exactly the files in the batch report; the last line must print the same hash twice.
+
+**2. The normal CI run of that commit must be green, then run the release workflow** (the release workflow file is on `main`, so the manual run works):
+
+```
+set SHA (git rev-parse HEAD)
+set -e RUN
+for i in (seq 36)
+    set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId")
+    if test -n "$RUN"
+        break
+    end
+    sleep 5
+end
+echo $RUN
+gh run watch $RUN --exit-status
+gh workflow run release-oiti.yml --ref experiments
+set -e RELRUN
+for i in (seq 36)
+    set RELRUN (gh run list --workflow=release-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -n 1)
+    if test -n "$RELRUN"
+        break
+    end
+    sleep 5
+end
+echo $RELRUN
+gh run watch $RELRUN --exit-status
+rm -rf ~/Downloads/oiti-rc
+gh run download $RELRUN -D ~/Downloads/oiti-rc
+find ~/Downloads/oiti-rc -name '*.deb'
+shasum -a 256 (find ~/Downloads/oiti-rc -name '*.deb')
+```
+
+Both `echo` lines must print one number. The `find` must list exactly two files, `com.wilburt.oitcore_0.1.0...deb` and `com.wilburt.oiti_0.3.5...deb`, with no `debug` in the names. If the manual `gh workflow run` answers an HTTP error, tell me; the fallback is a release-candidate tag (`git tag v0.3.5-rc.1`, `git push origin v0.3.5-rc.1`, find the run by `--branch v0.3.5-rc.1`).
+
+**3. Install those exact files and check what is installed.**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-rc; mkdir /var/mobile/oiti-rc'
+scp -P 2222 (find ~/Downloads/oiti-rc -name '*.deb') root@127.0.0.1:/var/mobile/oiti-rc/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-rc/*.deb; sbreload'
+```
+
+Wait about 20 s, open Settings, Photos and Arc once, then:
+
+```
+ssh -p 2222 root@127.0.0.1
+```
+
+On the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.oitcore | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+defaults read com.wilburt.oiti.prefs DiagnosticsLevel
+defaults read com.wilburt.oiti.prefs DownloadBrowserEnabled
+sh /var/mobile/br.sh level 0
+sh /var/mobile/br.sh disable
+```
+
+Expect `Version: 0.3.5` (no `+debug`), `Version: 0.1.0`, `build=OITI-0.3.5`, and for the two `defaults read` lines either `0` or `does not exist` (default off; a `1` is only fine if you turned it on yourself). `level 0` and `disable` (the Arc research file) put the phone in the state a user has. If `dpkg -s` shows anything else, stop and send me the lines.
+
+**4. The checks on the release package** (answer yes or no to each, and tell me what you saw if it is not a plain yes):
+1. Settings > Insula shows `0.3.5` at the bottom; every page opens; Download Progress shows **Show Arc Downloads**, off.
+2. Stock look: with every Island setting at its default the Island and a real notification look stock.
+3. Respring-loop guard (section 7 and section 21, step 3): five `sbreload` about 10 s apart trip it, the banner appears, **Clear Safe Mode & Respring** brings OITI back.
+4. Show Download Progress and Show Arc Downloads on (Settings, or `sh /var/mobile/br.sh source on`), Arc already open: start a download (cellular is fine). The bar appears with Arc's percentage once Arc reports a size. **Detailed look: one percentage** (on the right), the line under the bar says `Downloading` or `Downloading · ~N s left`. **Minimal look:** one percentage right of the bar.
+5. Cancel in Arc: short red `Cancelled`, then idle.
+6. A download that finishes: complete with the check, then idle; about 17 s later no `Cancelled` appears.
+7. Force-quit Arc during a download: `Cancelled` within about 2 s.
+8. **Show Arc Downloads** off during a download: the bar goes, Arc keeps going. **Apple Mode** on during a download: the bar goes.
+9. A real App Store install or update, if you have one, in the Detailed look: the same one-percentage line.
+10. Set the phone back: `sh /var/mobile/br.sh level 0`.
+
+**5. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
+
+**6. Release (only after we both agree; I give the notes text).** Save the notes (outside the repo):
+
+```
+nano ~/oiti-0.3.5-notes.md
+```
+
+The text:
+
+```
+**Browser downloads for Download Progress.** Arc Search downloads now show in the Island with their percentage, in both looks, with the finished and cancelled states and the return to idle by percentage. Turn it on in Settings > Insula > Download Progress > Show Arc Downloads (off by default, experimental).
+
+**Detailed look:** for percentage-only downloads (Arc and the App Store) the line under the bar no longer repeats the percentage.
+
+**Known limits:** Arc Search only (tested with 1.49.0), percentage only (no file name yet), no pause (Arc has none); Safari and Chrome are not supported yet. Tested only on an iPhone 8 Plus (iOS 16.7.16, Dopamine 3). Download Progress, the notification stack and Status Bar are still experimental.
+```
+
+Then, one block at a time (the squash merge deletes `experiments` on GitHub; check the PR state first):
+
+```
+cd ~/OITUI
+git status --short
+gh pr create --base main --head experiments --title "OITUI 0.3.5" --body "Arc Search downloads in Download Progress."
+gh pr diff --name-only
+gh pr merge --squash
+gh pr view --json state,mergeCommit
+```
+
+The state must say `MERGED`. Then check the tested tree is what landed (the release run's commit is `$SHA` from step 2; if the variable is gone, use the hash printed by `git rev-parse HEAD` in step 1):
+
+```
+git fetch --prune origin
+git switch main
+git pull --ff-only
+git rev-parse $SHA^{tree}
+git rev-parse origin/main^{tree}
+```
+
+The two hashes must be identical. Tag first, then the Release with `--verify-tag`:
+
+```
+git tag -a v0.3.5 -m "OITUI 0.3.5"
+git push origin v0.3.5
+gh release create v0.3.5 --verify-tag --title "OITUI 0.3.5" --notes-file ~/oiti-0.3.5-notes.md (find ~/Downloads/oiti-rc -name '*.deb')
+gh release view v0.3.5
+```
+
+Attach the files from `~/Downloads/oiti-rc` (the tested artifact), not a rebuild: pushing the tag starts a second, untested release build of the same sources. Last, recreate `experiments` from `main` (the block in `WORKFLOW.md`).

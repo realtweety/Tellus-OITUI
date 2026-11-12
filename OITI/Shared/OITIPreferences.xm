@@ -123,6 +123,7 @@ void preferencesChanged(void) {
     BOOL downloadProgressWasEnabled = sDownloadProgressEnabled;
     sDownloadProgressEnabled = [sOITIPreferences boolForKey:@"DownloadProgressEnabled" default:NO];
     sDownloadAppStoreEnabled = [sOITIPreferences boolForKey:@"DownloadAppStoreEnabled" default:NO];
+    sDownloadBrowserEnabled = [sOITIPreferences boolForKey:@"DownloadBrowserEnabled" default:NO];
     sDownloadTestFractionOnly = [sOITIPreferences boolForKey:@"DownloadTestFractionOnly" default:NO];
     CGFloat downloadIdleMB = [sOITIPreferences floatForKey:@"DownloadIdleAfterMB" default:0.0];
     sDownloadIdleAfterMB = isfinite(downloadIdleMB) ? MAX(0.0, MIN(5000.0, downloadIdleMB)) : 0.0;
@@ -162,8 +163,9 @@ void preferencesChanged(void) {
         islandStartupHelloEnabled = NO;
         sDownloadProgressEnabled = NO;
         sDownloadAppStoreEnabled = NO;
+        sDownloadBrowserEnabled = NO;
     }
-    dispatch_async(dispatch_get_main_queue(), ^{ OITIAppStoreSourceRefresh(); });   // starts or stops the App Store source
+    dispatch_async(dispatch_get_main_queue(), ^{ OITIAppStoreSourceRefresh(); OITIBrowserSourceRefresh(); });   // starts or stops the App Store source and sets the browser flag
     if (sDownloadProgressEnabled != downloadProgressWasEnabled || sDownloadStyle != downloadPreviousStyle) {
         BOOL restyle = sDownloadStyle != downloadPreviousStyle;
         dispatch_async(dispatch_get_main_queue(), ^{
