@@ -2,6 +2,8 @@
 #import "OITIBaseListController.h"
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
+#import "../OITIDeviceProfiles.h"     // the shared device table (which devices have built-in offsets)
+#import "../OITIPositionLimits.h"    // strict parsing and limits for the typed position fields
 #import <objc/message.h>
 #import <objc/runtime.h>
 
@@ -16,6 +18,12 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 // first: it holds the same version string as the installed .deb ("0.2.0", or "0.2.0-1+debug" for a debug build). The
 // Settings process may not be allowed to read it, so the version baked into this bundle at build time (from the
 // control file) is the fallback and is marked as built-in. Read once and kept.
+// Keys for the two things a choice row keeps on its button. They must differ: with one shared key the second store
+// replaced the first, and picking a value then sent setText: to the specifier instead of the label (a crash in
+// Settings, present since the choice rows were added).
+static const void *kOITIChoiceLabelKey = &kOITIChoiceLabelKey;
+static const void *kOITIChoiceSpecifierKey = &kOITIChoiceSpecifierKey;
+
 static NSString *OITIInstalledVersionText(void) {
     static NSString *text;
     static dispatch_once_t once;
@@ -39,11 +47,11 @@ static NSString *OITIInstalledVersionText(void) {
         }
         NSString *builtIn = @OITI_BUILD_VERSION;
         if (found.length) {
-            text = [NSString stringWithFormat:@"OITI version %@", found];
+            text = [NSString stringWithFormat:@"Insula (OITI) version %@", found];
         } else if (builtIn.length) {
-            text = [NSString stringWithFormat:@"OITI version %@ (built-in)", builtIn];
+            text = [NSString stringWithFormat:@"Insula (OITI) version %@ (built-in)", builtIn];
         } else {
-            text = @"OITI version unknown";
+            text = @"Insula (OITI) version unknown";
         }
     });
     return text;
@@ -52,6 +60,9 @@ static NSString *OITIInstalledVersionText(void) {
 // Safe-mode files written by the tweak's respring-loop guard (OITI/Tweak.xm). Keep the paths in sync.
 static NSString * const kOITISafeModePath = @"/var/mobile/Library/Preferences/OITISafeMode.plist";
 static NSString * const kOITIBootLogPath = @"/var/mobile/Library/Preferences/OITIBootLog.plist";
+// Written by the tweak when the promotion guard has switched Island element creation off until the next respring; the next
+// SpringBoard launch deletes it (OITI/Safety/OITISafety.xm, OITIMarkElementsOff).
+static NSString * const kOITIElementsOffPath = @"/var/mobile/Library/Preferences/OITIElementsOff.plist";
 // Left just before a respring this page asks for, so the guard does not count that launch as a possible crash.
 static NSString * const kOITIRespringIntentPath = @"/var/mobile/Library/Preferences/OITIRespringIntent.plist";
 
@@ -59,6 +70,12 @@ static NSString * const kOITIRespringIntentPath = @"/var/mobile/Library/Preferen
 static NSDictionary *OITISafeModeFlag(void) {
     NSDictionary *flag = [NSDictionary dictionaryWithContentsOfFile:kOITISafeModePath];
     return [flag[@"tripped"] boolValue] ? flag : nil;
+}
+
+// The "Island elements are off" flag, nil when elements are working.
+static NSDictionary *OITIElementsOffFlag(void) {
+    NSDictionary *flag = [NSDictionary dictionaryWithContentsOfFile:kOITIElementsOffPath];
+    return [flag isKindOfClass:[NSDictionary class]] ? flag : nil;
 }
 
 // Apple Mode (key appleMode): the tweak forces every Island customization off while it is on. Read here only to show
@@ -79,6 +96,7 @@ static void OITIMarkRespringIntent(void) {
 @property (nonatomic, strong) UIScrollView *oiti_scrollView;
 @property (nonatomic, strong) UIStackView *oiti_contentStack;
 @property (nonatomic, assign) BOOL oiti_shownSafeMode;
+@property (nonatomic, assign) BOOL oiti_shownElementsOff;
 @property (nonatomic, assign) BOOL oiti_shownAppleMode;
 @end
 
@@ -182,7 +200,8 @@ static void OITIMarkRespringIntent(void) {
     [super viewWillAppear:animated];
     // Safe mode can switch on or off while the settings are open (for example after a respring from here).
     if (self.oiti_contentStack &&
-        ((OITISafeModeFlag() != nil) != self.oiti_shownSafeMode || OITIAppleModeOn() != self.oiti_shownAppleMode)) {
+        ((OITISafeModeFlag() != nil) != self.oiti_shownSafeMode || OITIAppleModeOn() != self.oiti_shownAppleMode ||
+         (OITIElementsOffFlag() != nil) != self.oiti_shownElementsOff)) {
         [self oitiRefreshSettingsPage];
     }
 }
@@ -220,9 +239,14 @@ static void OITIMarkRespringIntent(void) {
     [stack addArrangedSubview:title];
 
     UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
-    detail.text = isRoot
-        ? @"The Island is the stock iOS one. Your customization settings are saved but not applied."
-        : @"The Island is the stock iOS one. The settings on this page are saved but not applied.";
+    NSString *pageName = [self oiti_plistName];
+    if (isRoot) {
+        detail.text = @"Stock Island. Your settings are saved but not applied. Position and Status Bar Layout still apply.";
+    } else if ([pageName isEqualToString:@"Notifications"]) {
+        detail.text = @"Stock Island. These settings are saved but not applied. Custom notification position still applies.";
+    } else {
+        detail.text = @"Stock Island. The settings on this page are saved but not applied.";
+    }
     detail.font = [UIFont systemFontOfSize:13.0];
     detail.textColor = UIColor.secondaryLabelColor;
     detail.numberOfLines = 0;
@@ -282,13 +306,13 @@ static void OITIMarkRespringIntent(void) {
     ]];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
-    title.text = @"OITI safe mode is on";
+    title.text = @"Insula safe mode is on";
     title.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
     title.numberOfLines = 0;
     [stack addArrangedSubview:title];
 
     UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
-    detail.text = [NSString stringWithFormat:@"OITI switched its tweaks off after %@%@. Your changes below are saved but do nothing until safe mode is cleared and you respring. If SpringBoard keeps restarting after that, safe mode will switch on again.", reason, when];
+    detail.text = [NSString stringWithFormat:@"Insula switched itself off after %@%@. Your settings are saved. Clear safe mode and respring to use them.", reason, when];
     detail.font = [UIFont systemFontOfSize:13.0];
     detail.textColor = UIColor.secondaryLabelColor;
     detail.numberOfLines = 0;
@@ -303,9 +327,65 @@ static void OITIMarkRespringIntent(void) {
     return card;
 }
 
+// Banner shown at the top of every OITI settings page after the promotion guard switched Island element creation off. Safe
+// mode (above) means the whole tweak is off; this means only elements are, until the next respring.
+- (UIView *)oitiElementsOffBanner {
+    NSDictionary *flag = OITIElementsOffFlag();
+    if (!flag) return nil;
+    NSInteger failures = [flag[@"failures"] respondsToSelector:@selector(integerValue)] ? [flag[@"failures"] integerValue] : 0;
+    NSString *when = @"";
+    if ([flag[@"time"] isKindOfClass:[NSNumber class]]) {
+        NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+        formatter.dateStyle = NSDateFormatterMediumStyle;
+        formatter.timeStyle = NSDateFormatterShortStyle;
+        when = [NSString stringWithFormat:@" (%@)", [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:[flag[@"time"] doubleValue]]]];
+    }
+
+    UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
+    card.backgroundColor = [UIColor.systemYellowColor colorWithAlphaComponent:0.22];
+    card.layer.cornerRadius = 22.0;
+    card.layer.cornerCurve = kCACornerCurveContinuous;
+    card.layer.masksToBounds = YES;
+
+    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 8.0;
+    stack.layoutMargins = UIEdgeInsetsMake(15, 15, 8, 15);
+    stack.layoutMarginsRelativeArrangement = YES;
+    [card addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+    ]];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
+    title.text = @"Island elements are switched off";
+    title.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    title.numberOfLines = 0;
+    [stack addArrangedSubview:title];
+
+    UILabel *detail = [[UILabel alloc] initWithFrame:CGRectZero];
+    detail.text = [NSString stringWithFormat:@"SpringBoard raised %ld errors while an Island element was showing%@. Island notifications, the startup animation and the Detailed download look are off until you respring.", (long)failures, when];
+    detail.font = [UIFont systemFontOfSize:13.0];
+    detail.textColor = UIColor.secondaryLabelColor;
+    detail.numberOfLines = 0;
+    [stack addArrangedSubview:detail];
+
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    [button setTitle:@"Respring" forState:UIControlStateNormal];
+    [button.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
+    [button addTarget:self action:@selector(respringAsk:) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:button];
+    return card;
+}
+
 - (void)oitiClearSafeModeAsk:(id)sender {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Clear safe mode"
-                                                                   message:@"OITI's tweaks switch back on after the respring."
+                                                                   message:@"Insula's tweaks switch back on after the respring."
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Clear & Respring" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
@@ -323,6 +403,9 @@ static void OITIMarkRespringIntent(void) {
     UIView *safeModeBanner = [self oitiSafeModeBanner];
     self.oiti_shownSafeMode = safeModeBanner != nil;
     if (safeModeBanner) [self.oiti_contentStack addArrangedSubview:safeModeBanner];
+    UIView *elementsOffBanner = [self oitiElementsOffBanner];
+    self.oiti_shownElementsOff = elementsOffBanner != nil;
+    if (elementsOffBanner) [self.oiti_contentStack addArrangedSubview:elementsOffBanner];
     UIView *appleModeBanner = [self oitiAppleModeBanner];
     self.oiti_shownAppleMode = appleModeBanner != nil;
     if (appleModeBanner) [self.oiti_contentStack addArrangedSubview:appleModeBanner];
@@ -330,7 +413,9 @@ static void OITIMarkRespringIntent(void) {
     UIStackView *rows = nil;
     NSString *pendingFooter = nil;
 
-    for (PSSpecifier *specifier in self.specifiers) {
+    NSArray<PSSpecifier *> *allSpecifiers = self.specifiers;
+    for (NSUInteger index = 0; index < allSpecifiers.count; index++) {
+        PSSpecifier *specifier = allSpecifiers[index];
         NSString *cell = [specifier propertyForKey:@"cell"];
         NSString *label = [specifier propertyForKey:@"label"];
         NSString *footer = [specifier propertyForKey:@"footerText"];
@@ -340,8 +425,15 @@ static void OITIMarkRespringIntent(void) {
                 [self.oiti_contentStack addArrangedSubview:card];
             }
             card = nil; rows = nil;
-            pendingFooter = footer;
-            if (label.length) [self.oiti_contentStack addArrangedSubview:[self oitiSectionHeader:label subtitle:nil]];
+            // A footer is shown at the bottom of the card that follows its group. A group with no rows after it (the next
+            // item is another group, or the list ends) has no card to hold it, so the footer goes under the header instead
+            // of being dropped (v0.3.0 polish, A2: the "Island Size" footer on the Scale page never showed).
+            BOOL hasRows = index + 1 < allSpecifiers.count &&
+                ![[allSpecifiers[index + 1] propertyForKey:@"cell"] isEqualToString:@"PSGroupCell"];
+            pendingFooter = hasRows ? footer : nil;
+            NSString *headerNote = (!hasRows && footer.length && label.length) ? footer : nil;
+            if (label.length) [self.oiti_contentStack addArrangedSubview:[self oitiSectionHeader:label subtitle:headerNote]];
+            else if (!hasRows && footer.length) [self.oiti_contentStack addArrangedSubview:[self oitiFootnote:footer]];
             continue;
         }
         if (!card) { card = [self oitiCard]; rows = [self oiti_rowsInCard:card]; }
@@ -377,7 +469,7 @@ static void OITIMarkRespringIntent(void) {
     }
     if ([[self oiti_plistName] isEqualToString:@"Root"]) {
         UILabel *credit = [[UILabel alloc] initWithFrame:CGRectZero];
-        credit.text = @"OITI · Settings design adapted from Liquid (Gl)Ass";
+        credit.text = @"Insula · Settings design adapted from Liquid (Gl)Ass";
         credit.textColor = UIColor.tertiaryLabelColor;
         credit.textAlignment = NSTextAlignmentCenter;
         credit.font = [UIFont systemFontOfSize:11.0];
@@ -561,7 +653,9 @@ static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
     row.alignment = UIStackViewAlignmentCenter; row.layoutMargins = UIEdgeInsetsMake(12, 15, 12, 15); row.layoutMarginsRelativeArrangement = YES;
     [row addArrangedSubview:[self oitiRowWithTitle:[specifier propertyForKey:@"label"] subtitle:nil]];
     UITextField *field = [[UITextField alloc] initWithFrame:CGRectZero];
-    field.text = [self readPreferenceValue:specifier] ?: [specifier propertyForKey:@"bestGuess"];
+    id storedValue = [self readPreferenceValue:specifier];
+    if ([storedValue isKindOfClass:[NSNumber class]]) storedValue = [storedValue stringValue];   // `defaults write -float` stores a number
+    field.text = ([storedValue isKindOfClass:[NSString class]] && [storedValue length]) ? storedValue : [specifier propertyForKey:@"bestGuess"];
     field.placeholder = [specifier propertyForKey:@"placeholder"];
     field.textAlignment = NSTextAlignmentRight; field.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
     field.borderStyle = UITextBorderStyleRoundedRect; field.returnKeyType = UIReturnKeyDone;
@@ -573,9 +667,65 @@ static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
     return row;
 }
 
-- (void)oitiTextChanged:(UITextField *)field {
+// The four typed fields (X and Y position of the Island and of the banner) are position settings. What is typed is checked with
+// the same strict parser the tweak uses (OITIPositionValues.h; the one-screen limit is OITIPositionLimits.h, UIKit, safe here because this runs in Settings): a plain number, limited to one screen. An empty field means "use
+// the default", text that is not a number keeps the previous value, and a number outside the range is limited. Whatever happens,
+// the field is rewritten to show what was actually stored, so the screen never disagrees with the setting.
+static NSString *OITIPositionString(double value) {
+    return [NSString stringWithFormat:@"%g", value];
+}
+
+- (void)oitiShowInputAlertWithMessage:(NSString *)message {
+    if (!self.viewIfLoaded.window || self.presentedViewController) return;   // not while the page is going away
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Value not accepted" message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)oitiCommitTextField:(UITextField *)field announce:(BOOL)announce {
     PSSpecifier *specifier = objc_getAssociatedObject(field, @selector(oitiTextChanged:));
-    if (field.text) [self setPreferenceValue:field.text specifier:specifier];
+    if (!specifier) return;
+    NSString *key = [specifier propertyForKey:@"key"];
+    BOOL horizontal = [key hasPrefix:@"x"];
+    if (!horizontal && ![key hasPrefix:@"y"]) {   // not a position field: stored as typed, as before
+        if (field.text) [self setPreferenceValue:field.text specifier:specifier];
+        return;
+    }
+    NSString *defaultText = [specifier propertyForKey:@"bestGuess"] ?: @"0";
+    NSString *label = [[specifier propertyForKey:@"label"] stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@": "]];
+    NSString *typed = [field.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+    double value = 0;
+    NSString *stored = nil;
+    NSString *message = nil;
+    if (!typed.length) {
+        stored = defaultText;
+    } else if (!OITIParsePositionText(typed, &value)) {
+        id saved = [self readPreferenceValue:specifier];
+        if ([saved isKindOfClass:[NSNumber class]]) saved = [saved stringValue];
+        double previous = 0;
+        stored = OITIParsePositionText(saved, &previous) ? OITIPositionString(OITISanitizedPosition(previous, 0, OITIPositionLimit(horizontal))) : defaultText;
+        message = [NSString stringWithFormat:@"%@: \u201c%@\u201d is not a number. Use digits with an optional minus sign and one decimal point, for example 20.5. The previous value, %@, was kept.", label, typed, stored];
+    } else {
+        double limited = OITISanitizedPosition(value, 0, OITIPositionLimit(horizontal));
+        stored = OITIPositionString(limited);
+        if (limited != value) {
+            message = [NSString stringWithFormat:@"%@ must be between %@ and %@ (one screen). It was set to %@.", label,
+                       OITIPositionString(-OITIPositionLimit(horizontal)), OITIPositionString(OITIPositionLimit(horizontal)), stored];
+        }
+    }
+    field.text = stored;
+    [self setPreferenceValue:stored specifier:specifier];
+    if (announce && message) [self oitiShowInputAlertWithMessage:message];
+}
+
+- (void)oitiTextChanged:(UITextField *)field {
+    [self oitiCommitTextField:field announce:YES];
+}
+
+- (void)oitiCollectTextFieldsIn:(UIView *)view into:(NSMutableArray<UITextField *> *)fields {
+    if ([view isKindOfClass:[UITextField class]]) [fields addObject:(UITextField *)view];
+    for (UIView *subview in view.subviews) [self oitiCollectTextFieldsIn:subview into:fields];
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
@@ -614,7 +764,14 @@ static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
     UIStackView *row = [[UIStackView alloc] initWithFrame:CGRectZero]; row.axis = UILayoutConstraintAxisHorizontal; row.alignment = UIStackViewAlignmentCenter; row.spacing = 10;
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero]; label.text = [specifier propertyForKey:@"label"];
     label.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium]; label.textColor = UIColor.labelColor;
-    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]]; chevron.tintColor = UIColor.tertiaryLabelColor;
+    UIImageSymbolConfiguration *chevronSize = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
+    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right" withConfiguration:chevronSize]]; chevron.tintColor = UIColor.tertiaryLabelColor;
+    // The label and the arrow have the same default hugging priority, so the stack stretched one of them (a stretched arrow looks
+    // broken). The label takes the free width, the arrow keeps its natural size at the trailing edge, as in the system Settings.
+    chevron.contentMode = UIViewContentModeScaleAspectFit;
+    [chevron setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [chevron setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [label setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
     [row addArrangedSubview:label]; [row addArrangedSubview:chevron];
     // This stack is presentation only. Let touches reach the enclosing button.
     row.userInteractionEnabled = NO;
@@ -641,7 +798,7 @@ static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
     UIStackView *row = [[UIStackView alloc] initWithFrame:CGRectZero]; row.axis = UILayoutConstraintAxisHorizontal; row.spacing = 8;
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero]; title.text = [specifier propertyForKey:@"label"]; title.textColor = UIColor.labelColor; title.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     UILabel *current = [[UILabel alloc] initWithFrame:CGRectZero]; current.textColor = UIColor.secondaryLabelColor; current.textAlignment = NSTextAlignmentRight; current.font = [UIFont systemFontOfSize:13];
-    objc_setAssociatedObject(button, @selector(oitiChooseValue:), current, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(button, kOITIChoiceLabelKey, current, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     NSArray *values = [specifier propertyForKey:@"validValues"] ?: @[]; NSArray *titles = [specifier propertyForKey:@"validTitles"] ?: values;
     id selected = [self readPreferenceValue:specifier] ?: [specifier propertyForKey:@"default"];
     NSUInteger index = [values indexOfObject:selected]; current.text = index < titles.count ? titles[index] : @"Choose";
@@ -651,19 +808,19 @@ static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
     row.translatesAutoresizingMaskIntoConstraints = NO; [button addSubview:row];
     [NSLayoutConstraint activateConstraints:@[[row.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:15],[row.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-15],[row.topAnchor constraintEqualToAnchor:button.topAnchor constant:15],[row.bottomAnchor constraintEqualToAnchor:button.bottomAnchor constant:-15]]];
     [button addTarget:self action:@selector(oitiChooseValue:) forControlEvents:UIControlEventTouchUpInside];
-    objc_setAssociatedObject(button, @selector(oitiChooseValue:), specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(button, kOITIChoiceSpecifierKey, specifier, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return button;
 }
 
 - (void)oitiChooseValue:(UIButton *)sender {
-    PSSpecifier *specifier = objc_getAssociatedObject(sender, @selector(oitiChooseValue:));
+    PSSpecifier *specifier = objc_getAssociatedObject(sender, kOITIChoiceSpecifierKey);
     NSArray *values = [specifier propertyForKey:@"validValues"] ?: @[]; NSArray *titles = [specifier propertyForKey:@"validTitles"] ?: values;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[specifier propertyForKey:@"label"] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSUInteger i = 0; i < values.count; i++) {
         id value = values[i];
         [sheet addAction:[UIAlertAction actionWithTitle:(i < titles.count ? titles[i] : [value description]) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
             [self setPreferenceValue:value specifier:specifier];
-            UILabel *current = objc_getAssociatedObject(sender, @selector(oitiChooseValue:));
+            UILabel *current = objc_getAssociatedObject(sender, kOITIChoiceLabelKey);
             current.text = i < titles.count ? titles[i] : [value description];
         }]];
     }
@@ -679,6 +836,21 @@ static NSString *OITISliderValueText(PSSpecifier *specifier, double value) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)savePos { [self.view endEditing:YES]; }
+// The "Save" buttons of the two position groups. Fields already store when editing ends, so the button makes sure nothing is
+// left half-typed (ending the edit runs the check above), then checks every field on the page once more and says so.
+- (void)savePos:(id)sender {
+    [self.view endEditing:YES];
+    NSMutableArray<UITextField *> *fields = [NSMutableArray array];
+    [self oitiCollectTextFieldsIn:self.view into:fields];
+    for (UITextField *field in fields) [self oitiCommitTextField:field announce:NO];
+    if ([sender isKindOfClass:[UIButton class]]) {
+        UIButton *button = (UIButton *)sender;
+        NSString *original = [button titleForState:UIControlStateNormal];
+        [button setTitle:@"Saved" forState:UIControlStateNormal];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [button setTitle:original forState:UIControlStateNormal];
+        });
+    }
+}
 
 @end

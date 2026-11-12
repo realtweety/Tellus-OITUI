@@ -1,61 +1,66 @@
-# OITUI
+# Tellus
 
-OITUI, or Order In The User Interface, is the name of my current project. OITUI is made up of multiple components like OITS, OITI, and possibly more to come. The idea of OITUI is essentially to make your iPhone (Currently iOS 16 only) look and feel as modern as possible
+**Tellus** (OITUI, *Order In The User Interface*) is a small family of tweaks that make an iPhone running iOS 16 look and feel more modern. It is for rootless jailbreaks, made by me with help from AI.
 
+Every tweak has two names. The **Latin name** is what you see in Sileo and Settings. The **OIT name** is the technical name in package IDs, files, logs and the docs.
 
-# OITS
+| You see | Technical name | What it is |
+| --- | --- | --- |
+| **Insula** | OITI | A Dynamic Island for iPhones that don't have one, with notifications and download progress |
+| **Litus** | OITS | Moves status bar elements around the Island (paused) |
+| OITCore | OITCore | The shared library. It installs with Insula |
+| OITInspector | OITInspector | A read-only developer tool |
 
-OITS, or Order In The Status Bar, is a tweak with a pretty specific use case. I have an iPhone 8 Plus, a notchless device, and I use OITI to give it a Dynamic Island. On notchless devices, the clock is centered instead of on the left of the screen. OITS can currently change the position of every major status bar element along the X axis and you can also fully hide those same major status bar elements completely (Going to add Y axis customization soon!). OITS is very much WIP, but it is in a fairly usable state I'd say (certain Status Bar elements are much more unstable and unreliable than others). Please feel free to give me any recommendations on how to improve and expand OITS!
+Tested on an **iPhone 8 Plus** with **Dopamine 3** on **iOS 16.7.16**. Other devices may behave differently, so please tell me what you find.
 
+<!-- screenshot: the Insula Settings page (main page) -->
 
-# OITI
+---
 
-OITI, or Order In The Island, is a tweak that gives devices without a Dynamic Island a Dynamic Island. OITI focuses on providing the Dynamic Island itself, along with basic positioning, appearance, notification banner offsets, and Island re-sizing and scaling, but I am hoping that I will soon get around to giving it a lot more QoL, customization, and features. Just like with OITS, feel free to give me any recommendations on how to improve and expand OITI!
+# Insula (OITI)
 
-### Island Notifications
+Insula gives iPhones without a Dynamic Island one. It is built on Apple's own Island system and does not draw a fake one on top.
 
-Island Notifications shows each notification banner (Messages, Instagram, YouTube, Snapchat and the rest) as an element in the Island instead of the banner at the top of the screen. The Island expands to fit the app icon, title and message, stays for a few seconds, and goes away. Tap it to open the notification (it goes where tapping the stock banner would go), swipe up to dismiss it. It is built on Apple's own Island element system, so it does not draw a fake Island on top of the real one.
+- **The Island:** turn it on, move it, resize or scale it, and change its color and opacity. Most changes apply immediately. Turning it on needs a respring.
+- **Apple Mode:** one switch that makes the Island look and behave like stock iOS.
+- **Notifications:** show notifications in the Island. The newest is in the Island, older ones are small cards below it (up to four). Tap to open, swipe up to dismiss. Off by default and still experimental: **Settings > Insula > Notifications**.
+- **Download Progress:** show App Store downloads as a progress bar with the percentage and the time left, including paused, installing and finished, and Arc Search downloads with the percentage. Off by default and still experimental: **Settings > Insula > Download Progress**. Safari and Chrome downloads are planned.
+- **Startup Animation:** plays a Hello animation after a respring; tap it to open Insula's Settings. Off by default.
+- **Safe mode:** if SpringBoard keeps restarting, Insula switches itself off. Settings then shows why, with a button to clear it.
 
-It is off by default. Turn it on in Settings > OITI > Notifications:
+<!-- screenshot: the Island with a notification -->
+<!-- screenshot: the download progress bar -->
 
-- **Show Notifications in the Island** and **Hide the Stock Banner** (turn both on)
-- **Style:** Expanded (the polished one), Wide or Compact (both experimental)
-- **Duration**, **Message Lines** and **Roundness** sliders
-- **Notification Haptic:** a short, light tap when a banner arrives. It works with or without Island Notifications.
+If something looks wrong, turn on Apple Mode or turn off Island Notifications to get the stock behavior back.
 
-The stack keeps up to four notices. Expanded/Wide shows the newest as the main item and older notices as individual rounded compact cards inside the expanded Island card; Compact keeps all notices compact. **Stack Multiple Notifications (Experimental)** is a separate toggle (default on when Island Notifications is enabled). Settings clearly warns that the feature is usable but unpolished. The stack was tested on an iPhone 8 Plus running iOS 16.7.16; other devices and iOS builds may behave differently.
+## Bug reports
 
-The off-by-default Startup Animation prototype waits until the device is unlocked and on the Home Screen, then plays a six-second Hello animation as a muted video, at most once every five minutes. During playback, OITI promotes the startup animation ahead of the system charging activity; calls and other Island activity interrupt it. The setting identifies it as a prototype.
+Insula does not send notification text anywhere. To report a bug, raise the log level, respring, reproduce the problem and read `/tmp/OITIDebug.log`:
 
-OITI does not send notification text anywhere, and at the default diagnostic level nothing about your notifications is written to a log (if you raise `DiagnosticsLevel` for a bug report, the log holds the first characters of titles and messages, so read it before sharing). If something looks wrong, turn the two switches off and the stock banners come back. See `RELEASE_NOTES_0.2.0.md` for installation, release details and known limitations.
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
+```
 
-OITCore is a dependency of OITI, so you will need to install OITCore in order to install OITI
+At higher levels the log holds the first characters of notification text, so **read it before you share it**, and set the level back to 0 afterwards. `DIAGNOSTICS.md` explains the log.
 
-### OITI Settings attribution
+---
 
-OITI's Settings pages are adapted from [Liquid (Gl)Ass by Winaviation](https://github.com/winaviation-tweaks/liquidass), licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). The pages were modified for OITUI; the upstream author does not endorse OITUI. The full license text is in `Third Party Licenses/LIQUIDASS-LICENSE.txt`.
+# Litus (OITS)
 
+Litus moves and hides status bar elements along the X axis, so a notchless iPhone with an Island has a clock in a sensible place. It is a work in progress and paused while I focus on Insula.
 
 # OITCore
 
-OITCore is intended to give my tweaks a common "library" of utilities, functionalities, states, and possibly more. It really doesn't do a whole lot right now, but once my tweaks start getting more advanced I plan on using OITCore to store all sorts of different types of information between all the tweaks. Just like with the other two tweaks, give me any recommendations on how to improve and expand OITCore!
+The shared library the tweaks use. It installs automatically with Insula.
 
-
-# Project Status As of October 20, 2026
-
-OITS is very much still WIP, as stated above. I have sort of abandoned it (FOR NOW, I am focusing on OITI currently).
-
-OITI 0.2.0 adds the bounded notification stack, more responsive Settings controls and the off-by-default Startup Animation prototype to Island Notifications, style selection and optional haptics. Before notifications came Island re-sizing and scaling.
-
-OITCore isn't used a whole lot inside of OITUI as of right now, simply because the tweaks are pretty early in being developed and don't really have too much of a need for OITCore. BUT, like with the other things, I plan on giving OITCore a lot more features and uses
+---
 
 # Installation
-**Latest release:** [OITUI v0.2.0](https://github.com/realtweety/OITUI/releases/tag/v0.2.0). Install both `.deb` files, OITCore and OITI (OITCore first, or both in one `dpkg -i`).
 
-This link will bring you to latest release of OITI and OITCore https://github.com/realtweety/OITUI/releases/tag/v0.1.0
+You need a rootless jailbreak on iOS 16. Install both `.deb` files from the [latest release](https://github.com/realtweety/Tellus-OITUI/releases/latest): **OITCore** first (or both in one `dpkg -i`), then **Insula**. To remove everything, remove Insula before OITCore.
 
-This link will bring you to the latest release of OITS and the first releases of OITI and OITCore https://github.com/realtweety/OITUI/releases/tag/first_release
+Older releases: [v0.3.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.3.0), [v0.2.5](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.2.5), [v0.2.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.2.0), [v0.1.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.1.0), [first_release](https://github.com/realtweety/Tellus-OITUI/releases/tag/first_release) (the only release of Litus).
 
-As stated above, OITCore is required to be installed with OITI. OITI will not install without OITCore.
+# Documentation
 
-OITUI is being tested on an iPhone 8 Plus jailbroken with Dopamine 3 running iOS 16.7.16
+`OVERVIEW.md` (the modules and plans), `COMMANDS.md` (commands and test steps), `DIAGNOSTICS.md` (logging), `LEARNINGS.md` (technical lessons), `WORKFLOW.md` (branches and releases), `IDEAS.md` (the backlog), `OITUI_HISTORY.md` (how the project got here), `Third Party Licenses/`.

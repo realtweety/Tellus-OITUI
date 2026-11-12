@@ -12,7 +12,7 @@
         <key>label</key>
         <string>Download Progress (Experimental)</string>
         <key>footerText</key>
-        <string>Shows the Island as a progress bar with the downloaded size, the total size and the speed while something downloads. Off by default. Early feature: only the built-in test download works so far. App Store and browser downloads come later.</string>
+        <string>Shows downloads in the Island as a progress bar. Off by default.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -32,9 +32,153 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
+        <string>App Store Downloads (Experimental)</string>
+        <key>footerText</key>
+        <string>Shows App Store downloads with the percentage and the time left, and Arc Search downloads with the percentage (no file name yet; experimental). Needs Show Download Progress.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadAppStoreEnabled</string>
+        <key>label</key>
+        <string>Show App Store Downloads</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadBrowserEnabled</string>
+        <key>label</key>
+        <string>Show Arc Downloads</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Look</string>
+        <key>footerText</key>
+        <string>Minimal is a small pill over the Island. Detailed is the system's expanded Island.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSLinkListCell</string>
+        <key>detail</key>
+        <string>PSListItemsController</string>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadProgressStyle</string>
+        <key>default</key>
+        <integer>0</integer>
+        <key>label</key>
+        <string>Style</string>
+        <key>validTitles</key>
+        <array>
+          <string>Minimal</string>
+          <string>Detailed</string>
+        </array>
+        <key>validValues</key>
+        <array>
+          <integer>0</integer>
+          <integer>1</integer>
+        </array>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Minimal Size</string>
+        <key>footerText</key>
+        <string>Adjusts the Minimal pill. Start a test download to see the changes.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Width</string>
+        <key>default</key>
+        <real>296.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadPillWidth</string>
+        <key>min</key>
+        <real>200.0</real>
+        <key>max</key>
+        <real>380.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f pt</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Bottom padding</string>
+        <key>default</key>
+        <real>10.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadPillBottomPadding</string>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>40.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f pt</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>Move up or down</string>
+        <key>default</key>
+        <real>0.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadPillNudgeY</string>
+        <key>min</key>
+        <real>-30.0</real>
+        <key>max</key>
+        <real>30.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f pt</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
         <string>Return to Idle</string>
         <key>footerText</key>
-        <string>The expanded Island goes back to idle when either limit is reached. Never means no limit. The download itself carries on, and the progress bar comes back when the next download starts. Swiping the bar away does the same.</string>
+        <string>Hides the bar when a limit is reached; the download carries on. Never means no limit. The size limit only applies to the test download.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -55,6 +199,30 @@
         <true/>
         <key>valueFormat</key>
         <string>%.0f MB</string>
+        <key>zeroText</key>
+        <string>Never</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSliderCell</string>
+        <key>label</key>
+        <string>After this percentage is reached</string>
+        <key>default</key>
+        <real>0.0</real>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadIdleAfterPercent</string>
+        <key>min</key>
+        <real>0.0</real>
+        <key>max</key>
+        <real>99.0</real>
+        <key>showValue</key>
+        <true/>
+        <key>valueFormat</key>
+        <string>%.0f%%</string>
         <key>zeroText</key>
         <string>Never</string>
         <key>PostNotification</key>
@@ -90,7 +258,7 @@
         <key>label</key>
         <string>Test Download</string>
         <key>footerText</key>
-        <string>A simulated download with a changing speed, for trying the layout and the limits. Turn on Show Download Progress first. Apple Mode hides it like every other customization.</string>
+        <string>A simulated download for trying the look and the limits. Needs Show Download Progress.</string>
       </dict>
       <dict>
         <key>cell</key>
