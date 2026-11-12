@@ -24,7 +24,7 @@ There is never more than `main` plus one working branch.
    git rev-parse main experiments origin/experiments
    ```
 
-   The three hashes must match. `-D` is needed because a squash merge does not make the old branch an ancestor of `main`, so `-d` refuses. Check the PR shows as merged before deleting. If git says the local branch does not exist, ignore that line.
+   The three hashes must match. Run the block only after the tag and the GitHub Release exist, and from `main` (`git switch main` first: git refuses to delete the branch you are on, and a local `experiments` that still holds the old history would be pushed by `git push -u origin experiments`). If the remote `experiments` still exists after the merge, delete it first with `git push origin --delete experiments`. `-D` is needed because a squash merge does not make the old branch an ancestor of `main`, so `-d` refuses. Check the PR shows as merged before deleting. If git says the local branch does not exist, ignore that line.
 
 **Test before merging.** Do not open the PR until the changes have run on the phone. Minimum check: stock settings still look stock (every Island setting at its default), banners, the settings pages touched by the change, and the respring-loop guard (`COMMANDS.md`, section 7).
 
@@ -41,7 +41,7 @@ A commit on `main` is not automatically a release. A release is a version tag pl
 - **Tag before the Release.** Create and push the tag on the merged commit of `main` first (`git tag -a vX.Y.Z -m "..."`, `git push origin vX.Y.Z`), then `gh release create vX.Y.Z --verify-tag ...`. Without `--verify-tag`, a missing tag is created on the default branch's newest commit; v0.3.1 was published that way, its tag pointed at the 0.3.0 commit, and the tag had to be moved to the squash commit of the 0.3.1 pull request. Check `git status` before `git add -A`: two empty files named `-D` and `^{tree}` (from a command with a placeholder in fish) were committed once and had to be removed.
 - **Release notes (owner's decision, 8 Nov 2026):** the text of the GitHub Release is the only release note. Do not add `RELEASE_NOTES_*.md` files to the repo (the old ones are deleted). Create the Release with `--notes` or the web form, not `--notes-file`.
 - **CI:** `.github/workflows/build-oiti.yml` builds the `.deb` files on every push to `experiments` (a `DEBUG=1` build for testing; the version carries `+debug`). Those are never released. `release-oiti.yml` is the only workflow that builds release packages.
-- Exact commands: `COMMANDS.md`, section 10 ("Releases"). Released: `v0.1.0` (`46cf122`), `v0.1.1`, pre-release `v0.2.0-beta.1`; `v0.2.0`; `v0.2.5`; `v0.3.0` and `v0.3.1` (9 Nov 2026). In preparation: `v0.3.5` (browser downloads). The repository is `realtweety/Tellus-OITUI` (it was renamed; the old URL redirects).
+- Exact commands: `COMMANDS.md`, section 10 ("Releases"). Released: `v0.1.0` (`46cf122`), `v0.1.1`, pre-release `v0.2.0-beta.1`; `v0.2.0`; `v0.2.5`; `v0.3.0` and `v0.3.1` (9 Nov 2026), `v0.3.5` (11 Nov 2026, squash commit `81c4587`; the release workflow was started with `gh workflow run release-oiti.yml --ref experiments` and the tested artifact was attached). In preparation: `v0.3.6` (browser file name, Safari, Chrome). Note: the `v0.3.1` tag points at `365909f` (the 0.3.5 research batch 1: it contains the 0.3.1 code plus inert research code), because that Release was published before its tag existed; it was left as it is. The repository is `realtweety/Tellus-OITUI` (it was renamed; the old URL redirects).
 
 ## Logging policy
 

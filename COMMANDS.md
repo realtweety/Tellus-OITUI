@@ -466,7 +466,7 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/Tellus-OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.3.1` (OITI `0.3.1`; OITCore remains `0.1.0`).
+Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.3.5` (OITI `0.3.5`; OITCore remains `0.1.0`).
 
 **1. Push the release candidate** (Arch PC, fish; the archive is the delta Claude gives you):
 
@@ -1378,7 +1378,7 @@ Changes: see `OVERVIEW.md`, "Current state". One behavior change: cards that are
 
 The research of 9 and 10 Nov 2026 is done for Arc Search (results in `LEARNINGS.md`: Arc uses the public `WKDownload`, the progress is a public `NSProgress`, the channel from an app to SpringBoard works). The research log stays in the build: it runs in Arc Search (`company.thebrowser.ArcMobile2`) and Safari (`com.apple.mobilesafari`) only when the file `OITIBrowserDump.enable` exists in that app's **Library** folder (not tmp: iOS may purge tmp, which cost one test round), and writes `OITIBrowser.log` next to it (an app cannot write `/tmp`). Everything phone-side is in `tools/browser_research.sh` (run on the phone with `sh`; the phone's shell is zsh and aborts a command whose `*` matches nothing). Put it on the phone once: `scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh`; log in once with `ssh -p 2222 root@127.0.0.1` and type the commands on the phone: `sh /var/mobile/br.sh enable` (then force-quit and reopen the browser), `status`, `test` (the channel test), `mark TEXT`, `log`, `clear`, `level 0|1`, `source on|off`, `disable`; a trailing `safari` addresses Safari. Safari has not been researched yet (a separate run, later).
 
-## 24. 0.3.5: Arc Search downloads in Download Progress (build tag `OITI-exp-0.3.5-arc-a`)
+## 24. 0.3.5: Arc Search downloads in Download Progress (build tag `OITI-exp-0.3.5-arc-a`; released as 0.3.5 on 11 Nov 2026)
 
 New: **Settings > Insula > Download Progress > Show Arc Downloads** (key `DownloadBrowserEnabled`, default off, experimental; it needs Show Download Progress; Apple Mode and safe mode switch it off). Arc's newest download appears in the Island with its percentage (no file name yet: 0.3.6), in both looks, with the finished and cancelled states and the return to idle by percentage. Written and compile-checked, **not device-tested**. Arc has no pause button, so nothing is ever shown as paused.
 
@@ -1475,7 +1475,7 @@ ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh disable; sh /var/mobile/br.sh l
 
 Keep **Show Arc Downloads** on if you like it; it is off by default for everyone else.
 
-## 25. 0.3.5 release candidate: test the exact release package, then release
+## 25. 0.3.5 release candidate: test the exact release package, then release (done on 11 Nov 2026; the pattern for the next release)
 
 Changes since the Arc test (section 24): the Detailed look no longer repeats the percentage (percentage-only sources, so App Store and Arc: the line under the bar is `Downloading · ~1 min left`, the label on the right is the percentage), OITI `control` `0.3.5`, build tag `OITI-0.3.5`, Settings tag `OITIPrefs-0.3.5`, docs. OITCore stays `0.1.0`. The release package is `FINALPACKAGE=1`, `DiagnosticsLevel` 0.
 

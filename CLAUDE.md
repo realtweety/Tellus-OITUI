@@ -67,3 +67,15 @@ Where a Theos build is not available (a container, the chat), `tools/offline_che
 - Be direct and stepwise. For terminal troubleshooting, lead with one main action at a time and explain risky commands before running them.
 - Separate confirmed facts from hypotheses. If a build, device test, or GitHub action did not run, say so plainly.
 - Do not make changes outside the requested scope just because they seem like improvements. Suggest follow-up work separately.
+
+## Giving commands to the owner (chat sessions; lessons of 0.3.0 to 0.3.5)
+
+The owner runs the commands himself (PC: Arch, fish; phone: Dopamine rootless, shell zsh). He asked for complete, exact commands, one block at a time, never a summary of steps.
+- No `<placeholders>` in a command. In fish `<name>` is a redirect and creates an empty file (`-D` and `^{tree}` were committed that way). Use `set VAR (command)` and `$VAR`, or give the literal value.
+- fish stops on a `*` that matches nothing; zsh on the phone does the same and aborts the whole command (a collection command once printed nothing, not even its header). Quote patterns for git, use `find` on the PC, and run phone-side steps from a script with `sh` (`tools/browser_research.sh` is the pattern; the owner logs in once and types short commands).
+- After every push: `git rev-parse HEAD origin/experiments` must print the same hash twice (two commits once never left the PC and an old package was installed). Find the CI or release run by the commit's SHA (a loop with `gh run list --json databaseId,headSha`), never by "newest run". After installing: `dpkg -s com.wilburt.oiti | grep Version` (a DEBUG package ends in `+debug`) and the `START build` line of the log.
+- In this chat workflow the owner applies the delta archive and runs `git add -A` after `git status --short` lists exactly the files the report names. (The rule above against `git add -A` is for Claude Code.)
+- Releases: tag first, then `gh release create vX.Y.Z --verify-tag` (without it a missing tag is created on the default branch's newest commit); attach the tested artifact, not the rebuild the tag push starts; compare `git rev-parse <tested commit>^{tree}` with `origin/main^{tree}`. Recreate `experiments` only after the Release exists, from `main`, with `git switch main` first (git refuses to delete the branch you are on, and `git push -u origin experiments` pushes whatever the local branch holds).
+- A switch or a log for an app must not live in the app's tmp folder (iOS may purge it); use its Library folder.
+- Be honest about what was not seen: say "I have not seen the output" instead of assuming a step worked.
+
