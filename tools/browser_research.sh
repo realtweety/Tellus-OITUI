@@ -5,10 +5,11 @@
 # Log in once (PC):                ssh -p 2222 root@127.0.0.1
 # Then, on the phone:              sh /var/mobile/br.sh <command> [safari]
 #
-# Commands (Arc Search unless the last word is "safari"):
+# Commands (Arc Search unless the last word is "safari" or "chrome"; Chrome is com.google.chrome.ios, research only since 0.3.6):
 #   enable      create the enable file in the app's Library folder (not tmp: iOS may purge tmp). Force-quit and reopen the browser after.
 #   status      what exists, what the log says, whether the browser runs, its crash reports, what SpringBoard logged
-#   test        post the channel test (the browser must be open with the enable file in place)
+#   test        post the channel test (the browser must be open with the enable file in place). Since 0.3.6 it also publishes a sample
+#               file name (the SpringBoard side logs it at level 1: grep "name test") and runs the class census of the browser's log
 #   mark TEXT   append the phone's clock and TEXT to /var/mobile/oiti-marks.txt (press a button in the browser, then run this)
 #   marks       print the marks
 #   log         print the whole browser log (from the PC:  ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh log' > ~/Downloads/OITIBrowser-all.log)
@@ -23,7 +24,10 @@ export PATH="$PATH:/var/jb/usr/bin:/var/jb/bin"
 cmd=${1:-status}
 shift 2>/dev/null
 BROWSER=arc; ID=ArcMobile2; PROC=ArcMobile2
-for a in "$@"; do [ "$a" = safari ] && { BROWSER=safari; ID=com.apple.mobilesafari; PROC=MobileSafari; }; done
+for a in "$@"; do
+  [ "$a" = safari ] && { BROWSER=safari; ID=com.apple.mobilesafari; PROC=MobileSafari; }
+  [ "$a" = chrome ] && { BROWSER=chrome; ID=com.google.chrome.ios; PROC=Chrome; }
+done
 
 app_dir() {
   for d in "$APP_ROOT"/*; do
@@ -53,7 +57,7 @@ case "$cmd" in
     echo "=== last 15 lines of the browser log:"; tail -n 15 "$LOG" 2>&1 | cut -c1-260
     echo "=== newest crash reports of $PROC:"; ls -t /var/mobile/Library/Logs/CrashReporter 2>/dev/null | grep -i "$PROC" | head -n 3
     echo "=== DiagnosticsLevel:"; defaults read com.wilburt.oiti.prefs DiagnosticsLevel 2>&1
-    echo "=== BROWSER lines in the SpringBoard log (last 8):"; grep BROWSER /tmp/OITIDebug.log 2>&1 | tail -n 8 | cut -c1-260
+    echo "=== BROWSER lines in the SpringBoard log (last 10):"; grep BROWSER /tmp/OITIDebug.log 2>&1 | tail -n 10 | cut -c1-260
     echo "=== Download Progress and Arc switches:"; defaults read com.wilburt.oiti.prefs DownloadProgressEnabled 2>&1; defaults read com.wilburt.oiti.prefs DownloadBrowserEnabled 2>&1
     echo "=== DOWNLOAD lines in the SpringBoard log (last 12):"; grep "\[DOWNLOAD\]" /tmp/OITIDebug.log 2>&1 | tail -n 12 | cut -c1-230
     echo "=== SpringBoard session:"; grep "START build" /tmp/OITIDebug.log 2>&1 | tail -n 1 | cut -c1-200 ;;
@@ -79,5 +83,5 @@ case "$cmd" in
   disable)
     rm -f "$ENABLE" "$DIR/tmp/OITIBrowserDump.enable"; echo "removed the enable file for $BROWSER; force-quit it to be sure" ;;
   *)
-    echo "usage: sh /var/mobile/br.sh enable|status|test|mark TEXT|marks|log|clear|level 0|1|source on|off|disable [safari]"; exit 2 ;;
+    echo "usage: sh /var/mobile/br.sh enable|status|test|mark TEXT|marks|log|clear|level 0|1|source on|off|disable [safari|chrome]"; exit 2 ;;
 esac

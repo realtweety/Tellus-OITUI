@@ -1376,7 +1376,7 @@ Changes: see `OVERVIEW.md`, "Current state". One behavior change: cards that are
 
 ## 23. Browser downloads research log (finished for Arc; still there for Safari and for checks)
 
-The research of 9 and 10 Nov 2026 is done for Arc Search (results in `LEARNINGS.md`: Arc uses the public `WKDownload`, the progress is a public `NSProgress`, the channel from an app to SpringBoard works). The research log stays in the build: it runs in Arc Search (`company.thebrowser.ArcMobile2`) and Safari (`com.apple.mobilesafari`) only when the file `OITIBrowserDump.enable` exists in that app's **Library** folder (not tmp: iOS may purge tmp, which cost one test round), and writes `OITIBrowser.log` next to it (an app cannot write `/tmp`). Everything phone-side is in `tools/browser_research.sh` (run on the phone with `sh`; the phone's shell is zsh and aborts a command whose `*` matches nothing). Put it on the phone once: `scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh`; log in once with `ssh -p 2222 root@127.0.0.1` and type the commands on the phone: `sh /var/mobile/br.sh enable` (then force-quit and reopen the browser), `status`, `test` (the channel test), `mark TEXT`, `log`, `clear`, `level 0|1`, `source on|off`, `disable`; a trailing `safari` addresses Safari. Safari has not been researched yet (a separate run, later).
+The research of 9 and 10 Nov 2026 is done for Arc Search (results in `LEARNINGS.md`: Arc uses the public `WKDownload`, the progress is a public `NSProgress`, the channel from an app to SpringBoard works). The research log stays in the build: it runs in Arc Search (`company.thebrowser.ArcMobile2`) and Safari (`com.apple.mobilesafari`) only when the file `OITIBrowserDump.enable` exists in that app's **Library** folder (not tmp: iOS may purge tmp, which cost one test round), and writes `OITIBrowser.log` next to it (an app cannot write `/tmp`). Everything phone-side is in `tools/browser_research.sh` (run on the phone with `sh`; the phone's shell is zsh and aborts a command whose `*` matches nothing). Put it on the phone once: `scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh`; log in once with `ssh -p 2222 root@127.0.0.1` and type the commands on the phone: `sh /var/mobile/br.sh enable` (then force-quit and reopen the browser), `status`, `test` (the channel test), `mark TEXT`, `log`, `clear`, `level 0|1`, `source on|off`, `disable`; a trailing `safari` addresses Safari. Safari was researched on 12 Nov 2026: it does not call the public `WKDownload` (`LEARNINGS.md`); the next round is section 26 (0.3.6 batch 1), which also adds Chrome (`chrome` as the trailing word).
 
 ## 24. 0.3.5: Arc Search downloads in Download Progress (build tag `OITI-exp-0.3.5-arc-a`; released as 0.3.5 on 11 Nov 2026)
 
@@ -1615,3 +1615,72 @@ gh release view v0.3.5
 ```
 
 Attach the files from `~/Downloads/oiti-rc` (the tested artifact), not a rebuild: pushing the tag starts a second, untested release build of the same sources. Last, recreate `experiments` from `main` (the block in `WORKFLOW.md`).
+
+## 26. 0.3.6 batch 1: browser research build (build tag `OITI-exp-0.3.6-a`; nothing new in the Island)
+
+Research only. No setting is added, removed or changed, and no default changes. New in the research log (only for an app whose Library folder holds `OITIBrowserDump.enable`): **Chrome** (`com.google.chrome.ios`) joins Arc Search and Safari; a **class census** (every loaded Objective-C class with "download" in its name, and its related methods) 8 s after launch and on every `test`; the **file name** a download delegate is given (Arc and Chrome, if they use `WKDownload`); and a **file name transport test**: `test` publishes a sample name through eight libnotify states and SpringBoard logs what it read. Protocol version 2 (browser ID, name flag, name chunks) is defined in `Browser/OITIBrowserProtocol.h` and checked by `tools/browser_protocol_test.c`, but nothing sends or reads it in a real download yet (batch 2). Written, compile-checked and PC-tested; **not device-tested**.
+
+The launch path: the only change is a third bundle ID (`com.google.chrome.ios`) in the allowlist comparison that every non-SpringBoard process runs, plus a `dispatch_after` that is scheduled only when the enable file exists. The `%ctor` order, `preferencesChanged()` and the headers they import are untouched (`tools/check_ctor_path.py` passes). The normal safe first run applies: keep a second SSH session on `tail -F /tmp/OITIDebug.log`; if an app or SpringBoard misbehaves, Dopamine > Settings > Tweak Injection off, jailbreak, then `mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off`.
+
+**1. Push the batch and get the DEBUG build (PC, fish).**
+
+```
+cd ~/OITUI
+tar -xzf ~/Downloads/oitui-v036-research.tar.gz -C ~/OITUI .
+git status --short
+git add -A
+git commit -m "0.3.6 batch 1: browser research build (census, file name, Chrome, protocol v2)"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+`git status --short` must list exactly the files named in the batch report; the last command must print the same hash twice. Then fetch the CI build of that commit with the block in section 24, step 1 (`gh run list ... select(.headSha==...)`, `gh run watch`, `gh run download`).
+
+**2. Install (PC)** with the block in section 24, step 2 (it also copies `br.sh`). Open Settings, Photos, Safari and Chrome once: all must launch normally. Then on the phone (`ssh -p 2222 root@127.0.0.1`):
+
+```
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+sh /var/mobile/br.sh level 1
+sh /var/mobile/br.sh disable
+sh /var/mobile/br.sh disable safari
+sh /var/mobile/br.sh disable chrome
+```
+
+The first line must say `OITI-exp-0.3.6-a`. The three `disable` lines make sure no browser has an enable file: `test` is answered by every browser that has one, and their name tests would overwrite each other. Test **one browser at a time** (below).
+
+**3. One browser.** The examples are for Chrome. For Safari write `safari` as the last word instead of `chrome`; for Arc Search leave the browser word out. Order that works: `clear` first, then `enable`, then force-quit and reopen the browser (a `clear` after the browser started deletes the first lines of its session). Example for Chrome:
+
+```
+sh /var/mobile/br.sh clear chrome
+sh /var/mobile/br.sh enable chrome
+```
+
+Force-quit Chrome, open it again, wait 15 s, then:
+
+```
+sh /var/mobile/br.sh status chrome
+```
+
+The browser log must show `browser research dump is on in com.google.chrome.ios`, the hook lines, and `census (8 s after launch) ... summary`. Then start a download from the PC (terminal 2): `python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1`, open its link in the browser, and on the phone:
+
+```
+sh /var/mobile/br.sh mark download-started
+sh /var/mobile/br.sh test chrome
+sleep 3
+sh /var/mobile/br.sh mark test-during-download
+```
+
+Cancel the download in the browser, `mark cancel-pressed`, then run the server again with `--size-mb 100 --rate-mb 2`, open the link, let it finish, `mark finished`, and run `sh /var/mobile/br.sh test chrome` once more (`mark test-after-finish`). In Safari, the census during a download is the important one.
+
+**4. Collect (PC, once per browser; swap `chrome` for `safari`, or leave the word out for Arc, in the file names and in the `log` and `status` commands).**
+
+```
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh log chrome' > ~/Downloads/OITIBrowser-chrome.log
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh marks' > ~/Downloads/OITI-marks-chrome.txt
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh status chrome' > ~/Downloads/OITI-status-chrome.txt
+ssh -p 2222 root@127.0.0.1 'grep "name test" /tmp/OITIDebug.log | tail -n 6' > ~/Downloads/OITI-nametest.txt
+```
+
+After the run, on the phone: `sh /var/mobile/br.sh level 0` and `sh /var/mobile/br.sh disable chrome` (and for the other browsers).
+
+**What a good run looks like.** Browser log: one `name test: 56 of 77 bytes packed in 8 chunk states (0 failures)` per `test`, and SpringBoard (level 1): `name test: pid <pid> serial <n>: read failures=0 header=0x... length=56 valid UTF-8=1 name=OITI-test café ファイル ✓ long-file-name-for-the-` (the sample is 77 bytes, cut to 56). For Arc and Chrome, if they use `WKDownload`: `destination hook installed on <delegate class>` and, per download, `WKDownload <id> destination: suggestedFilename=<the real name> ...`. For Safari: `census (...) image <path>: ... with "download": <class names>` and the `class <name> (super ...) ... related: <selectors>` lines that follow. Send the files; I do not need them earlier than that.
