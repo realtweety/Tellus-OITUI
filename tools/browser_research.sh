@@ -15,7 +15,7 @@
 #   log         print the whole browser log (from the PC:  ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh log' > ~/Downloads/OITIBrowser-all.log)
 #   clear       delete the browser log and the marks
 #   level 0|1   DiagnosticsLevel for the SpringBoard side (1 is needed to see the channel test and the DOWNLOAD lines)
-#   source on|off  Show Download Progress + Show Arc Downloads on or off (the same two switches as Settings > Insula > Download Progress)
+#   source on|off  Show Download Progress + Show Browser Downloads on or off (the same two switches as Settings > Insula > Download Progress)
 #   disable     remove the enable file (the research is off again)
 # Nothing here changes any setting except DiagnosticsLevel (level) and the two files named above.
 
@@ -76,8 +76,8 @@ case "$cmd" in
     defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int "$lvl" && notifyutil -p com.wilburt.oiti/PrefsChanged && echo "DiagnosticsLevel is $lvl" ;;
   source)
     case "${1:-}" in
-      on)  defaults write com.wilburt.oiti.prefs DownloadProgressEnabled -bool true && defaults write com.wilburt.oiti.prefs DownloadBrowserEnabled -bool true && notifyutil -p com.wilburt.oiti/PrefsChanged && echo "Show Download Progress and Show Arc Downloads are on" ;;
-      off) defaults write com.wilburt.oiti.prefs DownloadBrowserEnabled -bool false && notifyutil -p com.wilburt.oiti/PrefsChanged && echo "Show Arc Downloads is off (Show Download Progress is left as it is)" ;;
+      on)  defaults write com.wilburt.oiti.prefs DownloadProgressEnabled -bool true && defaults write com.wilburt.oiti.prefs DownloadBrowserEnabled -bool true && notifyutil -p com.wilburt.oiti/PrefsChanged && echo "Show Download Progress and Show Browser Downloads are on" ;;
+      off) defaults write com.wilburt.oiti.prefs DownloadBrowserEnabled -bool false && notifyutil -p com.wilburt.oiti/PrefsChanged && echo "Show Browser Downloads is off (Show Download Progress is left as it is)" ;;
       *)   echo "usage: sh /var/mobile/br.sh source on|off" ;;
     esac ;;
   disable)

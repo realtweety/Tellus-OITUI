@@ -295,12 +295,22 @@ static void OITIIslandPillRect(CGRect *rectOut, NSString **sourceOut) {
 
 OITIDownloadPill *sDownloadPill;   // the Minimal look, while it is on screen
 
+// A browser download's title is its file name, which is private: the default log (level 0) gets a placeholder for it, never the name.
+static NSString *OITIDownloadLogTitle(NSString *bundleID, NSString *title) {
+    static NSSet<NSString *> *browsers;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        browsers = [NSSet setWithArray:@[@"company.thebrowser.ArcMobile2", @"com.google.chrome.ios", @"com.apple.mobilesafari"]];
+    });
+    return [browsers containsObject:bundleID ?: @""] ? @"browser download, file name not logged" : (title ?: @"?");
+}
+
 static void OITIDownloadPillPresent(NSDictionary *snapshot) {
     OITIDownloadPill *pill = [[OITIDownloadPill alloc] init];
     sDownloadPill = pill;
     sDownloadShownAt = CFAbsoluteTimeGetCurrent();
     [pill present];
-    [sLog logTag:@"DOWNLOAD" format:@"progress pill up for %@ (window level %.0f)", snapshot[@"title"], (double)pill.level];
+    [sLog logTag:@"DOWNLOAD" format:@"progress pill up for %@ (window level %.0f)", OITIDownloadLogTitle(snapshot[@"bundleID"], snapshot[@"title"]), (double)pill.level];
 }
 
 void OITIDownloadPillDismiss(NSString *reason) {
@@ -514,7 +524,7 @@ void OITIDownloadsRefresh(void) {
         NSString *message = OITIDownloadMessageText(snapshot);
         NSDictionary *info = @{ @"bundleID": snapshot[@"bundleID"], @"appName": snapshot[@"appName"], @"title": snapshot[@"title"], @"message": message };
         if (OITIPresentNoticeElement(info, @"download-progress")) {
-            [sLog logTag:@"DOWNLOAD" format:@"progress element up for %@", snapshot[@"title"]];
+            [sLog logTag:@"DOWNLOAD" format:@"progress element up for %@", OITIDownloadLogTitle(snapshot[@"bundleID"], snapshot[@"title"])];
         } else {
             sDownloadNextPresentAttempt = now + 10.0;   // not ready, recovering or failed: try again later, not every tick
         }
@@ -592,7 +602,7 @@ void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSStrin
         sDownloadCollapsed = NO;   // a new download brings the element back
         sDownloadNextPresentAttempt = 0;
         sDownloadDropCount = 0;
-        [sLog logTag:@"DOWNLOAD" format:@"started %@ (%@), percentage only (no sizes)", identifier, title ?: @"?"];
+        [sLog logTag:@"DOWNLOAD" format:@"started %@ (%@), percentage only (no sizes)", identifier, OITIDownloadLogTitle(bundleID, title)];
     }
     download[@"title"] = title.length ? title : @"Download";
     download[@"appName"] = appName ?: @"";

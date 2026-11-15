@@ -24,7 +24,8 @@ Insula gives iPhones without a Dynamic Island one. It is built on Apple's own Is
 - **The Island:** turn it on, move it, resize or scale it, and change its color and opacity. Most changes apply immediately. Turning it on needs a respring.
 - **Apple Mode:** one switch that makes the Island look and behave like stock iOS.
 - **Notifications:** show notifications in the Island. The newest is in the Island, older ones are small cards below it (up to four). Tap to open, swipe up to dismiss. Off by default and still experimental: **Settings > Insula > Notifications**.
-- **Download Progress:** show App Store downloads as a progress bar with the percentage and the time left, including paused, installing and finished, and Arc Search downloads with the percentage. Off by default and still experimental: **Settings > Insula > Download Progress**. Safari and Chrome downloads are planned.
+- **Download Progress:** show App Store downloads as a progress bar with the percentage and the time left, including paused, installing and finished, and Arc Search and Chrome downloads with the file name and the percentage (experimental, off by default). Off by default and still experimental: **Settings > Insula > Download Progress**. Safari and Chrome downloads are planned.
+- **Diagnostics:** Settings > Insula > Diagnostics copies a report for a bug report to the clipboard (device, iOS version, settings and the log, with notification text and download file names removed), shares a longer one as a file, switches the log detail and clears the log files.
 - **Startup Animation:** plays a Hello animation after a respring; tap it to open Insula's Settings. Off by default.
 - **Safe mode:** if SpringBoard keeps restarting, Insula switches itself off. Settings then shows why, with a button to clear it.
 

@@ -1684,3 +1684,54 @@ ssh -p 2222 root@127.0.0.1 'grep "name test" /tmp/OITIDebug.log | tail -n 6' > ~
 After the run, on the phone: `sh /var/mobile/br.sh level 0` and `sh /var/mobile/br.sh disable chrome` (and for the other browsers).
 
 **What a good run looks like.** Browser log: one `name test: 56 of 77 bytes packed in 8 chunk states (0 failures)` per `test`, and SpringBoard (level 1): `name test: pid <pid> serial <n>: read failures=0 header=0x... length=56 valid UTF-8=1 name=OITI-test café ファイル ✓ long-file-name-for-the-` (the sample is 77 bytes, cut to 56). For Arc and Chrome, if they use `WKDownload`: `destination hook installed on <delegate class>` and, per download, `WKDownload <id> destination: suggestedFilename=<the real name> ...`. For Safari: `census (...) image <path>: ... with "download": <class names>` and the `class <name> (super ...) ... related: <selectors>` lines that follow. Send the files; I do not need them earlier than that.
+
+## 27. 0.3.6 batch 2: Arc and Chrome with the file name, Safari probe (build `OITI-exp-0.3.6-b`)
+
+Written and compile-checked, **not device-tested**. What changed: Arc Search and Chrome publish their newest download (protocol version 2, browser ID) and the Island shows `Arc - <file name>` or `Chrome - <file name>` (`Download` when no name arrived); the switch label is "Show Browser Downloads" (key `DownloadBrowserEnabled`, off by default, no new settings); browser file names are not in the default log; Safari gets a log-only probe of its private download classes. The launch path: the allowlist comparison and the Chrome publisher flag only (`tools/check_ctor_path.py` passes); the safe first run of section 26 applies.
+
+**Push and install** as in section 26, steps 1 and 2, with the archive `oitui-v036-publish.tar.gz` and the commit message `0.3.6 batch 2: Arc and Chrome with the file name, protocol v2 live, Safari probe`. The first line after installing must say `OITI-exp-0.3.6-b`:
+
+```
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+```
+
+**Island test (Arc, then Chrome).** On the phone, switch the browser source on (Settings > Insula > Download Progress > Show Download Progress and Show Browser Downloads, or `sh /var/mobile/br.sh source on`) and set `sh /var/mobile/br.sh level 1`. Force-quit the browser after switching the source on. PC, terminal 2, the first download with a long name (no spaces in the name):
+
+```
+python3 ~/OITUI/tools/throttle_server.py --size-mb 200 --rate-mb 1 --name Quarterly-report-final-version-2026-long-file-name-test.bin
+```
+
+Open the printed link in the browser (in Chrome tap "Download" in its bar). Expected: the Island shows the bar with the browser's name and the file name (cut at the end if it is too long), in both looks; cancel in the browser: the red Cancelled state; start it again and let it finish: the finished state. Then the short one: `--size-mb 100 --rate-mb 2 --name test.bin` and check that the name is `test.bin`. In Chrome the first, immediate cancel of the link must show nothing. Check the logs (PC):
+
+```
+ssh -p 2222 root@127.0.0.1 'grep "file name for\|name tokens\|started browser\|replaces" /tmp/OITIDebug.log | tail -n 20' > ~/Downloads/OITI-batch2-names.txt
+ssh -p 2222 root@127.0.0.1 'grep -c "file name not logged" /tmp/OITIDebug.log; grep -c "test.bin" /tmp/OITIDebug.log'
+```
+
+The last two numbers: the first must be above 0 for a download run at level 1, and `test.bin` is expected only on the `file name for` lines (level 1), not on the `started` lines.
+
+**Safari probe.** On the phone: `sh /var/mobile/br.sh level 1`, `sh /var/mobile/br.sh disable` and `disable chrome`, then `clear safari`, `enable safari`, force-quit and reopen Safari, wait 15 s, download the 400 MB file (section 26, step 3: marks, `test safari` during the download, cancel, then the 100 MB one to the end). Collect with the commands of section 26 step 4 (the log is `sh /var/mobile/br.sh log safari`). The log must show `Safari probe: installing` and per selector `hooked (encoding ...)` or why not; the calls follow when a download runs.
+
+After the run: `sh /var/mobile/br.sh level 0`, `sh /var/mobile/br.sh disable safari`, and `sh /var/mobile/br.sh source off` if you do not want the browser source on.
+
+## 28. 0.3.6 batch 3: the Diagnostics page and the report button
+
+Written and compile-checked; the text helper is PC-tested (`tools/report_text_test.c`); **not device-tested**. Nothing is on the tweak's launch path: the new code is in the Settings bundle (`OITIReport.m`, `OITIDiagnosticsListController.m`, `OITIReportText.h`, `Diagnostics.plist`), runs when a button is tapped, reads files and changes nothing except "Clear Log Files" and the Log Detail picker (`DiagnosticsLevel`, default Normal). No other setting changed. Install it with the same blocks as sections 26 and 27 (archive `oitui-v036-report.tar.gz`; commit message `0.3.6 batch 3: Diagnostics page, report button, issue template`).
+
+**Device checks (answer yes or no to each; they decide whether it ships):**
+
+1. Settings > Insula shows a row "Diagnostics" under "Download Progress", and it opens a page with the groups Report, Logging and Log Files.
+2. "Copy Report to Clipboard": an alert "Report copied" appears within about a second; paste into Notes. The text starts with `Insula diagnostics report (short)`, has the sections Device, Insula, Settings and two Log sections, and is shorter than about 50 KB.
+3. In the pasted text, "Machine" and "iOS" are right, "Latest SpringBoard session start in the log" shows the build tag you installed, and "ArtworkDeviceSubType" matches whether the Island is on (2556) or off.
+4. Set Log Detail to Detailed, respring, wait two minutes, tap Copy Report again: the log part now contains `STATUSBAR` lines (the provider report). Make a notification arrive (any app): the pasted text must not contain the notification's title or message, and a browser download must not show its file name (look for `(removed from the report)`).
+5. "Share Full Report": the share sheet opens with a file `Insula-report.txt`; saving it to Files works; it is longer than the short report.
+6. "Clear Log Files" asks first; after Clear, the next Copy Report has a short log. Set Log Detail back to Normal afterwards.
+7. Settings > Insula and every other Insula page still open normally and every Island setting at its default still looks stock.
+
+If anything fails, send me the report text (check that it holds nothing you do not want to share) or a description of what you saw. Terminal check of the log files, if you want one (phone):
+
+```
+ls -l /tmp/OITIDebug.log /tmp/OITIPrefsDebug.log
+```
+
+**For a bug reporter (text for a GitHub reply, Insula 0.3.6 or newer):** Settings > Insula > Diagnostics > set Log Detail to Detailed > respring > wait two minutes > reproduce the problem > Copy Report to Clipboard > paste it into the issue. Reporters on older versions still need the SSH steps in section 12.

@@ -12,6 +12,8 @@ Where this differs from the 0.4.0 wording in the roadmap bullet under "OITI: cur
 - **One-command tester report.** A script in `tools/` (for SSH use) and a button in Insula's settings (maybe a dedicated section or menu) that collects the report and copies it to the clipboard: build tag, device model, iOS version, every setting that differs from its default, safe-mode and self-check state, the log tail, Dopamine and package versions. Design points: the collection runs in the Settings bundle process with no change to the launch path; live SpringBoard state, if needed, is requested on demand through a notification (cheap observer at launch, the work only when the button is pressed). Before shipping: grep every log call site for notification titles or text, show a preview and list what the report contains, and say that Universal Clipboard can sync it to the user's other devices.
 - **Icons.** Make icons for Tellus, Insula, Litus and the rest of the family (the owner is tired of plain text names). Starting points are in "Icon concepts (not yet made, no urgency)" at the end of this file, which still uses the old module names (OITI is Insula, OITS is Litus, OITUI is Tellus).
 
+Status, 14 Nov 2026: the one-command tester report and the Settings button (decision 2 above) were built for 0.3.6 as Settings > Insula > Diagnostics (idea 18 in part: the Log Detail picker; idea 29 is still open), with an issue template; see OVERVIEW.md, "0.3.6 batch 3". The "default logging stays off" decision is in the same entry.
+
 ### Ideas for Insula (31 items; major, medium, small, infrastructure)
 
 **Major**

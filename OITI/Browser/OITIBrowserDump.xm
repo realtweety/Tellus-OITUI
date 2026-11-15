@@ -1,19 +1,26 @@
-// OITIBrowserDump.xm -- browser downloads: the Arc Search source (OITI 0.3.5) and the research log it grew out of.
+// OITIBrowserDump.xm -- browser downloads: the Arc Search source (OITI 0.3.5), the Chrome source and the file name (OITI 0.3.6),
+// and the research log they grew out of.
 //
 // WHAT RUNS WHERE
-//  * Arc Search (company.thebrowser.ArcMobile2): the SOURCE. While SpringBoard says "Show Arc Downloads" is on (libnotify state, see
-//    OITIBrowserProtocol.h), the public WKDownload class is hooked (-setDelegate: to find downloads, -cancel: to see a cancel), the
-//    newest download's public NSProgress is polled once a second, and its percentage and end are sent to SpringBoard
-//    (OITIBrowserSource.xm turns that into the Island's download progress). Percentage only; the file name is planned for 0.3.6.
+//  * Arc Search (company.thebrowser.ArcMobile2) and Chrome (com.google.chrome.ios, since 0.3.6): the SOURCES. While SpringBoard says
+//    "Show Browser Downloads" is on (libnotify state, see OITIBrowserProtocol.h), the public WKDownload class is hooked
+//    (-setDelegate: to find downloads, -cancel: to see a cancel), the newest download's public NSProgress is polled once a second, and
+//    its percentage and end are sent to SpringBoard (OITIBrowserSource.xm turns that into the Island's download progress). Since
+//    0.3.6 the message is protocol version 2 (browser ID) and the download's file name travels with it: the delegate's
+//    -download:decideDestinationUsingResponse:suggestedFilename:completionHandler: is hooked on the delegate's class (it only stores
+//    the name and calls the original), with the last path component of the request URL as the fallback. Both browsers were measured
+//    on 13 Nov 2026 (LEARNINGS.md); Chrome cancels its first WKDownload of a link at once (before any progress), which is never
+//    published (nothing was ever shown, so there is nothing to cancel).
 //  * Arc Search, Safari (com.apple.mobilesafari) and Chrome (com.google.chrome.ios), only when the file OITIBrowserDump.enable exists
 //    in that app's Library folder: the RESEARCH log (OITIBrowser.log in the same folder): what the public WKDownload does, a channel
-//    test, the public cancel and resume calls. Safari and Chrome are research only; they never publish.
+//    test, the public cancel and resume calls. Safari is research only; it never publishes.
 //    0.3.6 batch 1 adds to the research log (nothing is published, nothing is shown in the Island): (1) a census of the loaded
 //    Objective-C classes whose name contains "download" (Safari does not use the public WKDownload, 12 Nov 2026, so this is how its
 //    own download classes are found), run 8 s after launch and again on every channel test; (2) the file name a download delegate
 //    is given (-download:decideDestinationUsingResponse:suggestedFilename:completionHandler: is hooked on the delegate's class, only
 //    to log it and call the original); (3) the file name transport test: the channel test also publishes a sample name in the
 //    eight name chunks (OITIBrowserProtocol.h, version 2) and SpringBoard logs what it read back at DiagnosticsLevel 1.
+//    0.3.6 batch 2 adds, in Safari only: a log-only probe of Safari's private download classes (OITIBrowserInstallSafariProbe).
 //  * Every other process: one string comparison against the allowlist, then return.
 //
 // WHAT IS KNOWN (measured on the iPhone 8 Plus, iOS 16.7.16, Arc Search 1.49.0, 10 Nov 2026; LEARNINGS.md)
@@ -56,8 +63,11 @@ static NSString * const kOITIBrowserProbeStateName = @"com.wilburt.oiti/BrowserP
 extern NSString * const kOITIBuildTag;
 
 static OITLogger *sBrowserLog;                           // research log (nil unless the enable file exists)
-static BOOL sBrowserIsArc;
-static BOOL sBrowserSourceOn;                            // SpringBoard says "Show Arc Downloads" is on
+static uint32_t sBrowserID;                              // OITIBrowserID* of this process (Arc, Safari or Chrome)
+static BOOL sBrowserSourceOn;                            // SpringBoard says "Show Browser Downloads" is on
+static BOOL sBrowserSafariInstalled;                     // the Safari research probe is installed
+static int sBrowserNameTokens[OITI_BROWSER_NAME_CHUNK_COUNT];
+static BOOL sBrowserNameTokensReady;
 static NSMapTable *sBrowserDownloads;                    // weak WKDownload -> state dictionary
 static NSMutableDictionary<NSString *, NSMutableDictionary *> *sBrowserKnown;   // pointer text -> state, to notice when a download object goes away
 static NSTimer *sBrowserTimer;
@@ -130,9 +140,32 @@ static void OITIBrowserNoteResume(id webView, NSData *data, BOOL hasHandler);
 %end
 %end
 
+static BOOL OITIBrowserIsPublisher(void) {
+    return sBrowserID == OITIBrowserIDArc || sBrowserID == OITIBrowserIDChrome;   // Safari is research only
+}
+
+// Publishes a download's file name in the eight name chunks (OITIBrowserProtocol.h) before the message that says a name exists.
+static void OITIBrowserPostName(NSData *utf8, uint32_t serial) {
+    if (!sBrowserNameTokensReady) {
+        sBrowserNameTokensReady = YES;
+        for (unsigned i = 0; i < OITI_BROWSER_NAME_CHUNK_COUNT; i++) {
+            int token = 0;
+            sBrowserNameTokens[i] = notify_register_check(OITIBrowserNameChunkName(i), &token) == NOTIFY_STATUS_OK ? token : -1;
+        }
+    }
+    uint64_t chunks[OITI_BROWSER_NAME_CHUNK_COUNT];
+    uint32_t length = (uint32_t)MIN(utf8.length, (NSUInteger)4096);
+    uint32_t packed = OITIBrowserPackName((const char *)utf8.bytes, length, (uint32_t)getpid(), serial, chunks);
+    unsigned failures = 0;
+    for (unsigned i = 0; i < OITI_BROWSER_NAME_CHUNK_COUNT; i++) {
+        if (sBrowserNameTokens[i] < 0 || notify_set_state(sBrowserNameTokens[i], chunks[i]) != NOTIFY_STATUS_OK) failures++;
+    }
+    OITI_BLOG(@"source: name published (serial %u, %u of %u bytes, %u failures)", serial, packed, length, failures);
+}
+
 // Sends the state of one download to SpringBoard when it changed. Only the newest download is published, only while the source is on.
 static void OITIBrowserPublishDownload(NSMutableDictionary *state, id download) {
-    if (!sBrowserSourceOn || !sBrowserIsArc || !state) return;
+    if (!sBrowserSourceOn || !OITIBrowserIsPublisher() || !state) return;
     if ([state[@"done"] boolValue] || [state[@"order"] unsignedIntegerValue] != sBrowserNewestOrder) return;
     uint32_t serial = (uint32_t)[state[@"serial"] unsignedIntValue];
     uint32_t status = OITIBrowserStatusWaiting, value = 0;
@@ -159,14 +192,28 @@ static void OITIBrowserPublishDownload(NSMutableDictionary *state, id download) 
             return;   // no total yet (Arc reports -1 for the first seconds): nothing to show
         }
     }
-    uint64_t message = OITIBrowserEncodeState((uint32_t)getpid(), serial, status, value);
+    NSString *name = [state[@"name"] isKindOfClass:[NSString class]] ? state[@"name"] : nil;
+    NSData *nameBytes = name.length ? [name dataUsingEncoding:NSUTF8StringEncoding] : nil;
+    BOOL hasName = nameBytes.length > 0;
+    uint64_t message = OITIBrowserEncodeStateV2((uint32_t)getpid(), sBrowserID, hasName, serial, status, value);
+    if (message == 0) {
+        if (![state[@"badMessage"] boolValue]) {
+            state[@"badMessage"] = @YES;
+            OITI_BLOG(@"source: the pid %d or the browser ID %u cannot be encoded; nothing is sent for download %@", getpid(), sBrowserID, state[@"id"]);
+        }
+        return;
+    }
     if ([state[@"lastMessage"] unsignedLongLongValue] == message && state[@"lastMessage"]) return;
+    if (hasName && ![state[@"nameSent"] boolValue]) {
+        OITIBrowserPostName(nameBytes, serial);   // before the message that says a name exists
+        state[@"nameSent"] = @YES;
+    }
     state[@"lastMessage"] = @(message);
     OITIBrowserPostState(message);
     if (status == OITIBrowserStatusRunning) state[@"published"] = @YES;
     if (status != OITIBrowserStatusRunning) state[@"done"] = @YES;
-    OITI_BLOG(@"source: sent %@ for download %@ (serial %u, %u/10000)", status == OITIBrowserStatusRunning ? @"running" : (status == OITIBrowserStatusFinished ? @"finished" : @"cancelled"),
-              state[@"id"], serial, value);
+    OITI_BLOG(@"source: sent %@ for download %@ (serial %u, %u/10000, name %@)", status == OITIBrowserStatusRunning ? @"running" : (status == OITIBrowserStatusFinished ? @"finished" : @"cancelled"),
+              state[@"id"], serial, value, hasName ? name : @"none");
 }
 
 static void OITIBrowserPoll(void) {
@@ -218,9 +265,13 @@ static void OITIBrowserPoll(void) {
     }
 }
 
-// The file name a download delegate is given (research log only). Called from the hook below, then the original runs.
+// The file name a download delegate is given. Called from the hook below, then the original runs. The name is kept in the
+// download's state for the source (published with the first message); the research log also gets the arguments.
 static void OITIBrowserNoteDestination(id download, id response, id suggestedFilename) {
     NSString *name = [suggestedFilename isKindOfClass:[NSString class]] ? (NSString *)suggestedFilename : nil;
+    NSMutableDictionary *state = download ? [sBrowserDownloads objectForKey:download] : nil;
+    if (state && name.length) state[@"name"] = [name copy];
+    if (!sBrowserLog) return;
     NSString *responseName = nil, *mime = nil;
     long long expected = -1;
     if ([response isKindOfClass:[NSURLResponse class]]) {
@@ -231,7 +282,6 @@ static void OITIBrowserNoteDestination(id download, id response, id suggestedFil
     }
     id request = OITIBrowserGetter(download, "originalRequest");
     NSURL *url = [request isKindOfClass:[NSURLRequest class]] ? ((NSURLRequest *)request).URL : nil;
-    NSMutableDictionary *state = download ? [sBrowserDownloads objectForKey:download] : nil;
     OITI_BLOG(@"WKDownload %@ destination: suggestedFilename=%@ (%lu chars, %lu UTF-8 bytes) response.suggestedFilename=%@ mime=%@ expectedContentLength=%lld urlLastComponent=%@",
               state[@"id"] ?: [NSString stringWithFormat:@"%p", download], name ?: @"(none)", (unsigned long)name.length,
               (unsigned long)[name lengthOfBytesUsingEncoding:NSUTF8StringEncoding], responseName ?: @"(none)", mime ?: @"?", expected,
@@ -239,10 +289,11 @@ static void OITIBrowserNoteDestination(id download, id response, id suggestedFil
 }
 
 // Hooks -download:decideDestinationUsingResponse:suggestedFilename:completionHandler: on the class of a download's delegate, once per
-// class, only while the research log is on. The hook logs the arguments and calls the original with the same arguments. Browsers
-// whose delegate does not implement the method, or answers with another shape, are logged and left alone.
+// class, while the research log or the source is on. The hook stores the name (and logs the arguments) and calls the original with
+// the same arguments. Browsers whose delegate does not implement the method, or answers with another shape, are logged and left alone
+// (the file name is then the last path component of the request URL, see OITIBrowserNoteDownload).
 static void OITIBrowserHookDestination(id delegate) {
-    if (!sBrowserLog || !delegate) return;
+    if ((!sBrowserLog && !sBrowserSourceOn) || !delegate) return;
     Class delegateClass = object_getClass(delegate);
     NSString *className = NSStringFromClass(delegateClass);
     if (!sBrowserHookedDelegates) sBrowserHookedDelegates = [NSMutableSet set];
@@ -355,9 +406,10 @@ static void OITIBrowserNoteDownload(id download, id delegate) {
         [sBrowserDownloads setObject:state forKey:download];
         sBrowserKnown[state[@"id"]] = state;
     }
+    id request = OITIBrowserGetter(download, "originalRequest");
+    NSURL *url = [request isKindOfClass:[NSURLRequest class]] ? ((NSURLRequest *)request).URL : nil;
+    if (isNew && url.lastPathComponent.length) state[@"name"] = url.lastPathComponent;   // fallback; the delegate's suggested name replaces it
     if (sBrowserLog) {
-        id request = OITIBrowserGetter(download, "originalRequest");
-        NSURL *url = [request isKindOfClass:[NSURLRequest class]] ? ((NSURLRequest *)request).URL : nil;
         id progress = OITIBrowserGetter(download, "progress");
         OITI_BLOG(@"WKDownload %@ %@: delegate=%@ responds[downloadDidFinish=%d didFailWithError=%d decideDestination=%d] progress=%@ host=%@ extension=%@ lastComponent=%@",
                   state[@"id"], isNew ? @"seen (setDelegate:)" : @"delegate set again",
@@ -366,8 +418,8 @@ static void OITIBrowserNoteDownload(id download, id delegate) {
                   [delegate respondsToSelector:NSSelectorFromString(@"download:didFailWithError:resumeData:")],
                   [delegate respondsToSelector:NSSelectorFromString(@"download:decideDestinationUsingResponse:suggestedFilename:completionHandler:")],
                   progress ? NSStringFromClass([progress class]) : @"nil", url.host ?: @"?", url.pathExtension ?: @"", url.lastPathComponent ?: @"?");
-        OITIBrowserHookDestination(delegate);
     }
+    OITIBrowserHookDestination(delegate);
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!sBrowserTimer) {
             sBrowserTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) { OITIBrowserPoll(); }];
@@ -395,9 +447,173 @@ static void OITIBrowserNoteResume(id webView, NSData *data, BOOL hasHandler) {
               (unsigned long)data.length, hasHandler ? @"given" : @"none");
 }
 
+// ---------------------------------------------------------------------------------------------
+// MARK: Safari research (log only): the calls of Safari's private download classes
+// ---------------------------------------------------------------------------------------------
+
+// Safari does not use the public WKDownload (12 Nov 2026). The class census of 13 Nov 2026 found, in SafariServices, _SFDownload (it
+// has -filename, -estimatedProgress, -bytesLoaded, -progress, -cancel, and the six _download... selectors below), _SFDownloadDispatcher
+// (the same selectors) and _SFDownloadManager (-downloads, -runningDownloadsCount). Nothing is known yet about when these selectors
+// are called or with what, so this logs each call and calls the original with the same arguments. Private API: it is research only
+// (Safari, only with the enable file) and is not part of any release until the log shows it is the right source.
+
+static NSString *OITIBrowserDescribeObject(id object) {
+    if (!object) return @"nil";
+    if ([object isKindOfClass:[NSString class]]) return [NSString stringWithFormat:@"\"%@\"", object];
+    if ([object isKindOfClass:[NSError class]]) return [NSString stringWithFormat:@"NSError %@ %ld", ((NSError *)object).domain, (long)((NSError *)object).code];
+    if ([object isKindOfClass:[NSURLResponse class]]) {
+        NSURLResponse *response = (NSURLResponse *)object;
+        return [NSString stringWithFormat:@"%@ mime=%@ expected=%lld suggestedFilename=%@", NSStringFromClass([object class]), response.MIMEType ?: @"?",
+                response.expectedContentLength, response.suggestedFilename ?: @"?"];
+    }
+    return [NSString stringWithFormat:@"%@ %p", NSStringFromClass([object class]), object];
+}
+
+// What a _SFDownload says about itself at the moment of a call (public-looking getters found by the census), through KVC so that any
+// scalar type is boxed; an unknown key is caught.
+static NSString *OITIBrowserDescribeSafariDownload(id receiver) {
+    if (![NSStringFromClass([receiver class]) isEqualToString:@"_SFDownload"]) return @"";
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *key in @[@"filename", @"estimatedProgress", @"bytesLoaded"]) {
+        id value = nil;
+        @try { value = [receiver valueForKey:key]; } @catch (NSException *exception) { value = [NSString stringWithFormat:@"(exception %@)", exception.name]; }
+        [parts addObject:[NSString stringWithFormat:@"%@=%@", key, value ?: @"nil"]];
+    }
+    id progress = nil;
+    @try { progress = [receiver valueForKey:@"progress"]; } @catch (NSException *exception) { progress = nil; }
+    if ([progress isKindOfClass:[NSProgress class]]) {
+        NSProgress *p = (NSProgress *)progress;
+        [parts addObject:[NSString stringWithFormat:@"progress=%@ %lld/%lld finished=%d cancelled=%d", NSStringFromClass([p class]), p.completedUnitCount, p.totalUnitCount, p.isFinished, p.isCancelled]];
+    } else {
+        [parts addObject:[NSString stringWithFormat:@"progress=%@", progress ? NSStringFromClass([progress class]) : @"nil"]];
+    }
+    return [NSString stringWithFormat:@" [%@]", [parts componentsJoinedByString:@" "]];
+}
+
+static BOOL OITIBrowserArgumentIs(Method method, unsigned index, const char *types) {
+    char *type = method_copyArgumentType(method, index);
+    if (!type) return NO;
+    BOOL ok = type[0] != 0 && strchr(types, type[0]) != NULL;
+    free(type);
+    return ok;
+}
+
+// shape 1: (id); 2: (id, id); 3: (id, id, id); 4: (id, int64, int64, int64). A selector of another shape is logged and left alone.
+static void OITIBrowserHookSafariSelector(Class cls, const char *name, int shape) {
+    NSString *className = NSStringFromClass(cls);
+    Method method = class_getInstanceMethod(cls, sel_registerName(name));
+    if (!method) {
+        OITI_BLOG(@"Safari probe: -[%@ %s] does not exist (no hook)", className, name);
+        return;
+    }
+    unsigned expectedArguments = shape == 1 ? 3 : (shape == 2 ? 4 : (shape == 3 ? 5 : 6));
+    char *returnType = method_copyReturnType(method);
+    BOOL returnsVoid = returnType && returnType[0] == 'v';
+    free(returnType);
+    BOOL fits = returnsVoid && method_getNumberOfArguments(method) == expectedArguments && OITIBrowserArgumentIs(method, 2, "@");
+    if (shape >= 2 && shape <= 3) fits = fits && OITIBrowserArgumentIs(method, 3, "@");
+    if (shape == 3) fits = fits && OITIBrowserArgumentIs(method, 4, "@");
+    if (shape == 4) fits = fits && OITIBrowserArgumentIs(method, 3, "qQ") && OITIBrowserArgumentIs(method, 4, "qQ") && OITIBrowserArgumentIs(method, 5, "qQ");
+    const char *encoding = method_getTypeEncoding(method);
+    if (!fits || !encoding) {
+        OITI_BLOG(@"Safari probe: -[%@ %s] has another shape (encoding %s); no hook", className, name, encoding ?: "(none)");
+        return;
+    }
+    SEL selector = method_getName(method);
+    IMP original = method_getImplementation(method);
+    IMP replacement = NULL;
+    NSString *selectorText = [NSString stringWithUTF8String:name];
+    switch (shape) {
+        case 1: {
+            replacement = imp_implementationWithBlock(^(id receiver, id a) {
+                OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p arg=%@%@", className, selectorText, receiver, OITIBrowserDescribeObject(a), OITIBrowserDescribeSafariDownload(receiver));
+                ((void (*)(id, SEL, id))original)(receiver, selector, a);
+            });
+            break;
+        }
+        case 2: {
+            replacement = imp_implementationWithBlock(^(id receiver, id a, id b) {
+                OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p args=%@, %@%@", className, selectorText, receiver, OITIBrowserDescribeObject(a), OITIBrowserDescribeObject(b), OITIBrowserDescribeSafariDownload(receiver));
+                ((void (*)(id, SEL, id, id))original)(receiver, selector, a, b);
+            });
+            break;
+        }
+        case 3: {
+            replacement = imp_implementationWithBlock(^(id receiver, id a, id b, id c) {
+                OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p args=%@, %@, completion handler %@%@", className, selectorText, receiver, OITIBrowserDescribeObject(a),
+                          OITIBrowserDescribeObject(b), c ? @"given" : @"none", OITIBrowserDescribeSafariDownload(receiver));
+                ((void (*)(id, SEL, id, id, id))original)(receiver, selector, a, b, c);
+            });
+            break;
+        }
+        default: {
+            replacement = imp_implementationWithBlock(^(id receiver, id a, long long written, long long total, long long expected) {
+                static CFAbsoluteTime sLast;
+                CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+                if (now - sLast >= 1.0) {   // about once a second, like the progress lines of the public hooks
+                    sLast = now;
+                    OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p written=%lld totalWritten=%lld totalExpected=%lld%@", className, selectorText, receiver, written, total, expected,
+                              OITIBrowserDescribeSafariDownload(receiver));
+                }
+                ((void (*)(id, SEL, id, long long, long long, long long))original)(receiver, selector, a, written, total, expected);
+            });
+            break;
+        }
+    }
+    class_replaceMethod(cls, selector, replacement, encoding);
+    OITI_BLOG(@"Safari probe: -[%@ %@] hooked (encoding %s)", className, selectorText, encoding);
+}
+
+// Instance methods and instance variables of one class, once, so that the next step can be designed from the log.
+static void OITIBrowserLogClassDetail(const char *className) {
+    Class cls = objc_getClass(className);
+    if (!cls) { OITI_BLOG(@"Safari probe: class %s is not loaded", className); return; }
+    unsigned int methodCount = 0, ivarCount = 0;
+    Method *methods = class_copyMethodList(cls, &methodCount);
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (unsigned int i = 0; i < methodCount && names.count < 100; i++) [names addObject:[NSString stringWithUTF8String:sel_getName(method_getName(methods[i]))] ?: @"?"];
+    free(methods);
+    Ivar *ivars = class_copyIvarList(cls, &ivarCount);
+    NSMutableArray<NSString *> *ivarNames = [NSMutableArray array];
+    for (unsigned int i = 0; i < ivarCount && ivarNames.count < 50; i++) {
+        const char *ivarName = ivar_getName(ivars[i]);
+        const char *ivarType = ivar_getTypeEncoding(ivars[i]);
+        [ivarNames addObject:[NSString stringWithFormat:@"%s:%s", ivarName ?: "?", ivarType ?: "?"]];
+    }
+    free(ivars);
+    OITI_BLOG(@"Safari probe: class %s: %u instance methods (first %lu): %@", className, methodCount, (unsigned long)names.count, [names componentsJoinedByString:@", "]);
+    OITI_BLOG(@"Safari probe: class %s: %u instance variables (first %lu): %@", className, ivarCount, (unsigned long)ivarNames.count, [ivarNames componentsJoinedByString:@", "]);
+}
+
+static void OITIBrowserInstallSafariProbe(NSString *when) {
+    if (sBrowserSafariInstalled || !sBrowserLog || sBrowserID != OITIBrowserIDSafari) return;
+    if (!objc_getClass("_SFDownload") && !objc_getClass("_SFDownloadDispatcher")) {
+        OITI_BLOG(@"Safari probe: the private download classes are not loaded (%@)", when);
+        return;
+    }
+    sBrowserSafariInstalled = YES;
+    OITI_BLOG(@"Safari probe: installing (%@)", when);
+    OITIBrowserLogClassDetail("_SFDownload");
+    OITIBrowserLogClassDetail("_SFDownloadManager");
+    OITIBrowserLogClassDetail("_SFDownloadDispatcher");
+    static const struct { const char *selector; int shape; } kSelectors[] = {
+        {"_downloadDidStart:", 1}, {"_downloadDidFinish:", 1}, {"_downloadDidCancel:", 1}, {"_downloadProcessDidCrash:", 1},
+        {"_download:didFailWithError:", 2}, {"_download:didReceiveResponse:", 2},
+        {"_download:decideDestinationWithSuggestedFilename:completionHandler:", 3},
+        {"_download:didWriteData:totalBytesWritten:totalBytesExpectedToWrite:", 4}
+    };
+    static const char *const kClasses[] = {"_SFDownload", "_SFDownloadDispatcher"};
+    for (unsigned c = 0; c < sizeof kClasses / sizeof kClasses[0]; c++) {
+        Class cls = objc_getClass(kClasses[c]);
+        if (!cls) continue;
+        for (unsigned i = 0; i < sizeof kSelectors / sizeof kSelectors[0]; i++) OITIBrowserHookSafariSelector(cls, kSelectors[i].selector, kSelectors[i].shape);
+    }
+}
+
 // Installs the hooks once, when the public class exists. WebKit may not be loaded yet when the dylib loads, so this is tried when
 // the source is switched on or the research starts, and again a few seconds later.
 static void OITIBrowserInstallDownloadProbe(NSString *when) {
+    OITIBrowserInstallSafariProbe(when);   // Safari only, research log only; a no-op elsewhere
     if (sBrowserProbeInstalled) return;
     if (!objc_getClass("WKDownload")) {
         OITI_BLOG(@"WKDownload class is not loaded (%@)", when);
@@ -435,7 +651,7 @@ static void OITIBrowserInstallWithRetries(NSString *when) {
 static void OITIBrowserSetSourceOn(BOOL on) {
     if (on == sBrowserSourceOn) return;
     sBrowserSourceOn = on;
-    OITI_BLOG(@"source %@ (SpringBoard's \"Show Arc Downloads\" state)", on ? @"on" : @"off");
+    OITI_BLOG(@"source %@ (SpringBoard's \"Show Browser Downloads\" state)", on ? @"on" : @"off");
     if (on) OITIBrowserInstallWithRetries(@"source on");
 }
 
@@ -496,12 +712,15 @@ static void OITIBrowserPostProbe(void) {
 void OITIBrowserStartIfAllowed(NSString *bundleID) {
     // Every process that is not SpringBoard gets here. The allowlist comparison comes first and is all that runs elsewhere.
     BOOL isArc = [bundleID isEqualToString:kOITIBrowserBundleArc];
-    if (!isArc && ![bundleID isEqualToString:kOITIBrowserBundleSafari] && ![bundleID isEqualToString:kOITIBrowserBundleChrome]) return;
+    BOOL isChrome = !isArc && [bundleID isEqualToString:kOITIBrowserBundleChrome];
+    BOOL isSafari = !isArc && !isChrome && [bundleID isEqualToString:kOITIBrowserBundleSafari];
+    if (!isArc && !isChrome && !isSafari) return;
+    BOOL publisher = isArc || isChrome;
     NSString *library = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
     if (!library.length) return;
     BOOL research = [[NSFileManager defaultManager] fileExistsAtPath:[library stringByAppendingPathComponent:kOITIBrowserEnableFile]];
-    if (!research && !isArc) return;   // Safari and Chrome are research only
-    sBrowserIsArc = isArc;
+    if (!research && !publisher) return;   // Safari is research only
+    sBrowserID = isArc ? OITIBrowserIDArc : (isChrome ? OITIBrowserIDChrome : OITIBrowserIDSafari);
 
     if (research) {
         sBrowserLog = [OITLogger loggerWithName:@"oiti-browser" path:[library stringByAppendingPathComponent:kOITIBrowserLogFile]];
@@ -521,7 +740,7 @@ void OITIBrowserStartIfAllowed(NSString *bundleID) {
     // The rest runs on the main queue after launch, never in the load path.
     dispatch_async(dispatch_get_main_queue(), ^{
         if (research) OITIBrowserInstallWithRetries(@"research");
-        if (isArc) OITIBrowserWatchSourceFlag();
+        if (publisher) OITIBrowserWatchSourceFlag();
     });
     if (research) {
         // 8 s after launch: the frameworks a browser loads lazily are mostly in by then. Again on every channel test (below).

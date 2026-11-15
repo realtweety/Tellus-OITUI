@@ -24,7 +24,7 @@ static NSString * const kOITIPrefsChanged = @"com.wilburt.oiti/PrefsChanged";
 static const void *kOITIChoiceLabelKey = &kOITIChoiceLabelKey;
 static const void *kOITIChoiceSpecifierKey = &kOITIChoiceSpecifierKey;
 
-static NSString *OITIInstalledVersionText(void) {
+NSString *OITIInstalledVersionText(void) {   // also used by the diagnostics report (OITIReport.m)
     static NSString *text;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
