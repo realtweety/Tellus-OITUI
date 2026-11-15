@@ -192,7 +192,7 @@
 #import "Browser/OITIBrowser.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-exp-0.3.6-b";
+extern NSString * const kOITIBuildTag = @"OITI-exp-0.3.6-c";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";

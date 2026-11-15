@@ -34,7 +34,7 @@
         <key>label</key>
         <string>Logging</string>
         <key>footerText</key>
-        <string>Log Detail Normal keeps the log short. Detailed adds events and a status bar report written 4 seconds after SpringBoard starts: respring after switching it on, wait two minutes, then copy the report. Detailed logs can contain more personal details. It is off by default.</string>
+        <string>Normal keeps the log short. Detailed adds events and takes effect at once. For a status bar problem: set it to Detailed, tap Run Status Bar Check, wait a few seconds, then copy the report. A report that SpringBoard writes by itself 4 seconds after it starts, and some extra hooks, appear only after a respring. Detailed logs can contain more personal details. It is off by default.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -61,6 +61,14 @@
         </array>
         <key>PostNotification</key>
         <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>runStatusBarCheck</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Run Status Bar Check</string>
       </dict>
       <dict>
         <key>cell</key>

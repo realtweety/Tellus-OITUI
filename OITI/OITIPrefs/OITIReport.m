@@ -6,6 +6,7 @@
 #import <UIKit/UIKit.h>
 #import <sys/stat.h>
 #import <stdio.h>
+#import <objc/runtime.h>
 
 static NSString * const kOITIReportLogPath = @"/tmp/OITIDebug.log";             // the tweak's log (SpringBoard and the other processes)
 static NSString * const kOITIReportLogPath1 = @"/tmp/OITIDebug.log.1";          // its rotated copy
@@ -94,6 +95,39 @@ static NSString *OITIReportGestaltLine(void) {
     return [NSString stringWithFormat:@"MobileGestalt cache: ArtworkDeviceSubType = %@ (2556 is the Island spoof)", subtype];
 }
 
+// What this phone's UIKit offers for the status bar fix, and whether the iOS version is the one Insula is built for. The Settings app
+// runs on the same UIKit as SpringBoard, so these answers hold for SpringBoard too. Read-only.
+static NSString *OITIReportEnvironmentChecks(NSString *bundlePath) {
+    NSMutableString *text = [NSMutableString string];
+    NSOperatingSystemVersion version = [NSProcessInfo processInfo].operatingSystemVersion;
+    [text appendFormat:@"iOS %ld.%ld.%ld: %@\n", (long)version.majorVersion, (long)version.minorVersion, (long)version.patchVersion,
+     version.majorVersion == 16 ? @"the iOS version Insula is built and tested for (16)" : @"outside what Insula is built and tested for (iOS 16): some features may not work"];
+    NSString *layout = [bundlePath hasPrefix:@"/var/jb/"] ? @"rootless (/var/jb)" : ([bundlePath containsString:@".jbroot"] ? @"roothide (the path has .jbroot-)" : @"not recognized");
+    [text appendFormat:@"Jailbreak layout, guessed from the Settings bundle path: %@ (Insula is built for rootless)\n", layout];
+    Class provider = objc_getClass("_UIStatusBarVisualProvider_iOS");
+    SEL selector = NSSelectorFromString(@"visualProviderSubclassForScreen:visualProviderInfo:");
+    BOOL hasSelector = provider && class_getClassMethod(provider, selector) != NULL;
+    [text appendFormat:@"UIKit class _UIStatusBarVisualProvider_iOS: %@\n", provider ? @"present" : @"MISSING (the status bar fix cannot work)"];
+    [text appendFormat:@"+visualProviderSubclassForScreen:visualProviderInfo: (the method the status bar fix hooks): %@\n", hasSelector ? @"present" : @"MISSING (the status bar fix cannot work)"];
+    unsigned int total = objc_getClassList(NULL, 0);
+    Class *classes = total ? (Class *)malloc(sizeof(Class) * total) : NULL;
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    if (classes) {
+        total = objc_getClassList(classes, total);
+        for (unsigned int i = 0; i < total; i++) {
+            const char *name = class_getName(classes[i]);
+            if (name && strncmp(name, "_UIStatusBarVisualProvider_", 27) == 0) [names addObject:[NSString stringWithUTF8String:name] ?: @"?"];
+        }
+        free(classes);
+    }
+    [names sortUsingSelector:@selector(compare:)];
+    if (names.count > 40) [names removeObjectsInRange:NSMakeRange(40, names.count - 40)];
+    [text appendFormat:@"Status bar provider classes on this phone (%lu shown): %@\n", (unsigned long)names.count, names.count ? [names componentsJoinedByString:@", "] : @"none"];
+    id override = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("UIStatusBarVisualProviderClassName"), CFSTR("com.apple.UIKit")));
+    [text appendFormat:@"UIStatusBarVisualProviderClassName override in com.apple.UIKit: %@\n", override ?: @"none"];
+    return text;
+}
+
 NSString *OITIReportBuild(BOOL full) {
     @autoreleasepool {
         NSMutableString *report = [NSMutableString string];
@@ -123,7 +157,9 @@ NSString *OITIReportBuild(BOOL full) {
         [report appendFormat:@"iOS: %@\n", [NSProcessInfo processInfo].operatingSystemVersionString];
         [report appendFormat:@"Screen: %@\n", screenText];
         [report appendFormat:@"Settings bundle path (shows the jailbreak layout): %@\n\n", bundle.bundlePath ?: @"?"];
-        [report appendString:@"== Insula ==\n"];
+        [report appendString:@"== Environment checks ==\n"];
+        [report appendString:OITIReportEnvironmentChecks(bundle.bundlePath ?: @"")];
+        [report appendString:@"\n== Insula ==\n"];
         [report appendFormat:@"%@\n", OITIInstalledVersionText()];
         [report appendFormat:@"Latest SpringBoard session start in the log: %@\n", latestSession ?: @"none found (the tweak has not written a session line, or the log is empty)"];
         [report appendFormat:@"Log Detail (DiagnosticsLevel): %ld (0 = Normal, 1 = Detailed)\n", (long)level];

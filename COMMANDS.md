@@ -1735,3 +1735,16 @@ ls -l /tmp/OITIDebug.log /tmp/OITIPrefsDebug.log
 ```
 
 **For a bug reporter (text for a GitHub reply, Insula 0.3.6 or newer):** Settings > Insula > Diagnostics > set Log Detail to Detailed > respring > wait two minutes > reproduce the problem > Copy Report to Clipboard > paste it into the issue. Reporters on older versions still need the SSH steps in section 12.
+
+## 29. 0.3.6 batch 4: live Log Detail, Run Status Bar Check, environment checks (build `OITI-exp-0.3.6-c`)
+
+Written and compile-checked; **not device-tested**. Settings bundle only (no launch-path change; the tweak changed only its build tag). No setting added or changed. Install with the blocks of sections 26 and 27 (archive `oitui-v036-statusbar.tar.gz`; commit message `0.3.6 batch 4: live Log Detail, Run Status Bar Check, environment checks, README`). The first line after installing must say `OITI-exp-0.3.6-c`.
+
+**Device checks (yes or no each):**
+
+1. Log Detail is Normal. Open Diagnostics > Run Status Bar Check: an alert says Log Detail is Normal (nothing is sent).
+2. Set Log Detail to Detailed **without** responring. Wait 5 s, tap Copy Report and paste into Notes: the log part contains `DUMP trigger polling started` (the level applied live).
+3. Tap Run Status Bar Check: "Check requested". Wait 5 s, Copy Report again: the log part has `STATUSBAR BEGIN reason=darwin-notification` lines and `CHOICE`/`PROVIDER` lines.
+4. The pasted report has a section `== Environment checks ==` with the iOS version (and "the iOS version Insula is built and tested for (16)"), a jailbreak layout guess (rootless on your phone), the UIKit class and method as `present`, a list of `_UIStatusBarVisualProvider_*` classes and `override: none`.
+5. Set Log Detail back to Normal; the picker shows Normal.
+6. The footer under Log Detail reads naturally and says the level takes effect at once.

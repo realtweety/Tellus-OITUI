@@ -1,5 +1,6 @@
 #import "OITIDiagnosticsListController.h"
 #import "OITIReport.h"
+#import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
 
 @implementation OITIDiagnosticsListController
@@ -45,6 +46,25 @@
             [self presentViewController:sheet animated:YES completion:nil];
         });
     });
+}
+
+// Asks SpringBoard to write its status bar report and dump to the log now (the same request the boot report and the developer tools
+// use). SpringBoard only does it while Log Detail is Detailed, so this checks first. Keep the name in sync with OITIDumpTriggers.xm.
+- (void)runStatusBarCheck {
+    NSInteger level = [[OITPreferences preferencesWithDomain:@"com.wilburt.oiti.prefs"] integerForKey:@"DiagnosticsLevel" default:0];
+    UIAlertController *alert;
+    if (level < 1) {
+        alert = [UIAlertController alertControllerWithTitle:@"Log Detail is Normal"
+                                                    message:@"SpringBoard ignores the request while Log Detail is Normal. Set Log Detail to Detailed first, then tap this again."
+                                             preferredStyle:UIAlertControllerStyleAlert];
+    } else {
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.wilburt.oiti/Dump"), NULL, NULL, true);
+        alert = [UIAlertController alertControllerWithTitle:@"Check requested"
+                                                    message:@"SpringBoard writes the status bar report to the log. Wait a few seconds, then tap Copy Report to Clipboard. If the report has no STATUSBAR lines, tap this once more."
+                                             preferredStyle:UIAlertControllerStyleAlert];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)clearLogsAsk {
