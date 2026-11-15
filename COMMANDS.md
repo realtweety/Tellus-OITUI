@@ -1748,3 +1748,130 @@ Written and compile-checked; **not device-tested**. Settings bundle only (no lau
 4. The pasted report has a section `== Environment checks ==` with the iOS version (and "the iOS version Insula is built and tested for (16)"), a jailbreak layout guess (rootless on your phone), the UIKit class and method as `present`, a list of `_UIStatusBarVisualProvider_*` classes and `override: none`.
 5. Set Log Detail back to Normal; the picker shows Normal.
 6. The footer under Log Detail reads naturally and says the level takes effect at once.
+
+## 30. 0.3.6 release candidate: test the exact release package, then release
+
+Changes since batch 4: `OITI/control` `0.3.6`, build tag `OITI-0.3.6`, Settings tag `OITIPrefs-0.3.6`, docs (Safari findings; Safari moved to 0.3.7). OITCore stays `0.1.0`. No code change beyond the version strings, so the device-tested behavior of batches 2, 3 and 4 is what ships; the release build differs from the CI debug build by `FINALPACKAGE=1` only (quiet defaults, no `+debug`).
+
+**1. Push (PC, fish).**
+
+```
+cd ~/OITUI
+tar -xzf ~/Downloads/oitui-v036-rc.tar.gz -C ~/OITUI .
+git status --short
+git add -A
+git commit -m "OITI 0.3.6 release candidate"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+`git status --short` must list exactly these 6 files: `COMMANDS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `OITI/Tweak.xm`, `OITI/control`, `OITI/OITIPrefs/OITIRootListController.m`; the last line must print the same hash twice.
+
+**2. The normal CI run must be green, then run the release workflow:**
+
+```
+set SHA (git rev-parse HEAD)
+set -e RUN
+for i in (seq 36)
+    set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId")
+    if test -n "$RUN"
+        break
+    end
+    sleep 5
+end
+echo $RUN
+gh run watch $RUN --exit-status
+gh workflow run release-oiti.yml --ref experiments
+set -e RELRUN
+for i in (seq 36)
+    set RELRUN (gh run list --workflow=release-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -n 1)
+    if test -n "$RELRUN"
+        break
+    end
+    sleep 5
+end
+echo $RELRUN
+gh run watch $RELRUN --exit-status
+rm -rf ~/Downloads/oiti-rc
+gh run download $RELRUN -D ~/Downloads/oiti-rc
+find ~/Downloads/oiti-rc -name '*.deb'
+shasum -a 256 (find ~/Downloads/oiti-rc -name '*.deb')
+```
+
+Both `echo` lines must print one number. The `find` must list exactly `com.wilburt.oitcore_0.1.0...deb` and `com.wilburt.oiti_0.3.6...deb`, with no `debug` in the names.
+
+**3. Install those exact files (PC), then check what is installed.**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-rc; mkdir /var/mobile/oiti-rc'
+scp -P 2222 (find ~/Downloads/oiti-rc -name '*.deb') root@127.0.0.1:/var/mobile/oiti-rc/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-rc/*.deb; sbreload'
+```
+
+Wait about 20 s, open Settings, Photos, Safari, Chrome and Arc once, then `ssh -p 2222 root@127.0.0.1` and on the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.oitcore | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+defaults read com.wilburt.oiti.prefs DiagnosticsLevel
+defaults read com.wilburt.oiti.prefs DownloadBrowserEnabled
+sh /var/mobile/br.sh level 0
+sh /var/mobile/br.sh disable
+sh /var/mobile/br.sh disable safari
+sh /var/mobile/br.sh disable chrome
+```
+
+Expect `Version: 0.3.6` (no `+debug`), `Version: 0.1.0`, `build=OITI-0.3.6`, and for the two `defaults read` lines `0` or `does not exist` (a `1` is fine only if you turned it on yourself). The last four lines put the phone in the state a user has (no research files, level 0).
+
+**4. The checks on the release package** (yes or no each; tell me what you saw if it is not a plain yes):
+1. Settings > Insula shows `0.3.6` at the bottom; every page opens, including Diagnostics; Download Progress shows **Show Browser Downloads**, off.
+2. Stock look: with every Island setting at its default the Island and a real notification look stock.
+3. Respring-loop guard (sections 7 and 21, step 3): five `sbreload` about 10 s apart trip it, the banner appears, **Clear Safe Mode & Respring** brings OITI back.
+4. Show Download Progress and Show Browser Downloads on (Settings, or `sh /var/mobile/br.sh source on`), Arc open: a download shows `Arc - <file name>` and the percentage; the Detailed look has one percentage.
+5. Chrome open (tap "Download" in its bar): `Chrome - <file name>`; the immediate first cancel Chrome makes shows nothing.
+6. In each browser: cancel shows the short red `Cancelled`, then idle; a finished download shows the check, then idle, and no `Cancelled` appears about 17 s later.
+7. Force-quit a browser during a download: `Cancelled` within about 2 s.
+8. Show Browser Downloads off during a download: the bar goes, the browser keeps going. Apple Mode on during a download: the bar goes.
+9. Safari still opens and downloads a file normally with the switch on (Safari shows nothing in the Island; that is expected).
+10. Diagnostics on the release package: Copy Report works; the report says `OITI-0.3.6` in the session line and has `== Environment checks ==`; Log Detail Detailed then Run Status Bar Check works; set it back to Normal.
+11. A real App Store install or update, if you have one: unchanged (one percentage in the Detailed look).
+12. Set the phone back: `sh /var/mobile/br.sh level 0`.
+
+**5. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
+
+**6. Release (only after we both agree).** The text of the GitHub Release is the only release note (no notes file, no `--notes-file`; WORKFLOW.md). One block at a time (the squash merge deletes `experiments` on GitHub; check the PR state first):
+
+```
+cd ~/OITUI
+git status --short
+gh pr create --base main --head experiments --title "OITUI 0.3.6" --body "Chrome and file names in Download Progress, Diagnostics page with a report button."
+gh pr diff --name-only
+gh pr merge --squash
+gh pr view --json state,mergeCommit
+```
+
+The state must say `MERGED`. Then check the tested tree is what landed (`$SHA` from step 2; if the variable is gone, use the hash from step 1):
+
+```
+git fetch --prune origin
+git switch main
+git pull --ff-only
+git rev-parse "$SHA^{tree}"
+git rev-parse "origin/main^{tree}"
+```
+
+The two hashes must be identical. Tag first, then the Release with `--verify-tag`:
+
+```
+git tag -a v0.3.6 -m "OITUI 0.3.6"
+git push origin v0.3.6
+gh release create v0.3.6 --verify-tag --title "OITUI 0.3.6" --notes '**Download Progress: Chrome and file names.** Chrome downloads now show in the Island like Arc Search downloads, and both show the file name next to the percentage. The switch is now called Show Browser Downloads (Settings > Insula > Download Progress; off by default, experimental). File names never go into the default log.
+
+**New: Diagnostics page** (Settings > Insula > Diagnostics). Copy Report to Clipboard puts a report for a bug report on the clipboard (device, iOS version, Insula settings and log; notification text and download file names are removed, but read it before you post it). Share Full Report makes a longer file. Log Detail (Normal or Detailed) replaces the SSH step and applies at once, Run Status Bar Check writes the status bar report without a respring, and Clear Log Files deletes the logs. There is also an issue template on GitHub.
+
+**Known limits:** Safari downloads are not supported yet (planned for 0.3.7). Insula is built and tested for rootless jailbreaks on iOS 16 only (tested on an iPhone 8 Plus, iOS 16.7.16, Dopamine 3); other iOS versions and roothide are not supported. Download Progress, the notification stack and Status Bar are still experimental.' (find ~/Downloads/oiti-rc -name '*.deb')
+gh release view v0.3.6
+```
+
+Attach the files from `~/Downloads/oiti-rc` (the tested artifact), not a rebuild: pushing the tag starts a second, untested release build of the same sources. Last, recreate `experiments` from `main` (the block in `WORKFLOW.md`).
