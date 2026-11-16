@@ -466,7 +466,7 @@ One-time repository settings (†). Allows only squash merges and deletes merged
 gh api -X PATCH repos/realtweety/Tellus-OITUI -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
 ```
 
-Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.3.1` (OITI `0.3.1`; OITCore remains `0.1.0`).
+Releases are created only from tested work, and the packages are built by GitHub Actions, not on a Mac or the PC (`WORKFLOW.md`). OITCore and OITI ship together; do not ship OITS until it is verified. The current release is `v0.3.5` (OITI `0.3.5`; OITCore remains `0.1.0`).
 
 **1. Push the release candidate** (Arch PC, fish; the archive is the delta Claude gives you):
 
@@ -1376,9 +1376,9 @@ Changes: see `OVERVIEW.md`, "Current state". One behavior change: cards that are
 
 ## 23. Browser downloads research log (finished for Arc; still there for Safari and for checks)
 
-The research of 9 and 10 Nov 2026 is done for Arc Search (results in `LEARNINGS.md`: Arc uses the public `WKDownload`, the progress is a public `NSProgress`, the channel from an app to SpringBoard works). The research log stays in the build: it runs in Arc Search (`company.thebrowser.ArcMobile2`) and Safari (`com.apple.mobilesafari`) only when the file `OITIBrowserDump.enable` exists in that app's **Library** folder (not tmp: iOS may purge tmp, which cost one test round), and writes `OITIBrowser.log` next to it (an app cannot write `/tmp`). Everything phone-side is in `tools/browser_research.sh` (run on the phone with `sh`; the phone's shell is zsh and aborts a command whose `*` matches nothing). Put it on the phone once: `scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh`; log in once with `ssh -p 2222 root@127.0.0.1` and type the commands on the phone: `sh /var/mobile/br.sh enable` (then force-quit and reopen the browser), `status`, `test` (the channel test), `mark TEXT`, `log`, `clear`, `level 0|1`, `source on|off`, `disable`; a trailing `safari` addresses Safari. Safari has not been researched yet (a separate run, later).
+The research of 9 and 10 Nov 2026 is done for Arc Search (results in `LEARNINGS.md`: Arc uses the public `WKDownload`, the progress is a public `NSProgress`, the channel from an app to SpringBoard works). The research log stays in the build: it runs in Arc Search (`company.thebrowser.ArcMobile2`) and Safari (`com.apple.mobilesafari`) only when the file `OITIBrowserDump.enable` exists in that app's **Library** folder (not tmp: iOS may purge tmp, which cost one test round), and writes `OITIBrowser.log` next to it (an app cannot write `/tmp`). Everything phone-side is in `tools/browser_research.sh` (run on the phone with `sh`; the phone's shell is zsh and aborts a command whose `*` matches nothing). Put it on the phone once: `scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh`; log in once with `ssh -p 2222 root@127.0.0.1` and type the commands on the phone: `sh /var/mobile/br.sh enable` (then force-quit and reopen the browser), `status`, `test` (the channel test), `mark TEXT`, `log`, `clear`, `level 0|1`, `source on|off`, `disable`; a trailing `safari` addresses Safari. Safari was researched on 12 Nov 2026: it does not call the public `WKDownload` (`LEARNINGS.md`); the next round is section 26 (0.3.6 batch 1), which also adds Chrome (`chrome` as the trailing word).
 
-## 24. 0.3.5: Arc Search downloads in Download Progress (build tag `OITI-exp-0.3.5-arc-a`)
+## 24. 0.3.5: Arc Search downloads in Download Progress (build tag `OITI-exp-0.3.5-arc-a`; released as 0.3.5 on 11 Nov 2026)
 
 New: **Settings > Insula > Download Progress > Show Arc Downloads** (key `DownloadBrowserEnabled`, default off, experimental; it needs Show Download Progress; Apple Mode and safe mode switch it off). Arc's newest download appears in the Island with its percentage (no file name yet: 0.3.6), in both looks, with the finished and cancelled states and the return to idle by percentage. Written and compile-checked, **not device-tested**. Arc has no pause button, so nothing is ever shown as paused.
 
@@ -1475,7 +1475,7 @@ ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh disable; sh /var/mobile/br.sh l
 
 Keep **Show Arc Downloads** on if you like it; it is off by default for everyone else.
 
-## 25. 0.3.5 release candidate: test the exact release package, then release
+## 25. 0.3.5 release candidate: test the exact release package, then release (done on 11 Nov 2026; the pattern for the next release)
 
 Changes since the Arc test (section 24): the Detailed look no longer repeats the percentage (percentage-only sources, so App Store and Arc: the line under the bar is `Downloading · ~1 min left`, the label on the right is the percentage), OITI `control` `0.3.5`, build tag `OITI-0.3.5`, Settings tag `OITIPrefs-0.3.5`, docs. OITCore stays `0.1.0`. The release package is `FINALPACKAGE=1`, `DiagnosticsLevel` 0.
 
@@ -1612,6 +1612,268 @@ git tag -a v0.3.5 -m "OITUI 0.3.5"
 git push origin v0.3.5
 gh release create v0.3.5 --verify-tag --title "OITUI 0.3.5" --notes-file ~/oiti-0.3.5-notes.md (find ~/Downloads/oiti-rc -name '*.deb')
 gh release view v0.3.5
+```
+
+Attach the files from `~/Downloads/oiti-rc` (the tested artifact), not a rebuild: pushing the tag starts a second, untested release build of the same sources. Last, recreate `experiments` from `main` (the block in `WORKFLOW.md`).
+
+## 26. 0.3.6 batch 1: browser research build (build tag `OITI-exp-0.3.6-a`; nothing new in the Island)
+
+Research only. No setting is added, removed or changed, and no default changes. New in the research log (only for an app whose Library folder holds `OITIBrowserDump.enable`): **Chrome** (`com.google.chrome.ios`) joins Arc Search and Safari; a **class census** (every loaded Objective-C class with "download" in its name, and its related methods) 8 s after launch and on every `test`; the **file name** a download delegate is given (Arc and Chrome, if they use `WKDownload`); and a **file name transport test**: `test` publishes a sample name through eight libnotify states and SpringBoard logs what it read. Protocol version 2 (browser ID, name flag, name chunks) is defined in `Browser/OITIBrowserProtocol.h` and checked by `tools/browser_protocol_test.c`, but nothing sends or reads it in a real download yet (batch 2). Written, compile-checked and PC-tested; **not device-tested**.
+
+The launch path: the only change is a third bundle ID (`com.google.chrome.ios`) in the allowlist comparison that every non-SpringBoard process runs, plus a `dispatch_after` that is scheduled only when the enable file exists. The `%ctor` order, `preferencesChanged()` and the headers they import are untouched (`tools/check_ctor_path.py` passes). The normal safe first run applies: keep a second SSH session on `tail -F /tmp/OITIDebug.log`; if an app or SpringBoard misbehaves, Dopamine > Settings > Tweak Injection off, jailbreak, then `mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off`.
+
+**1. Push the batch and get the DEBUG build (PC, fish).**
+
+```
+cd ~/OITUI
+tar -xzf ~/Downloads/oitui-v036-research.tar.gz -C ~/OITUI .
+git status --short
+git add -A
+git commit -m "0.3.6 batch 1: browser research build (census, file name, Chrome, protocol v2)"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+`git status --short` must list exactly the files named in the batch report; the last command must print the same hash twice. Then fetch the CI build of that commit with the block in section 24, step 1 (`gh run list ... select(.headSha==...)`, `gh run watch`, `gh run download`).
+
+**2. Install (PC)** with the block in section 24, step 2 (it also copies `br.sh`). Open Settings, Photos, Safari and Chrome once: all must launch normally. Then on the phone (`ssh -p 2222 root@127.0.0.1`):
+
+```
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+sh /var/mobile/br.sh level 1
+sh /var/mobile/br.sh disable
+sh /var/mobile/br.sh disable safari
+sh /var/mobile/br.sh disable chrome
+```
+
+The first line must say `OITI-exp-0.3.6-a`. The three `disable` lines make sure no browser has an enable file: `test` is answered by every browser that has one, and their name tests would overwrite each other. Test **one browser at a time** (below).
+
+**3. One browser.** The examples are for Chrome. For Safari write `safari` as the last word instead of `chrome`; for Arc Search leave the browser word out. Order that works: `clear` first, then `enable`, then force-quit and reopen the browser (a `clear` after the browser started deletes the first lines of its session). Example for Chrome:
+
+```
+sh /var/mobile/br.sh clear chrome
+sh /var/mobile/br.sh enable chrome
+```
+
+Force-quit Chrome, open it again, wait 15 s, then:
+
+```
+sh /var/mobile/br.sh status chrome
+```
+
+The browser log must show `browser research dump is on in com.google.chrome.ios`, the hook lines, and `census (8 s after launch) ... summary`. Then start a download from the PC (terminal 2): `python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1`, open its link in the browser, and on the phone:
+
+```
+sh /var/mobile/br.sh mark download-started
+sh /var/mobile/br.sh test chrome
+sleep 3
+sh /var/mobile/br.sh mark test-during-download
+```
+
+Cancel the download in the browser, `mark cancel-pressed`, then run the server again with `--size-mb 100 --rate-mb 2`, open the link, let it finish, `mark finished`, and run `sh /var/mobile/br.sh test chrome` once more (`mark test-after-finish`). In Safari, the census during a download is the important one.
+
+**4. Collect (PC, once per browser; swap `chrome` for `safari`, or leave the word out for Arc, in the file names and in the `log` and `status` commands).**
+
+```
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh log chrome' > ~/Downloads/OITIBrowser-chrome.log
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh marks' > ~/Downloads/OITI-marks-chrome.txt
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh status chrome' > ~/Downloads/OITI-status-chrome.txt
+ssh -p 2222 root@127.0.0.1 'grep "name test" /tmp/OITIDebug.log | tail -n 6' > ~/Downloads/OITI-nametest.txt
+```
+
+After the run, on the phone: `sh /var/mobile/br.sh level 0` and `sh /var/mobile/br.sh disable chrome` (and for the other browsers).
+
+**What a good run looks like.** Browser log: one `name test: 56 of 77 bytes packed in 8 chunk states (0 failures)` per `test`, and SpringBoard (level 1): `name test: pid <pid> serial <n>: read failures=0 header=0x... length=56 valid UTF-8=1 name=OITI-test café ファイル ✓ long-file-name-for-the-` (the sample is 77 bytes, cut to 56). For Arc and Chrome, if they use `WKDownload`: `destination hook installed on <delegate class>` and, per download, `WKDownload <id> destination: suggestedFilename=<the real name> ...`. For Safari: `census (...) image <path>: ... with "download": <class names>` and the `class <name> (super ...) ... related: <selectors>` lines that follow. Send the files; I do not need them earlier than that.
+
+## 27. 0.3.6 batch 2: Arc and Chrome with the file name, Safari probe (build `OITI-exp-0.3.6-b`)
+
+Written and compile-checked, **not device-tested**. What changed: Arc Search and Chrome publish their newest download (protocol version 2, browser ID) and the Island shows `Arc - <file name>` or `Chrome - <file name>` (`Download` when no name arrived); the switch label is "Show Browser Downloads" (key `DownloadBrowserEnabled`, off by default, no new settings); browser file names are not in the default log; Safari gets a log-only probe of its private download classes. The launch path: the allowlist comparison and the Chrome publisher flag only (`tools/check_ctor_path.py` passes); the safe first run of section 26 applies.
+
+**Push and install** as in section 26, steps 1 and 2, with the archive `oitui-v036-publish.tar.gz` and the commit message `0.3.6 batch 2: Arc and Chrome with the file name, protocol v2 live, Safari probe`. The first line after installing must say `OITI-exp-0.3.6-b`:
+
+```
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+```
+
+**Island test (Arc, then Chrome).** On the phone, switch the browser source on (Settings > Insula > Download Progress > Show Download Progress and Show Browser Downloads, or `sh /var/mobile/br.sh source on`) and set `sh /var/mobile/br.sh level 1`. Force-quit the browser after switching the source on. PC, terminal 2, the first download with a long name (no spaces in the name):
+
+```
+python3 ~/OITUI/tools/throttle_server.py --size-mb 200 --rate-mb 1 --name Quarterly-report-final-version-2026-long-file-name-test.bin
+```
+
+Open the printed link in the browser (in Chrome tap "Download" in its bar). Expected: the Island shows the bar with the browser's name and the file name (cut at the end if it is too long), in both looks; cancel in the browser: the red Cancelled state; start it again and let it finish: the finished state. Then the short one: `--size-mb 100 --rate-mb 2 --name test.bin` and check that the name is `test.bin`. In Chrome the first, immediate cancel of the link must show nothing. Check the logs (PC):
+
+```
+ssh -p 2222 root@127.0.0.1 'grep "file name for\|name tokens\|started browser\|replaces" /tmp/OITIDebug.log | tail -n 20' > ~/Downloads/OITI-batch2-names.txt
+ssh -p 2222 root@127.0.0.1 'grep -c "file name not logged" /tmp/OITIDebug.log; grep -c "test.bin" /tmp/OITIDebug.log'
+```
+
+The last two numbers: the first must be above 0 for a download run at level 1, and `test.bin` is expected only on the `file name for` lines (level 1), not on the `started` lines.
+
+**Safari probe.** On the phone: `sh /var/mobile/br.sh level 1`, `sh /var/mobile/br.sh disable` and `disable chrome`, then `clear safari`, `enable safari`, force-quit and reopen Safari, wait 15 s, download the 400 MB file (section 26, step 3: marks, `test safari` during the download, cancel, then the 100 MB one to the end). Collect with the commands of section 26 step 4 (the log is `sh /var/mobile/br.sh log safari`). The log must show `Safari probe: installing` and per selector `hooked (encoding ...)` or why not; the calls follow when a download runs.
+
+After the run: `sh /var/mobile/br.sh level 0`, `sh /var/mobile/br.sh disable safari`, and `sh /var/mobile/br.sh source off` if you do not want the browser source on.
+
+## 28. 0.3.6 batch 3: the Diagnostics page and the report button
+
+Written and compile-checked; the text helper is PC-tested (`tools/report_text_test.c`); **not device-tested**. Nothing is on the tweak's launch path: the new code is in the Settings bundle (`OITIReport.m`, `OITIDiagnosticsListController.m`, `OITIReportText.h`, `Diagnostics.plist`), runs when a button is tapped, reads files and changes nothing except "Clear Log Files" and the Log Detail picker (`DiagnosticsLevel`, default Normal). No other setting changed. Install it with the same blocks as sections 26 and 27 (archive `oitui-v036-report.tar.gz`; commit message `0.3.6 batch 3: Diagnostics page, report button, issue template`).
+
+**Device checks (answer yes or no to each; they decide whether it ships):**
+
+1. Settings > Insula shows a row "Diagnostics" in a card of its own under "Status Bar (Experimental)" (moved there in RC 2, 15 Nov 2026; it was first between Download Progress and Color and Opacity), and it opens a page with the groups Report, Logging and Log Files.
+2. "Copy Report to Clipboard": an alert "Report copied" appears within about a second; paste into Notes. The text starts with `Insula diagnostics report (short)`, has the sections Device, Insula, Settings and two Log sections, and is shorter than about 50 KB.
+3. In the pasted text, "Machine" and "iOS" are right, "Latest SpringBoard session start in the log" shows the build tag you installed, and "ArtworkDeviceSubType" matches whether the Island is on (2556) or off.
+4. Set Log Detail to Detailed, respring, wait two minutes, tap Copy Report again: the log part now contains `STATUSBAR` lines (the provider report). Make a notification arrive (any app): the pasted text must not contain the notification's title or message, and a browser download must not show its file name (look for `(removed from the report)`).
+5. "Share Full Report": the share sheet opens with a file `Insula-report.txt`; saving it to Files works; it is longer than the short report.
+6. "Clear Log Files" asks first; after Clear, the next Copy Report has a short log. Set Log Detail back to Normal afterwards.
+7. Settings > Insula and every other Insula page still open normally and every Island setting at its default still looks stock.
+
+If anything fails, send me the report text (check that it holds nothing you do not want to share) or a description of what you saw. Terminal check of the log files, if you want one (phone):
+
+```
+ls -l /tmp/OITIDebug.log /tmp/OITIPrefsDebug.log
+```
+
+**For a bug reporter (text for a GitHub reply, Insula 0.3.6 or newer):** Settings > Insula > Diagnostics > set Log Detail to Detailed > respring > wait two minutes > reproduce the problem > Copy Report to Clipboard > paste it into the issue. Reporters on older versions still need the SSH steps in section 12.
+
+## 29. 0.3.6 batch 4: live Log Detail, Run Status Bar Check, environment checks (build `OITI-exp-0.3.6-c`)
+
+Written and compile-checked; **not device-tested**. Settings bundle only (no launch-path change; the tweak changed only its build tag). No setting added or changed. Install with the blocks of sections 26 and 27 (archive `oitui-v036-statusbar.tar.gz`; commit message `0.3.6 batch 4: live Log Detail, Run Status Bar Check, environment checks, README`). The first line after installing must say `OITI-exp-0.3.6-c`.
+
+**Device checks (yes or no each):**
+
+1. Log Detail is Normal. Open Diagnostics > Run Status Bar Check: an alert says Log Detail is Normal (nothing is sent).
+2. Set Log Detail to Detailed **without** responring. Wait 5 s, tap Copy Report and paste into Notes: the log part contains `DUMP trigger polling started` (the level applied live).
+3. Tap Run Status Bar Check: "Check requested". Wait 5 s, Copy Report again: the log part has `STATUSBAR BEGIN reason=darwin-notification` lines and `CHOICE`/`PROVIDER` lines.
+4. The pasted report has a section `== Environment checks ==` with the iOS version (and "the iOS version Insula is built and tested for (16)"), a jailbreak layout guess (rootless on your phone), the UIKit class and method as `present`, a list of `_UIStatusBarVisualProvider_*` classes and `override: none`.
+5. Set Log Detail back to Normal; the picker shows Normal.
+6. The footer under Log Detail reads naturally and says the level takes effect at once.
+
+## 30. 0.3.6 release candidate: test the exact release package, then release
+
+Changes since batch 4: `OITI/control` `0.3.6`, build tag `OITI-0.3.6`, Settings tag `OITIPrefs-0.3.6`, docs (Safari findings; Safari moved to 0.3.7). OITCore stays `0.1.0`. No code change beyond the version strings, so the device-tested behavior of batches 2, 3 and 4 is what ships; the release build differs from the CI debug build by `FINALPACKAGE=1` only (quiet defaults, no `+debug`).
+
+**RC 2 (15 Nov 2026).** RC 1 passed all 12 checks below on the release package built from `d9f331a`. Then the owner asked to move the **Diagnostics** row out of the link list (between Download Progress and Color and Opacity) into a card of its own under the **Status Bar (Experimental)** group: only `OITI/OITIPrefs/Resources/Root.plist` changed (the link cell moved, plus an empty group on each side; `tools/check_settings.py` and the offline check pass). It is a different package, so the release workflow is run again and the new files are installed; RC 2 needs only the short check below, not all 12 again: (a) Settings > Insula: the list Startup Animation, Notifications, Download Progress, Color and Opacity, Scale is back to its old five rows, and **Diagnostics** is a card of its own under Status Bar Layout, above the Source Code and Twitter buttons; (b) every row still opens, Diagnostics included; (c) Copy Report works and its session line says `OITI-0.3.6`; (d) `dpkg -s com.wilburt.oiti | grep Version` says `0.3.6` with no `+debug`. Archive `oitui-v036-rc2.tar.gz`, commit message `Move the Diagnostics row to its own card under Status Bar`.
+
+**1. Push (PC, fish).**
+
+```
+cd ~/OITUI
+tar -xzf ~/Downloads/oitui-v036-rc.tar.gz -C ~/OITUI .
+git status --short
+git add -A
+git commit -m "OITI 0.3.6 release candidate"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+`git status --short` must list exactly these 6 files: `COMMANDS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `OITI/Tweak.xm`, `OITI/control`, `OITI/OITIPrefs/OITIRootListController.m`; the last line must print the same hash twice.
+
+**2. The normal CI run must be green, then run the release workflow:**
+
+```
+set SHA (git rev-parse HEAD)
+set -e RUN
+for i in (seq 36)
+    set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId")
+    if test -n "$RUN"
+        break
+    end
+    sleep 5
+end
+echo $RUN
+gh run watch $RUN --exit-status
+gh workflow run release-oiti.yml --ref experiments
+set -e RELRUN
+for i in (seq 36)
+    set RELRUN (gh run list --workflow=release-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -n 1)
+    if test -n "$RELRUN"
+        break
+    end
+    sleep 5
+end
+echo $RELRUN
+gh run watch $RELRUN --exit-status
+rm -rf ~/Downloads/oiti-rc
+gh run download $RELRUN -D ~/Downloads/oiti-rc
+find ~/Downloads/oiti-rc -name '*.deb'
+shasum -a 256 (find ~/Downloads/oiti-rc -name '*.deb')
+```
+
+Both `echo` lines must print one number. The `find` must list exactly `com.wilburt.oitcore_0.1.0...deb` and `com.wilburt.oiti_0.3.6...deb`, with no `debug` in the names.
+
+**3. Install those exact files (PC), then check what is installed.**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-rc; mkdir /var/mobile/oiti-rc'
+scp -P 2222 (find ~/Downloads/oiti-rc -name '*.deb') root@127.0.0.1:/var/mobile/oiti-rc/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-rc/*.deb; sbreload'
+```
+
+Wait about 20 s, open Settings, Photos, Safari, Chrome and Arc once, then `ssh -p 2222 root@127.0.0.1` and on the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.oitcore | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+defaults read com.wilburt.oiti.prefs DiagnosticsLevel
+defaults read com.wilburt.oiti.prefs DownloadBrowserEnabled
+sh /var/mobile/br.sh level 0
+sh /var/mobile/br.sh disable
+sh /var/mobile/br.sh disable safari
+sh /var/mobile/br.sh disable chrome
+```
+
+Expect `Version: 0.3.6` (no `+debug`), `Version: 0.1.0`, `build=OITI-0.3.6`, and for the two `defaults read` lines `0` or `does not exist` (a `1` is fine only if you turned it on yourself). The last four lines put the phone in the state a user has (no research files, level 0).
+
+**4. The checks on the release package** (yes or no each; tell me what you saw if it is not a plain yes):
+1. Settings > Insula shows `0.3.6` at the bottom; every page opens, including Diagnostics; Download Progress shows **Show Browser Downloads**, off.
+2. Stock look: with every Island setting at its default the Island and a real notification look stock.
+3. Respring-loop guard (sections 7 and 21, step 3): five `sbreload` about 10 s apart trip it, the banner appears, **Clear Safe Mode & Respring** brings OITI back.
+4. Show Download Progress and Show Browser Downloads on (Settings, or `sh /var/mobile/br.sh source on`), Arc open: a download shows `Arc - <file name>` and the percentage; the Detailed look has one percentage.
+5. Chrome open (tap "Download" in its bar): `Chrome - <file name>`; the immediate first cancel Chrome makes shows nothing.
+6. In each browser: cancel shows the short red `Cancelled`, then idle; a finished download shows the check, then idle, and no `Cancelled` appears about 17 s later.
+7. Force-quit a browser during a download: `Cancelled` within about 2 s.
+8. Show Browser Downloads off during a download: the bar goes, the browser keeps going. Apple Mode on during a download: the bar goes.
+9. Safari still opens and downloads a file normally with the switch on (Safari shows nothing in the Island; that is expected).
+10. Diagnostics on the release package: Copy Report works; the report says `OITI-0.3.6` in the session line and has `== Environment checks ==`; Log Detail Detailed then Run Status Bar Check works; set it back to Normal.
+11. A real App Store install or update, if you have one: unchanged (one percentage in the Detailed look).
+12. Set the phone back: `sh /var/mobile/br.sh level 0`.
+
+**5. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
+
+**6. Release (only after we both agree).** The text of the GitHub Release is the only release note (no notes file, no `--notes-file`; WORKFLOW.md). One block at a time (the squash merge deletes `experiments` on GitHub; check the PR state first):
+
+```
+cd ~/OITUI
+git status --short
+gh pr create --base main --head experiments --title "OITUI 0.3.6" --body "Chrome and file names in Download Progress, Diagnostics page with a report button."
+gh pr diff --name-only
+gh pr merge --squash
+gh pr view --json state,mergeCommit
+```
+
+The state must say `MERGED`. Then check the tested tree is what landed (`$SHA` from step 2; if the variable is gone, use the hash from step 1):
+
+```
+git fetch --prune origin
+git switch main
+git pull --ff-only
+git rev-parse "$SHA^{tree}"
+git rev-parse "origin/main^{tree}"
+```
+
+The two hashes must be identical. Tag first, then the Release with `--verify-tag`:
+
+```
+git tag -a v0.3.6 -m "OITUI 0.3.6"
+git push origin v0.3.6
+gh release create v0.3.6 --verify-tag --title "OITUI 0.3.6" --notes '**Download Progress: Chrome and file names.** Chrome downloads now show in the Island like Arc Search downloads, and both show the file name next to the percentage. The switch is now called Show Browser Downloads (Settings > Insula > Download Progress; off by default, experimental). File names never go into the default log.
+
+**New: Diagnostics page** (Settings > Insula > Diagnostics). Copy Report to Clipboard puts a report for a bug report on the clipboard (device, iOS version, Insula settings and log; notification text and download file names are removed, but read it before you post it). Share Full Report makes a longer file. Log Detail (Normal or Detailed) replaces the SSH step and applies at once, Run Status Bar Check writes the status bar report without a respring, and Clear Log Files deletes the logs. There is also an issue template on GitHub.
+
+**Known limits:** Safari downloads are not supported yet (planned for 0.3.7). Insula is built and tested for rootless jailbreaks on iOS 16 only (tested on an iPhone 8 Plus, iOS 16.7.16, Dopamine 3); other iOS versions and roothide are not supported. Download Progress, the notification stack and Status Bar are still experimental.' (find ~/Downloads/oiti-rc -name '*.deb')
+gh release view v0.3.6
 ```
 
 Attach the files from `~/Downloads/oiti-rc` (the tested artifact), not a rebuild: pushing the tag starts a second, untested release build of the same sources. Last, recreate `experiments` from `main` (the block in `WORKFLOW.md`).

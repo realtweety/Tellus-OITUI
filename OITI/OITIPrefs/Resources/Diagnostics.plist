@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>items</key>
+    <array>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Report</string>
+        <key>footerText</key>
+        <string>Copies a report for a bug report: device, iOS version, Insula's settings and Insula's log. Notification text and download file names are removed, but read it before you post it. Share Full Report makes a longer text file for attaching.</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>copyReport</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Copy Report to Clipboard</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>shareReport</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Share Full Report</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Logging</string>
+        <key>footerText</key>
+        <string>Normal keeps the log short. Detailed adds events and takes effect at once. For a status bar problem: set it to Detailed, tap Run Status Bar Check, wait a few seconds, then copy the report. A report that SpringBoard writes by itself 4 seconds after it starts, and some extra hooks, appear only after a respring. Detailed logs can contain more personal details. It is off by default.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSLinkListCell</string>
+        <key>detail</key>
+        <string>PSListItemsController</string>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DiagnosticsLevel</string>
+        <key>default</key>
+        <integer>0</integer>
+        <key>label</key>
+        <string>Log Detail</string>
+        <key>validTitles</key>
+        <array>
+          <string>Normal</string>
+          <string>Detailed</string>
+        </array>
+        <key>validValues</key>
+        <array>
+          <integer>0</integer>
+          <integer>1</integer>
+        </array>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>runStatusBarCheck</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Run Status Bar Check</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
+        <string>Log Files</string>
+        <key>footerText</key>
+        <string>Deleting the log files is safe; the next lines start a fresh file.</string>
+      </dict>
+      <dict>
+        <key>action</key>
+        <string>clearLogsAsk</string>
+        <key>cell</key>
+        <string>PSButtonCell</string>
+        <key>label</key>
+        <string>Clear Log Files</string>
+      </dict>
+    </array>
+    <key>title</key>
+    <string>Diagnostics</string>
+  </dict>
+</plist>

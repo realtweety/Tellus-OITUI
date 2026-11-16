@@ -34,7 +34,7 @@
         <key>label</key>
         <string>App Store Downloads (Experimental)</string>
         <key>footerText</key>
-        <string>Shows App Store downloads with the percentage and the time left, and Arc Search downloads with the percentage (no file name yet; experimental). Needs Show Download Progress.</string>
+        <string>Shows App Store downloads with the percentage and the time left, and browser downloads (Arc Search and Chrome) with the file name and the percentage (experimental). Needs Show Download Progress.</string>
       </dict>
       <dict>
         <key>cell</key>
@@ -60,7 +60,7 @@
         <key>key</key>
         <string>DownloadBrowserEnabled</string>
         <key>label</key>
-        <string>Show Arc Downloads</string>
+        <string>Show Browser Downloads</string>
         <key>PostNotification</key>
         <string>com.wilburt.oiti/PrefsChanged</string>
       </dict>

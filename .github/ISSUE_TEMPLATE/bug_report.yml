@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in Tellus / Insula does not work
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Insula is built and tested for **rootless jailbreaks on iOS 16** (the test phone is an iPhone 8 Plus on iOS 16.7.16 with Dopamine 3). Other iOS versions and roothide are outside what can be tested, so a fix may not be possible there, but a report is still welcome.
+  - type: input
+    id: device
+    attributes:
+      label: Device and iOS version
+      placeholder: iPhone 11, iOS 16.5.1
+    validations:
+      required: true
+  - type: input
+    id: jailbreak
+    attributes:
+      label: Jailbreak, and how you installed Insula
+      placeholder: Dopamine 3 rootless, from the GitHub release
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Insula version
+      description: The line at the bottom of Settings > Insula.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostics report
+      description: |
+        Needs Insula 0.3.6 or newer. In Settings > Insula > Diagnostics set Log Detail to Detailed, respring, wait two minutes, reproduce the problem, then tap Copy Report to Clipboard and paste it here. Read it first: it can contain app names. If the report is too long, use Share Full Report and attach the file.
+      render: text

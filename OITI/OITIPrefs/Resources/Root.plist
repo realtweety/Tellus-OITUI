@@ -267,6 +267,20 @@
         <string>PSGroupCell</string>
       </dict>
       <dict>
+	      <key>cell</key>
+	      <string>PSLinkCell</string>
+	      <key>detail</key>
+	      <string>OITIDiagnosticsListController</string>
+	      <key>isController</key>
+	      <true/>
+	      <key>label</key>
+	      <string>Diagnostics</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+      </dict>
+      <dict>
         <key>action</key>
         <string>sourceCode</string>
         <key>cell</key>
