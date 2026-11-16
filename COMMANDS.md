@@ -1720,7 +1720,7 @@ Written and compile-checked; the text helper is PC-tested (`tools/report_text_te
 
 **Device checks (answer yes or no to each; they decide whether it ships):**
 
-1. Settings > Insula shows a row "Diagnostics" under "Download Progress", and it opens a page with the groups Report, Logging and Log Files.
+1. Settings > Insula shows a row "Diagnostics" in a card of its own under "Status Bar (Experimental)" (moved there in RC 2, 15 Nov 2026; it was first between Download Progress and Color and Opacity), and it opens a page with the groups Report, Logging and Log Files.
 2. "Copy Report to Clipboard": an alert "Report copied" appears within about a second; paste into Notes. The text starts with `Insula diagnostics report (short)`, has the sections Device, Insula, Settings and two Log sections, and is shorter than about 50 KB.
 3. In the pasted text, "Machine" and "iOS" are right, "Latest SpringBoard session start in the log" shows the build tag you installed, and "ArtworkDeviceSubType" matches whether the Island is on (2556) or off.
 4. Set Log Detail to Detailed, respring, wait two minutes, tap Copy Report again: the log part now contains `STATUSBAR` lines (the provider report). Make a notification arrive (any app): the pasted text must not contain the notification's title or message, and a browser download must not show its file name (look for `(removed from the report)`).
@@ -1752,6 +1752,8 @@ Written and compile-checked; **not device-tested**. Settings bundle only (no lau
 ## 30. 0.3.6 release candidate: test the exact release package, then release
 
 Changes since batch 4: `OITI/control` `0.3.6`, build tag `OITI-0.3.6`, Settings tag `OITIPrefs-0.3.6`, docs (Safari findings; Safari moved to 0.3.7). OITCore stays `0.1.0`. No code change beyond the version strings, so the device-tested behavior of batches 2, 3 and 4 is what ships; the release build differs from the CI debug build by `FINALPACKAGE=1` only (quiet defaults, no `+debug`).
+
+**RC 2 (15 Nov 2026).** RC 1 passed all 12 checks below on the release package built from `d9f331a`. Then the owner asked to move the **Diagnostics** row out of the link list (between Download Progress and Color and Opacity) into a card of its own under the **Status Bar (Experimental)** group: only `OITI/OITIPrefs/Resources/Root.plist` changed (the link cell moved, plus an empty group on each side; `tools/check_settings.py` and the offline check pass). It is a different package, so the release workflow is run again and the new files are installed; RC 2 needs only the short check below, not all 12 again: (a) Settings > Insula: the list Startup Animation, Notifications, Download Progress, Color and Opacity, Scale is back to its old five rows, and **Diagnostics** is a card of its own under Status Bar Layout, above the Source Code and Twitter buttons; (b) every row still opens, Diagnostics included; (c) Copy Report works and its session line says `OITI-0.3.6`; (d) `dpkg -s com.wilburt.oiti | grep Version` says `0.3.6` with no `+debug`. Archive `oitui-v036-rc2.tar.gz`, commit message `Move the Diagnostics row to its own card under Status Bar`.
 
 **1. Push (PC, fish).**
 
