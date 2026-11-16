@@ -77,5 +77,8 @@ The owner runs the commands himself (PC: Arch, fish; phone: Dopamine rootless, s
 - In this chat workflow the owner applies the delta archive and runs `git add -A` after `git status --short` lists exactly the files the report names. (The rule above against `git add -A` is for Claude Code.)
 - Releases: tag first, then `gh release create vX.Y.Z --verify-tag` (without it a missing tag is created on the default branch's newest commit); attach the tested artifact, not the rebuild the tag push starts; compare `git rev-parse <tested commit>^{tree}` with `origin/main^{tree}`. Recreate `experiments` only after the Release exists, from `main`, with `git switch main` first (git refuses to delete the branch you are on, and `git push -u origin experiments` pushes whatever the local branch holds).
 - A switch or a log for an app must not live in the app's tmp folder (iOS may purge it); use its Library folder.
+- After copying a script to the phone with `scp`, give a check that proves the new copy is there (`grep -c <a word that only the new version has>`); put every `level 1` and `disable` step before the first test of a research block; tell the owner exactly which files `git status --short` must list before `git add -A`.
+- A package change after a tested release candidate (even one settings row) means the release workflow runs again and the new files are tested; say so, and give the short check.
+- GitHub from Claude's container: the API and the web fetch tool are rate limited; clone with git, read an issue by `curl` of its HTML page and the JSON in the `react-app.embeddedData` script tag.
 - Be honest about what was not seen: say "I have not seen the output" instead of assuming a step worked.
 

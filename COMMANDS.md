@@ -1475,7 +1475,7 @@ ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh disable; sh /var/mobile/br.sh l
 
 Keep **Show Arc Downloads** on if you like it; it is off by default for everyone else.
 
-## 25. 0.3.5 release candidate: test the exact release package, then release (done on 11 Nov 2026; the pattern for the next release)
+## 25. 0.3.5 release candidate: test the exact release package, then release (done on 11 Nov 2026; superseded by section 30, which fixes the release notes step: `--notes`, never `--notes-file`)
 
 Changes since the Arc test (section 24): the Detailed look no longer repeats the percentage (percentage-only sources, so App Store and Arc: the line under the bar is `Downloading · ~1 min left`, the label on the right is the percentage), OITI `control` `0.3.5`, build tag `OITI-0.3.5`, Settings tag `OITIPrefs-0.3.5`, docs. OITCore stays `0.1.0`. The release package is `FINALPACKAGE=1`, `DiagnosticsLevel` 0.
 

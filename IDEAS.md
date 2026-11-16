@@ -14,6 +14,8 @@ Where this differs from the 0.4.0 wording in the roadmap bullet under "OITI: cur
 
 Status, 14 Nov 2026: the one-command tester report and the Settings button (decision 2 above) were built for 0.3.6 as Settings > Insula > Diagnostics (idea 18 in part: the Log Detail picker; idea 29 is still open), with an issue template; see OVERVIEW.md, "0.3.6 batch 3". The "default logging stays off" decision is in the same entry.
 
+Status, 16 Nov 2026: 0.3.6 is released. Safari's download source (see `OVERVIEW.md` "Next" and `LEARNINGS.md` "Safari's download calls, measured") is planned for 0.3.7, ahead of 0.4.0's landscape work. Icons (idea 31 and the icon concepts at the end of this file) are still not started.
+
 ### Ideas for Insula (31 items; major, medium, small, infrastructure)
 
 **Major**
