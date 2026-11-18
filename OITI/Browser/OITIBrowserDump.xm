@@ -1,5 +1,5 @@
 // OITIBrowserDump.xm -- browser downloads: the Arc Search source (OITI 0.3.5), the Chrome source and the file name (OITI 0.3.6),
-// and the research log they grew out of.
+// the Safari source (OITI 0.3.7) and the research log they grew out of.
 //
 // WHAT RUNS WHERE
 //  * Arc Search (company.thebrowser.ArcMobile2) and Chrome (com.google.chrome.ios, since 0.3.6): the SOURCES. While SpringBoard says
@@ -13,7 +13,10 @@
 //    published (nothing was ever shown, so there is nothing to cancel).
 //  * Arc Search, Safari (com.apple.mobilesafari) and Chrome (com.google.chrome.ios), only when the file OITIBrowserDump.enable exists
 //    in that app's Library folder: the RESEARCH log (OITIBrowser.log in the same folder): what the public WKDownload does, a channel
-//    test, the public cancel and resume calls. Safari is research only; it never publishes.
+//    test, the public cancel and resume calls.
+//  * Safari (com.apple.mobilesafari), since 0.3.7: a SOURCE too, but not through WKDownload (Safari does not call it). While SpringBoard
+//    says "Show Browser Downloads" is on, the private _SFDownloadDispatcher's download calls are hooked (see "Safari source" below;
+//    private API, matched by selector and encoding, otherwise nothing is hooked) and the newest download is published like Arc's.
 //    0.3.6 batch 1 adds to the research log (nothing is published, nothing is shown in the Island): (1) a census of the loaded
 //    Objective-C classes whose name contains "download" (Safari does not use the public WKDownload, 12 Nov 2026, so this is how its
 //    own download classes are found), run 8 s after launch and again on every channel test; (2) the file name a download delegate
@@ -21,6 +24,8 @@
 //    to log it and call the original); (3) the file name transport test: the channel test also publishes a sample name in the
 //    eight name chunks (OITIBrowserProtocol.h, version 2) and SpringBoard logs what it read back at DiagnosticsLevel 1.
 //    0.3.6 batch 2 adds, in Safari only: a log-only probe of Safari's private download classes (OITIBrowserInstallSafariProbe).
+//    0.3.7 batch 1 turns that probe into the Safari source and adds to its log: the first argument and the thread of every call,
+//    and what the download's web view says about its data store (Private Browsing research, nothing is hidden yet).
 //  * Every other process: one string comparison against the allowlist, then return.
 //
 // WHAT IS KNOWN (measured on the iPhone 8 Plus, iOS 16.7.16, Arc Search 1.49.0, 10 Nov 2026; LEARNINGS.md)
@@ -44,6 +49,7 @@
 #import <string.h>
 #import <stdlib.h>
 #import <mach-o/dyld.h>
+#import <os/lock.h>
 #import <OITCore/OITCore.h>
 #import "Shared/OITIShared.h"
 #import "Browser/OITIBrowser.h"
@@ -141,7 +147,7 @@ static void OITIBrowserNoteResume(id webView, NSData *data, BOOL hasHandler);
 %end
 
 static BOOL OITIBrowserIsPublisher(void) {
-    return sBrowserID == OITIBrowserIDArc || sBrowserID == OITIBrowserIDChrome;   // Safari is research only
+    return sBrowserID == OITIBrowserIDArc || sBrowserID == OITIBrowserIDChrome || sBrowserID == OITIBrowserIDSafari;
 }
 
 // Publishes a download's file name in the eight name chunks (OITIBrowserProtocol.h) before the message that says a name exists.
@@ -453,9 +459,10 @@ static void OITIBrowserNoteResume(id webView, NSData *data, BOOL hasHandler) {
 
 // Safari does not use the public WKDownload (12 Nov 2026). The class census of 13 Nov 2026 found, in SafariServices, _SFDownload (it
 // has -filename, -estimatedProgress, -bytesLoaded, -progress, -cancel, and the six _download... selectors below), _SFDownloadDispatcher
-// (the same selectors) and _SFDownloadManager (-downloads, -runningDownloadsCount). Nothing is known yet about when these selectors
-// are called or with what, so this logs each call and calls the original with the same arguments. Private API: it is research only
-// (Safari, only with the enable file) and is not part of any release until the log shows it is the right source.
+// (the same selectors) and _SFDownloadManager (-downloads, -runningDownloadsCount). The probe of 15 Nov 2026 measured when the
+// selectors are called (LEARNINGS.md). The hooks below log each call (only with the enable file) and call the original with the same
+// arguments; on the dispatcher they also feed the Safari source (only while the switch is on). Private API: a selector is hooked
+// only when its encoding matches exactly, so another iOS version either works the same way or hooks nothing.
 
 static NSString *OITIBrowserDescribeObject(id object) {
     if (!object) return @"nil";
@@ -498,15 +505,267 @@ static BOOL OITIBrowserArgumentIs(Method method, unsigned index, const char *typ
     return ok;
 }
 
-// shape 1: (id); 2: (id, id); 3: (id, id, id); 4: (id, int64, int64, int64). A selector of another shape is logged and left alone.
-static void OITIBrowserHookSafariSelector(Class cls, const char *name, int shape) {
+// ---------------------------------------------------------------------------------------------
+// MARK: Safari source (0.3.7): the newest download of MobileSafari, from the dispatcher's calls
+// ---------------------------------------------------------------------------------------------
+//
+// Measured on 15 Nov 2026 (LEARNINGS.md "Safari's download calls, measured"): every download event arrives at the one global
+// _SFDownloadDispatcher, whose first argument is the _WKDownload (confirmed for -_downloadDidStart:; for the other selectors the
+// research line now logs the argument, 0.3.7 batch 1, because the source keys every event on it). The source keeps ONE record, the
+// newest download, in a small struct under an os_unfair_lock (the calls may not all come on the main thread: unmeasured, the research
+// line logs main=0/1). The hot call, -_download:didWriteData:..., only stores two integers; once a second a timer on the main
+// run loop turns the record into a protocol v2 message (browser ID Safari), exactly as the Arc and Chrome path does. A download
+// object's pointer is only compared, never dereferenced and never retained here.
+//
+// Rules: the newest started download is the one shown; a write for a download that was not announced (the switch was turned on
+// mid-download) is adopted only when nothing is running (its name is then unknown, so the Island says "Download"); finish, cancel,
+// failure and a crash of the download process all end the record (failure and crash show as cancelled, UNVERIFIED: neither was seen
+// in the measurement); a download that ends before anything was shown shows nothing, except a finish, which shows the finished state.
+// Nothing is published without a positive expected size. Private Browsing is NOT handled in batch 1 (the research log only records
+// what the download's web view says about its data store); see LEARNINGS.md once measured.
+
+enum { kSFNone = 0, kSFStart, kSFFinish, kSFCancel, kSFCrash, kSFFail, kSFResponse, kSFDestination, kSFWrite };
+
+typedef struct {
+    uintptr_t download;        // identity of the _WKDownload (never dereferenced)
+    NSUInteger order;          // 0 = nothing yet; counts up with every download that is begun
+    uint32_t serial;           // low 8 bits travel in the message
+    int phase;                 // 0 idle, 1 running, 2 finished, 3 cancelled (also failed or crashed)
+    long long written;         // bytes written so far (totalBytesWritten)
+    long long expected;        // totalBytesExpectedToWrite (0 or less: unknown)
+} OITISafariRecord;
+
+static os_unfair_lock sSafariLock = OS_UNFAIR_LOCK_INIT;
+static OITISafariRecord sSafariRecord;      // under sSafariLock
+static NSString *sSafariName;               // under sSafariLock; the file name of the record, nil until -decideDestination
+static NSUInteger sSafariOrderCounter;      // under sSafariLock
+// Main thread only: what was already sent for the record with order sSafariPubOrder.
+static NSUInteger sSafariPubOrder;
+static BOOL sSafariPubPublished, sSafariPubNameSent, sSafariPubDone, sSafariPubBadLogged, sSafariPubHasLast;
+static uint64_t sSafariPubLastMessage;
+static double sSafariPubLastFraction;
+static NSTimer *sSafariTimer;
+
+static void OITISafariStopTimer(void) {
+    [sSafariTimer invalidate];
+    sSafariTimer = nil;
+}
+
+// Turns the record into one message when something changed. Main thread only.
+static void OITISafariPublish(void) {
+    if (!sBrowserSourceOn) { OITISafariStopTimer(); return; }
+    OITISafariRecord snap;
+    NSString *name;
+    os_unfair_lock_lock(&sSafariLock);
+    snap = sSafariRecord;
+    name = sSafariName;
+    os_unfair_lock_unlock(&sSafariLock);
+    if (snap.order == 0) { OITISafariStopTimer(); return; }
+    if (snap.order != sSafariPubOrder) {
+        sSafariPubOrder = snap.order;
+        sSafariPubPublished = sSafariPubNameSent = sSafariPubDone = sSafariPubBadLogged = sSafariPubHasLast = NO;
+        sSafariPubLastMessage = 0;
+        sSafariPubLastFraction = 0;
+    }
+    if (sSafariPubDone) { OITISafariStopTimer(); return; }
+    uint32_t status = OITIBrowserStatusWaiting, value = 0;
+    if (snap.phase == 3) {
+        if (!sSafariPubPublished) {   // nothing was ever shown: nothing to cancel
+            sSafariPubDone = YES;
+            OITISafariStopTimer();
+            if (sBrowserLog) OITI_BLOG(@"Safari source: download %lu ended as cancelled before anything was shown; nothing is sent", (unsigned long)snap.order);
+            return;
+        }
+        status = OITIBrowserStatusCancelled;
+        value = (uint32_t)(sSafariPubLastFraction * 10000.0);
+    } else if (snap.phase == 2) {
+        status = OITIBrowserStatusFinished;
+        value = 10000;
+    } else if (snap.phase == 1) {
+        if (snap.expected <= 0 || snap.written < 0) return;   // no total yet: nothing to show
+        double fraction = (double)snap.written / (double)snap.expected;
+        fraction = MAX(0.0, MIN(0.9999, fraction));
+        sSafariPubLastFraction = fraction;
+        status = OITIBrowserStatusRunning;
+        value = (uint32_t)(fraction * 10000.0 + 0.5);
+    } else {
+        return;
+    }
+    NSData *nameBytes = name.length ? [name dataUsingEncoding:NSUTF8StringEncoding] : nil;
+    BOOL hasName = nameBytes.length > 0;
+    uint64_t message = OITIBrowserEncodeStateV2((uint32_t)getpid(), sBrowserID, hasName, snap.serial, status, value);
+    if (message == 0) {
+        if (!sSafariPubBadLogged) {
+            sSafariPubBadLogged = YES;
+            OITI_BLOG(@"Safari source: the pid %d or the browser ID %u cannot be encoded; nothing is sent", getpid(), sBrowserID);
+        }
+        return;
+    }
+    if (sSafariPubHasLast && sSafariPubLastMessage == message) return;
+    if (hasName && !sSafariPubNameSent) {
+        OITIBrowserPostName(nameBytes, snap.serial);   // before the message that says a name exists
+        sSafariPubNameSent = YES;
+    }
+    sSafariPubHasLast = YES;
+    sSafariPubLastMessage = message;
+    OITIBrowserPostState(message);
+    if (status == OITIBrowserStatusRunning) {
+        sSafariPubPublished = YES;
+    } else {
+        sSafariPubDone = YES;
+        OITISafariStopTimer();
+    }
+    if (sBrowserLog) {
+        OITI_BLOG(@"Safari source: sent %@ for download %lu (serial %u, %u/10000, name %@)",
+                  status == OITIBrowserStatusRunning ? @"running" : (status == OITIBrowserStatusFinished ? @"finished" : @"cancelled"),
+                  (unsigned long)snap.order, snap.serial, value, hasName ? name : @"none");
+    }
+}
+
+// Starts the one-second timer if needed and publishes at once (so a finish or a cancel does not wait for the next tick).
+static void OITISafariKick(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!sBrowserSourceOn) return;
+        if (!sSafariTimer) {
+            sSafariTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) { OITISafariPublish(); }];
+            [[NSRunLoop mainRunLoop] addTimer:sSafariTimer forMode:NSRunLoopCommonModes];
+        }
+        OITISafariPublish();
+    });
+}
+
+// Forgets the record (the switch went off). Main thread.
+static void OITISafariReset(void) {
+    os_unfair_lock_lock(&sSafariLock);
+    memset(&sSafariRecord, 0, sizeof sSafariRecord);
+    sSafariName = nil;
+    os_unfair_lock_unlock(&sSafariLock);
+    OITISafariStopTimer();
+    sSafariPubOrder = 0;
+}
+
+static void OITISafariBegin(uintptr_t key, const char *why, NSString *name) {
+    uint32_t serial;
+    NSUInteger order;
+    os_unfair_lock_lock(&sSafariLock);
+    order = ++sSafariOrderCounter;
+    serial = (++sBrowserSerialCounter) & 0xFFu;
+    sSafariRecord = (OITISafariRecord){key, order, serial, 1, 0, 0};
+    sSafariName = name.length ? name : nil;
+    os_unfair_lock_unlock(&sSafariLock);
+    if (sBrowserLog) OITI_BLOG(@"Safari source: download %lu begun (%s; serial %u; object %p)", (unsigned long)order, why, serial, (void *)key);
+    OITISafariKick();
+}
+
+// One dispatcher call. `extra` is the second argument for the destination (the suggested file name), `total` and `expected` come with a write.
+// Called before the original runs; it never throws and keeps the work small.
+static void OITISafariEvent(int kind, id download, id extra, long long total, long long expected) {
+    uintptr_t key = (uintptr_t)(__bridge void *)download;
+    if (!key) return;
+    switch (kind) {
+        case kSFStart: {
+            os_unfair_lock_lock(&sSafariLock);
+            BOOL same = sSafariRecord.download == key && sSafariRecord.phase == 1;
+            os_unfair_lock_unlock(&sSafariLock);
+            if (!same) OITISafariBegin(key, "start", nil);
+            break;
+        }
+        case kSFDestination: {
+            NSString *name = [extra isKindOfClass:[NSString class]] ? [(NSString *)extra copy] : nil;
+            BOOL begin = NO, named = NO;
+            os_unfair_lock_lock(&sSafariLock);
+            if (sSafariRecord.download != key) {
+                begin = YES;   // a download whose start was not seen
+            } else if (sSafariRecord.phase == 1 && name.length) {
+                sSafariName = name;
+                named = YES;
+            }
+            os_unfair_lock_unlock(&sSafariLock);
+            if (begin) OITISafariBegin(key, "destination, no start seen", name);
+            if ((begin || named) && sBrowserLog) OITI_BLOG(@"Safari source: file name %@", name ?: @"(none)");
+            break;
+        }
+        case kSFWrite: {
+            BOOL adopt = NO;
+            os_unfair_lock_lock(&sSafariLock);
+            if (sSafariRecord.download == key) {
+                if (sSafariRecord.phase == 1) { sSafariRecord.written = total; sSafariRecord.expected = expected; }
+            } else if (sSafariRecord.phase != 1) {
+                adopt = YES;   // nothing is running and this download was not announced
+            }
+            os_unfair_lock_unlock(&sSafariLock);
+            if (adopt) {
+                OITISafariBegin(key, "write, no start seen", nil);
+                os_unfair_lock_lock(&sSafariLock);
+                if (sSafariRecord.download == key) { sSafariRecord.written = total; sSafariRecord.expected = expected; }
+                os_unfair_lock_unlock(&sSafariLock);
+            }
+            break;
+        }
+        case kSFFinish:
+        case kSFCancel:
+        case kSFCrash:
+        case kSFFail: {
+            BOOL mine = NO;
+            os_unfair_lock_lock(&sSafariLock);
+            if (sSafariRecord.download == key && sSafariRecord.phase == 1) {
+                sSafariRecord.phase = kind == kSFFinish ? 2 : 3;
+                mine = YES;
+            }
+            os_unfair_lock_unlock(&sSafariLock);
+            if (mine) {
+                if (sBrowserLog) OITI_BLOG(@"Safari source: the download ended (%@)", kind == kSFFinish ? @"finished" : (kind == kSFCancel ? @"cancelled" : (kind == kSFFail ? @"failed, shown as cancelled" : @"process crash, shown as cancelled")));
+                OITISafariKick();
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+// Research only (log): whether the download's web view uses a persistent data store (false would mean Private Browsing). Public
+// WKWebView/WKWebViewConfiguration/WKWebsiteDataStore getters through the runtime; the web view of a _WKDownload comes from
+// -originatingWebView, which is recalled from WebKit's SPI headers and NOT verified here (the log says whether it answered).
+static NSString *OITIBrowserDescribeWebViewStore(id webView) {
+    if (!webView) return @"webView=nil";
+    if (![NSThread isMainThread]) return @"webView=(not read: not on the main thread)";
+    id configuration = OITIBrowserGetter(webView, "configuration");
+    id store = OITIBrowserGetter(configuration, "websiteDataStore");
+    SEL persistentSelector = sel_registerName("isPersistent");
+    if (!store || ![store respondsToSelector:persistentSelector]) return [NSString stringWithFormat:@"webView=%@ store=%@ (no isPersistent)", NSStringFromClass([webView class]), store ? NSStringFromClass([store class]) : @"nil"];
+    BOOL persistent = ((BOOL (*)(id, SEL))objc_msgSend)(store, persistentSelector);
+    return [NSString stringWithFormat:@"webView=%@ store=%@ persistent=%d", NSStringFromClass([webView class]), NSStringFromClass([store class]), persistent];
+}
+
+static void OITIBrowserLogSafariOrigin(id download) {
+    if (!sBrowserLog || !download) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            SEL selector = sel_registerName("originatingWebView");
+            if (![download respondsToSelector:selector]) {
+                OITI_BLOG(@"Safari probe: the _WKDownload %p does not answer originatingWebView", (__bridge void *)download);
+                return;
+            }
+            id webView = ((id (*)(id, SEL))objc_msgSend)(download, selector);
+            OITI_BLOG(@"Safari probe: _WKDownload %p originatingWebView -> %@", (__bridge void *)download, OITIBrowserDescribeWebViewStore(webView));
+        } @catch (NSException *exception) {
+            OITI_BLOG(@"Safari probe: originating web view lookup threw %@", exception.name);
+        }
+    });
+}
+
+// shape 1: (id); 2: (id, id); 3: (id, id, id); 4: (id, int64, int64, int64); 5: (id, BOOL). A selector of another shape is logged and
+// left alone. `kind` says which source event it is (kSFNone: log only); the source reacts only on the dispatcher, never on _SFDownload.
+static void OITIBrowserHookSafariSelector(Class cls, const char *name, int shape, int kind) {
     NSString *className = NSStringFromClass(cls);
+    BOOL source = kind != kSFNone && [className isEqualToString:@"_SFDownloadDispatcher"];
     Method method = class_getInstanceMethod(cls, sel_registerName(name));
     if (!method) {
         OITI_BLOG(@"Safari probe: -[%@ %s] does not exist (no hook)", className, name);
         return;
     }
-    unsigned expectedArguments = shape == 1 ? 3 : (shape == 2 ? 4 : (shape == 3 ? 5 : 6));
+    unsigned expectedArguments = shape == 1 ? 3 : (shape == 2 ? 4 : (shape == 3 ? 5 : (shape == 4 ? 6 : 4)));
     char *returnType = method_copyReturnType(method);
     BOOL returnsVoid = returnType && returnType[0] == 'v';
     free(returnType);
@@ -514,6 +773,7 @@ static void OITIBrowserHookSafariSelector(Class cls, const char *name, int shape
     if (shape >= 2 && shape <= 3) fits = fits && OITIBrowserArgumentIs(method, 3, "@");
     if (shape == 3) fits = fits && OITIBrowserArgumentIs(method, 4, "@");
     if (shape == 4) fits = fits && OITIBrowserArgumentIs(method, 3, "qQ") && OITIBrowserArgumentIs(method, 4, "qQ") && OITIBrowserArgumentIs(method, 5, "qQ");
+    if (shape == 5) fits = fits && OITIBrowserArgumentIs(method, 3, "Bc");
     const char *encoding = method_getTypeEncoding(method);
     if (!fits || !encoding) {
         OITI_BLOG(@"Safari probe: -[%@ %s] has another shape (encoding %s); no hook", className, name, encoding ?: "(none)");
@@ -526,42 +786,66 @@ static void OITIBrowserHookSafariSelector(Class cls, const char *name, int shape
     switch (shape) {
         case 1: {
             replacement = imp_implementationWithBlock(^(id receiver, id a) {
-                OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p arg=%@%@", className, selectorText, receiver, OITIBrowserDescribeObject(a), OITIBrowserDescribeSafariDownload(receiver));
+                if (source && sBrowserSourceOn) OITISafariEvent(kind, a, nil, 0, 0);
+                if (sBrowserLog) {
+                    OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p arg=%@%@ main=%d", className, selectorText, receiver, OITIBrowserDescribeObject(a), OITIBrowserDescribeSafariDownload(receiver), [NSThread isMainThread]);
+                    if (source && kind == kSFStart) OITIBrowserLogSafariOrigin(a);
+                }
                 ((void (*)(id, SEL, id))original)(receiver, selector, a);
             });
             break;
         }
         case 2: {
             replacement = imp_implementationWithBlock(^(id receiver, id a, id b) {
-                OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p args=%@, %@%@", className, selectorText, receiver, OITIBrowserDescribeObject(a), OITIBrowserDescribeObject(b), OITIBrowserDescribeSafariDownload(receiver));
+                if (source && sBrowserSourceOn) OITISafariEvent(kind, a, b, 0, 0);
+                if (sBrowserLog) {
+                    NSString *store = kind == kSFNone ? [@" " stringByAppendingString:OITIBrowserDescribeWebViewStore(a)] : @"";
+                    OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p args=%@, %@%@%@ main=%d", className, selectorText, receiver, OITIBrowserDescribeObject(a), OITIBrowserDescribeObject(b), store, OITIBrowserDescribeSafariDownload(receiver), [NSThread isMainThread]);
+                }
                 ((void (*)(id, SEL, id, id))original)(receiver, selector, a, b);
             });
             break;
         }
         case 3: {
             replacement = imp_implementationWithBlock(^(id receiver, id a, id b, id c) {
-                OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p args=%@, %@, completion handler %@%@", className, selectorText, receiver, OITIBrowserDescribeObject(a),
-                          OITIBrowserDescribeObject(b), c ? @"given" : @"none", OITIBrowserDescribeSafariDownload(receiver));
+                if (source && sBrowserSourceOn) OITISafariEvent(kind, a, b, 0, 0);
+                if (sBrowserLog) {
+                    OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p args=%@, %@, completion handler %@%@ main=%d", className, selectorText, receiver, OITIBrowserDescribeObject(a),
+                              OITIBrowserDescribeObject(b), c ? @"given" : @"none", OITIBrowserDescribeSafariDownload(receiver), [NSThread isMainThread]);
+                }
                 ((void (*)(id, SEL, id, id, id))original)(receiver, selector, a, b, c);
             });
             break;
         }
-        default: {
+        case 4: {
             replacement = imp_implementationWithBlock(^(id receiver, id a, long long written, long long total, long long expected) {
-                static CFAbsoluteTime sLast;
-                CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-                if (now - sLast >= 1.0) {   // about once a second, like the progress lines of the public hooks
-                    sLast = now;
-                    OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p written=%lld totalWritten=%lld totalExpected=%lld%@", className, selectorText, receiver, written, total, expected,
-                              OITIBrowserDescribeSafariDownload(receiver));
+                // The hot call (about every 64 KB): with the log off and the source on this is a pointer compare and two stores under a lock.
+                if (source && sBrowserSourceOn) OITISafariEvent(kind, a, nil, total, expected);
+                if (sBrowserLog) {
+                    static CFAbsoluteTime sLast;
+                    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+                    if (now - sLast >= 1.0) {   // about once a second, like the progress lines of the public hooks
+                        sLast = now;
+                        OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p arg=%@ written=%lld totalWritten=%lld totalExpected=%lld%@ main=%d", className, selectorText, receiver, OITIBrowserDescribeObject(a),
+                                  written, total, expected, OITIBrowserDescribeSafariDownload(receiver), [NSThread isMainThread]);
+                    }
                 }
                 ((void (*)(id, SEL, id, long long, long long, long long))original)(receiver, selector, a, written, total, expected);
             });
             break;
         }
+        default: {
+            replacement = imp_implementationWithBlock(^(id receiver, id a, BOOL flag) {
+                if (sBrowserLog) {
+                    OITI_BLOG(@"Safari probe: -[%@ %@] receiver=%p arg=%@ flag=%d main=%d", className, selectorText, receiver, OITIBrowserDescribeObject(a), flag, [NSThread isMainThread]);
+                }
+                ((void (*)(id, SEL, id, BOOL))original)(receiver, selector, a, flag);
+            });
+            break;
+        }
     }
     class_replaceMethod(cls, selector, replacement, encoding);
-    OITI_BLOG(@"Safari probe: -[%@ %@] hooked (encoding %s)", className, selectorText, encoding);
+    OITI_BLOG(@"Safari probe: -[%@ %@] hooked (encoding %s%s)", className, selectorText, encoding, source ? ", source" : "");
 }
 
 // Instance methods and instance variables of one class, once, so that the next step can be designed from the log.
@@ -586,34 +870,51 @@ static void OITIBrowserLogClassDetail(const char *className) {
 }
 
 static void OITIBrowserInstallSafariProbe(NSString *when) {
-    if (sBrowserSafariInstalled || !sBrowserLog || sBrowserID != OITIBrowserIDSafari) return;
-    if (!objc_getClass("_SFDownload") && !objc_getClass("_SFDownloadDispatcher")) {
+    // Since 0.3.7 this installs for the source (flag on) as well as for the research log. Installed once; the hooks stay, and each
+    // call checks sBrowserSourceOn / sBrowserLog first, so they do nothing while both are off.
+    if (sBrowserSafariInstalled || sBrowserID != OITIBrowserIDSafari) return;
+    if (!sBrowserLog && !sBrowserSourceOn) return;
+    BOOL haveDispatcher = objc_getClass("_SFDownloadDispatcher") != NULL;
+    if (!haveDispatcher && (!sBrowserLog || !objc_getClass("_SFDownload"))) {
         OITI_BLOG(@"Safari probe: the private download classes are not loaded (%@)", when);
         return;
     }
     sBrowserSafariInstalled = YES;
-    OITI_BLOG(@"Safari probe: installing (%@)", when);
-    OITIBrowserLogClassDetail("_SFDownload");
-    OITIBrowserLogClassDetail("_SFDownloadManager");
-    OITIBrowserLogClassDetail("_SFDownloadDispatcher");
-    static const struct { const char *selector; int shape; } kSelectors[] = {
-        {"_downloadDidStart:", 1}, {"_downloadDidFinish:", 1}, {"_downloadDidCancel:", 1}, {"_downloadProcessDidCrash:", 1},
-        {"_download:didFailWithError:", 2}, {"_download:didReceiveResponse:", 2},
-        {"_download:decideDestinationWithSuggestedFilename:completionHandler:", 3},
-        {"_download:didWriteData:totalBytesWritten:totalBytesExpectedToWrite:", 4}
+    OITI_BLOG(@"Safari probe: installing (%@; log %d, source %d)", when, sBrowserLog != nil, sBrowserSourceOn);
+    if (sBrowserLog) {
+        OITIBrowserLogClassDetail("_SFDownload");
+        OITIBrowserLogClassDetail("_SFDownloadManager");
+        OITIBrowserLogClassDetail("_SFDownloadDispatcher");
+    }
+    // `dispatcherOnly`: the two entry-point selectors exist only on the dispatcher (census, 13 Nov 2026); they are log only.
+    static const struct { const char *selector; int shape; int kind; BOOL dispatcherOnly; } kSelectors[] = {
+        {"_downloadDidStart:", 1, kSFStart, NO}, {"_downloadDidFinish:", 1, kSFFinish, NO}, {"_downloadDidCancel:", 1, kSFCancel, NO},
+        {"_downloadProcessDidCrash:", 1, kSFCrash, NO},
+        {"_download:didFailWithError:", 2, kSFFail, NO}, {"_download:didReceiveResponse:", 2, kSFResponse, NO},
+        {"_download:decideDestinationWithSuggestedFilename:completionHandler:", 3, kSFDestination, NO},
+        {"_download:didWriteData:totalBytesWritten:totalBytesExpectedToWrite:", 4, kSFWrite, NO},
+        {"startDownloadFromWebView:URL:", 2, kSFNone, YES}, {"downloadFromWKDownload:userInitiatedAction:", 5, kSFNone, YES}
     };
     static const char *const kClasses[] = {"_SFDownload", "_SFDownloadDispatcher"};
     for (unsigned c = 0; c < sizeof kClasses / sizeof kClasses[0]; c++) {
+        BOOL isDispatcher = c == 1;
+        if (!isDispatcher && !sBrowserLog) continue;   // the source needs the dispatcher only
         Class cls = objc_getClass(kClasses[c]);
         if (!cls) continue;
-        for (unsigned i = 0; i < sizeof kSelectors / sizeof kSelectors[0]; i++) OITIBrowserHookSafariSelector(cls, kSelectors[i].selector, kSelectors[i].shape);
+        for (unsigned i = 0; i < sizeof kSelectors / sizeof kSelectors[0]; i++) {
+            if (kSelectors[i].dispatcherOnly && (!isDispatcher || !sBrowserLog)) continue;
+            OITIBrowserHookSafariSelector(cls, kSelectors[i].selector, kSelectors[i].shape, kSelectors[i].kind);
+        }
     }
 }
 
 // Installs the hooks once, when the public class exists. WebKit may not be loaded yet when the dylib loads, so this is tried when
 // the source is switched on or the research starts, and again a few seconds later.
 static void OITIBrowserInstallDownloadProbe(NSString *when) {
-    OITIBrowserInstallSafariProbe(when);   // Safari only, research log only; a no-op elsewhere
+    OITIBrowserInstallSafariProbe(when);   // Safari only (source and research log); a no-op elsewhere
+    // Safari does not call the public WKDownload (12 Nov 2026) and has its own source above: no WKDownload hooks there, so that a
+    // download can never be published twice.
+    if (sBrowserID == OITIBrowserIDSafari) return;
     if (sBrowserProbeInstalled) return;
     if (!objc_getClass("WKDownload")) {
         OITI_BLOG(@"WKDownload class is not loaded (%@)", when);
@@ -652,6 +953,7 @@ static void OITIBrowserSetSourceOn(BOOL on) {
     if (on == sBrowserSourceOn) return;
     sBrowserSourceOn = on;
     OITI_BLOG(@"source %@ (SpringBoard's \"Show Browser Downloads\" state)", on ? @"on" : @"off");
+    if (!on && sBrowserID == OITIBrowserIDSafari) OITISafariReset();
     if (on) OITIBrowserInstallWithRetries(@"source on");
 }
 
@@ -715,11 +1017,10 @@ void OITIBrowserStartIfAllowed(NSString *bundleID) {
     BOOL isChrome = !isArc && [bundleID isEqualToString:kOITIBrowserBundleChrome];
     BOOL isSafari = !isArc && !isChrome && [bundleID isEqualToString:kOITIBrowserBundleSafari];
     if (!isArc && !isChrome && !isSafari) return;
-    BOOL publisher = isArc || isChrome;
+    BOOL publisher = YES;   // Arc, Chrome and (since 0.3.7) Safari all publish; the allowlist above already returned for every other app
     NSString *library = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
     if (!library.length) return;
     BOOL research = [[NSFileManager defaultManager] fileExistsAtPath:[library stringByAppendingPathComponent:kOITIBrowserEnableFile]];
-    if (!research && !publisher) return;   // Safari is research only
     sBrowserID = isArc ? OITIBrowserIDArc : (isChrome ? OITIBrowserIDChrome : OITIBrowserIDSafari);
 
     if (research) {

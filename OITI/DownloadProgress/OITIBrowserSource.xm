@@ -1,7 +1,7 @@
-// OITIBrowserSource.xm -- the SpringBoard side of the browser source (OITI 0.3.5 Arc Search; 0.3.6 Chrome and the file name).
+// OITIBrowserSource.xm -- the SpringBoard side of the browser source (OITI 0.3.5 Arc Search; 0.3.6 Chrome and the file name; 0.3.7 Safari).
 // Setting: DownloadBrowserEnabled (default NO; "Show Browser Downloads" under Download Progress; experimental).
 //
-// Arc Search and Chrome send the percentage and the end of their newest download as a 64-bit libnotify state, protocol version 2
+// Arc Search, Chrome and (0.3.7) Safari send the percentage and the end of their newest download as a 64-bit libnotify state, protocol version 2
 // (Browser/OITIBrowserProtocol.h; the browser side is Browser/OITIBrowserDump.xm). The state carries the browser ID; the file name
 // travels in eight more libnotify states that the browser sets first, and is used only when its header matches the message's pid
 // and serial. This file turns each message into the same calls the App Store source makes, so both looks, the return to idle by
@@ -33,6 +33,7 @@ static BOOL OITIBrowserSourceDescribe(uint32_t browserID, NSString **appName, NS
     switch (browserID) {
         case OITIBrowserIDArc:    *appName = @"Arc";    *bundleID = @"company.thebrowser.ArcMobile2"; return YES;
         case OITIBrowserIDChrome: *appName = @"Chrome"; *bundleID = @"com.google.chrome.ios"; return YES;
+        case OITIBrowserIDSafari: *appName = @"Safari"; *bundleID = @"com.apple.mobilesafari"; return YES;   // 0.3.7
         default: return NO;
     }
 }
