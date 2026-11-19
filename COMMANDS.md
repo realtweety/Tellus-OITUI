@@ -1475,7 +1475,7 @@ ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh disable; sh /var/mobile/br.sh l
 
 Keep **Show Arc Downloads** on if you like it; it is off by default for everyone else.
 
-## 25. 0.3.5 release candidate: test the exact release package, then release (done on 11 Nov 2026; the pattern for the next release)
+## 25. 0.3.5 release candidate: test the exact release package, then release (done on 11 Nov 2026; superseded by section 30, which fixes the release notes step: `--notes`, never `--notes-file`)
 
 Changes since the Arc test (section 24): the Detailed look no longer repeats the percentage (percentage-only sources, so App Store and Arc: the line under the bar is `Downloading · ~1 min left`, the label on the right is the percentage), OITI `control` `0.3.5`, build tag `OITI-0.3.5`, Settings tag `OITIPrefs-0.3.5`, docs. OITCore stays `0.1.0`. The release package is `FINALPACKAGE=1`, `DiagnosticsLevel` 0.
 
@@ -1877,3 +1877,222 @@ gh release view v0.3.6
 ```
 
 Attach the files from `~/Downloads/oiti-rc` (the tested artifact), not a rebuild: pushing the tag starts a second, untested release build of the same sources. Last, recreate `experiments` from `main` (the block in `WORKFLOW.md`).
+
+## 31. 0.3.7 batch 1: the Safari source (build tag `OITI-exp-0.3.7-a`)
+
+Written, compile-checked (`-Wall -Wextra`: 0 warnings) and model-tested on the PC (`tools/safari_source_model.py`), **not device-tested**. What is new: with **Show Download Progress** and **Show Browser Downloads** on, Safari's newest download appears in the Island as `Safari - <file name>` with the percentage, the finished state and the red Cancelled state. No new setting, no new default (Show Browser Downloads stays off by default). How: MobileSafari hooks the private `_SFDownloadDispatcher` calls (the eight selectors measured on 15 Nov 2026, each only when its encoding matches), only after SpringBoard's flag turns on; the hot `didWriteData` call stores two integers; once a second a timer sends protocol v2 with browser ID 2. SpringBoard needed one `case` (Safari, `com.apple.mobilesafari`). Safari no longer installs the public `WKDownload` hooks (it never calls them), so nothing can be published twice.
+
+**Not handled yet, on purpose (batch 2 decides from this run's log):** Private Browsing downloads are NOT hidden (they show like any other; the research log records what the download's web view says about its data store), a failed download and a download-process crash end the bar as cancelled (unverified: neither was seen so far), a download that was already running when the switch went on is picked up at its next write with the title `Download` (name unknown), and with two downloads at once the newest is shown (when it ends, the older one that is still writing is shown as a new `Download`).
+
+**The launch path.** In MobileSafari the `%ctor` now does what it already did in Arc and Chrome: one file-exists check and a block on the main queue that registers for SpringBoard's flag. No hook is installed at launch (unless the research enable file exists), no UIKit call, `tools/check_ctor_path.py` passes. The safe first-run procedure of section 26 applies: keep a second SSH session on `tail -F /tmp/OITIDebug.log`; if Safari or SpringBoard misbehaves, Dopamine > Settings > Tweak Injection off, jailbreak, then `mv /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist /var/jb/Library/MobileSubstrate/DynamicLibraries/OITI.plist.off`.
+
+**1. Push the batch and get the DEBUG build (PC, fish).** `git status --short` must list exactly these 8 files: `COMMANDS.md`, `DIAGNOSTICS.md`, `OITI/Browser/OITIBrowserDump.xm`, `OITI/DownloadProgress/OITIBrowserSource.xm`, `OITI/Tweak.xm`, `OVERVIEW.md`, `tools/safari_source_model.py` (new, shown as `??` until added), `tools/throttle_server.py`.
+
+```
+cd ~/OITUI
+tar -xzf ~/Downloads/oitui-v037-safari-source.tar.gz -C ~/OITUI .
+git status --short
+git add -A
+git commit -m "0.3.7 batch 1: Safari source (_SFDownloadDispatcher), research additions"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+The last command must print the same hash twice (if not, stop). Then fetch the CI build of that exact commit:
+
+```
+set SHA (git rev-parse HEAD)
+set -e RUN
+for i in (seq 36)
+    set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId")
+    if test -n "$RUN"
+        break
+    end
+    sleep 5
+end
+echo $RUN
+gh run watch $RUN --exit-status
+rm -rf ~/Downloads/oiti-debug
+gh run download $RUN -D ~/Downloads/oiti-debug
+find ~/Downloads/oiti-debug -name '*.deb'
+```
+
+`echo $RUN` must print one number, the last command two `.deb` files.
+
+**2. Install (PC).** Terminal 2 first: `ssh -p 2222 root@127.0.0.1` and then `tail -F /tmp/OITIDebug.log` (leave it running). Terminal 1:
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-d; mkdir /var/mobile/oiti-d'
+scp -P 2222 (find ~/Downloads/oiti-debug -name '*.deb') root@127.0.0.1:/var/mobile/oiti-d/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-d/*.deb; sbreload'
+scp -P 2222 ~/OITUI/tools/browser_research.sh root@127.0.0.1:/var/mobile/br.sh
+ssh -p 2222 root@127.0.0.1 'grep -c "source on" /var/mobile/br.sh'
+```
+
+The last line must print a number above 0 (the copy of `br.sh` is there). Wait about 20 s. **Default-state check:** with the switch off and no enable file, open Settings, Photos, Arc, Chrome and Safari once: all must launch normally, and Safari must download a file with its own indicator and nothing in the Island. Then on the phone (`ssh -p 2222 root@127.0.0.1`):
+
+```
+export PATH=$PATH:/var/jb/usr/bin
+dpkg -s com.wilburt.oiti | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+```
+
+`Version` is `0.3.6` with `+debug`; the second line must say `OITI-exp-0.3.7-a`.
+
+**3. Phone setup for the run (phone).** The order matters (`clear` before `enable`, then force-quit Safari):
+
+```
+sh /var/mobile/br.sh level 1
+sh /var/mobile/br.sh disable
+sh /var/mobile/br.sh disable chrome
+sh /var/mobile/br.sh disable safari
+sh /var/mobile/br.sh clear safari
+sh /var/mobile/br.sh enable safari
+sh /var/mobile/br.sh source on
+```
+
+Force-quit Safari, open it again, wait 15 s, then `sh /var/mobile/br.sh status safari`. The log must show `Safari probe: installing`, `-[_SFDownloadDispatcher _download:didWriteData:totalBytesWritten:totalBytesExpectedToWrite:] hooked (encoding v48@0:8@16Q24Q32Q40, source)` (and the other seven selectors the same way), and for `startDownloadFromWebView:URL:` and `downloadFromWKDownload:userInitiatedAction:` either `hooked` or `has another shape (encoding ...); no hook` (both outcomes are information).
+
+**4. The run.** The server (PC, terminal 3), then open its printed link in Safari and tap Download. `mark` lines go on the phone and give the log its time stamps. Answer yes or no to each check; add what you saw where the check says "write down".
+
+T1, a normal download:
+
+```
+python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1 --name test.bin
+```
+```
+sh /var/mobile/br.sh mark T1-started
+```
+Check: within a few seconds the Island shows `Safari - test.bin` and the percentage rises. Both looks if you like (Settings > Insula > Download Progress).
+
+T2, cancel: cancel in Safari's download list, then `sh /var/mobile/br.sh mark T2-cancelled`. Check: the red Cancelled state, then the Island goes back to idle.
+
+T3, finish: stop the server (Ctrl+C) and run `python3 ~/OITUI/tools/throttle_server.py --size-mb 100 --rate-mb 2 --name test.bin`, download it to the end, `sh /var/mobile/br.sh mark T3-finished`. Check: the finished state (check mark) at the end.
+
+T4, two downloads: terminal 3 `python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1 --name one.bin --port 8099`, terminal 4 `python3 ~/OITUI/tools/throttle_server.py --size-mb 300 --rate-mb 1 --name two.bin --port 8100`. Download one.bin, then two.bin (use the links each server prints). `sh /var/mobile/br.sh mark T4-both-running`. Check: the Island shows `Safari - two.bin` (the newest). Cancel two.bin in Safari, `mark T4-two-cancelled`, and write down what the Island shows for the next 10 s (expected: `Safari - Download` for one.bin). Cancel one.bin too.
+
+T5, the switch mid-download: start the 400 MB download again (T1 server). Then on the phone: `sh /var/mobile/br.sh source off` (the bar goes, Safari keeps downloading: write down), wait 10 s, `sh /var/mobile/br.sh source on`. Check: within a few seconds the Island shows `Safari - Download` with the percentage again (the name is unknown to a download picked up mid-way). Cancel the download.
+
+T6, the server dies: start the 400 MB download, let it run to about 10 percent, press Ctrl+C in the server's terminal. `sh /var/mobile/br.sh mark T6-server-stopped`. Write down: what Safari shows, and whether the Island bar goes away (red Cancelled) or stays; wait up to 60 s. Do not retry.
+
+T7, no Content-Length: `python3 ~/OITUI/tools/throttle_server.py --no-length --size-mb 100 --rate-mb 2 --name nolen.bin`. Download it. Check: nothing breaks; write down what the Island shows while it downloads (expected: nothing) and at the end (expected: the finished state or nothing).
+
+T8, Private Browsing: open a private tab in Safari, download `test.bin` (100 MB at 2 MB/s), `sh /var/mobile/br.sh mark T8-private`. Write down whether the Island shows it (expected in this batch: yes).
+
+T9, Safari killed: start the 400 MB download and force-quit Safari. Check: the Island bar ends (red Cancelled) within about 3 s.
+
+T10, Arc still works: `sh /var/mobile/br.sh disable safari`, then a 100 MB download in Arc. Check: `Arc - test.bin`, rising percentage, finished state.
+
+T11, back to the default: `sh /var/mobile/br.sh source off`, `sh /var/mobile/br.sh disable safari`, force-quit Safari, open it, download any file. Check: Safari downloads normally, nothing in the Island, no crash.
+
+**5. Collect (PC).** Only after T1 to T11; the third file is the SpringBoard side:
+
+```
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh log safari' > ~/Downloads/OITIBrowser-safari.log
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/br.sh marks' > ~/Downloads/OITI-marks-safari.txt
+ssh -p 2222 root@127.0.0.1 'grep "DOWNLOAD" /tmp/OITIDebug.log | tail -n 120' > ~/Downloads/OITI-batch1-springboard.txt
+```
+
+After the run, on the phone: `sh /var/mobile/br.sh level 0`, `sh /var/mobile/br.sh disable safari`, and `sh /var/mobile/br.sh source off` if you do not want the source on.
+
+**What a good run looks like (Safari log).** `Safari source: download 1 begun (start; serial 1; object 0x...)`, `Safari source: file name test.bin`, `Safari source: sent running for download 1 (serial 1, <n>/10000, name test.bin)` about once a second, then `Safari source: the download ended (finished)` and `sent finished`; the probe lines now end in `main=1` or `main=0` (is the dispatcher called on the main thread) and the write line carries `arg=<class> <pointer>` (the first argument of the write call, which the source keys on). The `originatingWebView -> webView=... persistent=1` line after each start is the Private Browsing evidence (`persistent=0` in T8 would be the answer; `does not answer originatingWebView` means another way is needed).
+
+## 32. 0.3.7 release candidate: test the exact release package, then release
+
+Changes since batch 1 (`OITI-exp-0.3.7-a`): `OITI/control` `0.3.7`, build tag `OITI-0.3.7`, Settings tag `OITIPrefs-0.3.7`, the Show Download Progress footer (`Downloads.plist`) and `README.md` name Safari and say that Safari's Private Browsing downloads are not shown, docs, and one code change (batch 3, `OITI/Browser/OITIBrowserDump.xm`): a Safari download from a private tab, or one that cannot be told from one, is hidden (the web view's data store is read once when a download begins; measured on 18 Nov 2026: `persistent=1` in a normal tab, `persistent=0` in a private one, every call on the main thread). Everything else is what the owner tested on the debug build of batch 1, and the release build differs from the CI debug build by `FINALPACKAGE=1` only (quiet defaults, no `+debug`). OITCore stays `0.1.0`. Known and shipped as documented: failure and crash of a Safari download show as Cancelled (not seen in a log; the owner reported the server-stopped test as expected); private tabs of Arc Search and Chrome are not checked (IDEAS.md). The hiding of batch 3 is mechanically verified (model, compile) and NOT device-tested: checks 5 and 10 below are its test, and on a failure there the fix is a new package. Any package change after a tested release candidate means the release workflow runs again and the new files are tested.
+
+**1. Push (PC, fish).** The archive `oitui-v037-private.tar.gz` is cumulative (batch 1, the release candidate files and batch 3, 14 files), so it applies over the earlier `oitui-v037-rc.tar.gz` and over a clean tree alike; use this one, not the earlier archive.
+
+```
+cd ~/OITUI
+git rev-parse HEAD origin/experiments
+tar -xzf ~/Downloads/oitui-v037-private.tar.gz -C ~/OITUI .
+git status --short
+```
+
+If batch 1 was already committed and pushed, `git status --short` must list exactly these 9 files: `COMMANDS.md`, `IDEAS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `README.md`, `OITI/Tweak.xm`, `OITI/control`, `OITI/OITIPrefs/OITIRootListController.m`, `OITI/OITIPrefs/Resources/Downloads.plist`. If batch 1 was never committed (the case on 18 Nov 2026), it must list those 9 plus `DIAGNOSTICS.md`, `OITI/Browser/OITIBrowserDump.xm`, `OITI/DownloadProgress/OITIBrowserSource.xm`, `tools/throttle_server.py` and `tools/safari_source_model.py` (shown as `??`): 14 files. Anything else: stop. Then:
+
+```
+git add -A
+git commit -m "OITI 0.3.7 release candidate: Safari source"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+The last line must print the same hash twice.
+
+**2. The normal CI run must be green, then run the release workflow:**
+
+```
+set SHA (git rev-parse HEAD)
+set -e RUN
+for i in (seq 36)
+    set RUN (gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId")
+    if test -n "$RUN"
+        break
+    end
+    sleep 5
+end
+echo $RUN
+gh run watch $RUN --exit-status
+gh workflow run release-oiti.yml --ref experiments
+set -e RELRUN
+for i in (seq 36)
+    set RELRUN (gh run list --workflow=release-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -n 1)
+    if test -n "$RELRUN"
+        break
+    end
+    sleep 5
+end
+echo $RELRUN
+gh run watch $RELRUN --exit-status
+rm -rf ~/Downloads/oiti-rc
+gh run download $RELRUN -D ~/Downloads/oiti-rc
+find ~/Downloads/oiti-rc -name '*.deb'
+shasum -a 256 (find ~/Downloads/oiti-rc -name '*.deb')
+```
+
+Both `echo` lines must print one number. The `find` must list exactly `com.wilburt.oitcore_0.1.0...deb` and `com.wilburt.oiti_0.3.7...deb`, with no `debug` in the names.
+
+**3. Install those exact files (PC), then check what is installed.**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-rc; mkdir /var/mobile/oiti-rc'
+scp -P 2222 (find ~/Downloads/oiti-rc -name '*.deb') root@127.0.0.1:/var/mobile/oiti-rc/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-rc/*.deb; sbreload'
+```
+
+Wait about 20 s, open Settings, Photos, Safari, Chrome and Arc once, then `ssh -p 2222 root@127.0.0.1` and on the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.oitcore | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+defaults read com.wilburt.oiti.prefs DiagnosticsLevel
+defaults read com.wilburt.oiti.prefs DownloadBrowserEnabled
+sh /var/mobile/br.sh level 0
+sh /var/mobile/br.sh disable
+sh /var/mobile/br.sh disable safari
+sh /var/mobile/br.sh disable chrome
+```
+
+Expect `Version: 0.3.7` (no `+debug`), `Version: 0.1.0`, `build=OITI-0.3.7`, and for the two `defaults read` lines `0` or `does not exist` (a `1` is fine only if you turned it on yourself). The last four lines put the phone in the state a user has (no research files, level 0). The download tests use the PC server (`python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1 --name test.bin`; the 100 MB / 2 MB/s variant is for finishing quickly).
+
+**4. The checks on the release package** (yes or no each; tell me what you saw if it is not a plain yes):
+1. Settings > Insula shows `0.3.7` at the bottom; every page opens, including Diagnostics; Download Progress shows **Show Browser Downloads**, off, and its footer names Arc Search, Chrome and Safari and mentions Private Browsing.
+2. Stock look: with every Island setting at its default the Island and a real notification look stock.
+3. Respring-loop guard (sections 7 and 21, step 3): five `sbreload` about 10 s apart trip it, the banner appears, **Clear Safe Mode & Respring** brings OITI back.
+4. **Safari with the switch off (the state a user has):** Safari opens and downloads a file normally with Show Browser Downloads off; nothing appears in the Island; nothing crashes.
+5. Show Download Progress and Show Browser Downloads on (Settings, or `sh /var/mobile/br.sh source on`), then in each of Arc Search, Chrome and Safari a download shows `<Browser> - <file name>` and the percentage (Chrome: tap "Download" in its bar; Safari: tap Download, in a NORMAL tab: this is the proof that the private-tab check does not hide normal downloads on the release package); the Detailed look has one percentage.
+6. In each of the three browsers: cancel shows the short red `Cancelled`, then idle; a finished download shows the check, then idle, and no `Cancelled` appears about 17 s later. Chrome's immediate first cancel shows nothing.
+7. Force-quit each of the three browsers during a download: `Cancelled` within about 3 s.
+8. Show Browser Downloads off during a download: the bar goes, the browser keeps going; turned on again during the Safari download, `Safari - Download` appears. Apple Mode on during a download: the bar goes.
+9. Safari: stop the server (Ctrl+C) during a download: write down what the Island does (Cancelled, or the bar stays; if it stays, how long).
+10. Safari, Private Browsing (new in batch 3): a 100 MB download from a private tab shows NOTHING in the Island while Safari itself downloads it normally; a download from a normal tab right afterwards shows `Safari - test.bin` again; and with a normal 400 MB download running, start a private download: the normal one's bar keeps going and does not switch to the private one. Write down anything else you see.
+11. Diagnostics on the release package: Copy Report works; the report says `OITI-0.3.7` in the session line and has `== Environment checks ==`; Log Detail Detailed then Run Status Bar Check works; set it back to Normal.
+12. A real App Store install or update, if you have one: unchanged (one percentage in the Detailed look).
+13. Set the phone back: `sh /var/mobile/br.sh level 0`.
+
+**5. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
+
+**6. Release (only after we both agree).** I will give the PR, merge, tree check, tag and `gh release create --verify-tag` block with the tested hashes and the release text then (tag first; the text of the GitHub Release is the only release note: `--notes`, never `--notes-file`; the pattern is section 30, step 6).

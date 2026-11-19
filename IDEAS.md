@@ -14,6 +14,8 @@ Where this differs from the 0.4.0 wording in the roadmap bullet under "OITI: cur
 
 Status, 14 Nov 2026: the one-command tester report and the Settings button (decision 2 above) were built for 0.3.6 as Settings > Insula > Diagnostics (idea 18 in part: the Log Detail picker; idea 29 is still open), with an issue template; see OVERVIEW.md, "0.3.6 batch 3". The "default logging stays off" decision is in the same entry.
 
+Status, 16 Nov 2026: 0.3.6 is released. Safari's download source (see `OVERVIEW.md` "Next" and `LEARNINGS.md` "Safari's download calls, measured") is planned for 0.3.7, ahead of 0.4.0's landscape work. Icons (idea 31 and the icon concepts at the end of this file) are still not started.
+
 ### Ideas for Insula (31 items; major, medium, small, infrastructure)
 
 **Major**
@@ -156,6 +158,10 @@ on-device measurement, not before.
 
 - The Island can be resized without scaling its content: scale `SBUISystemApertureLayoutMetrics -sensorRegionSize` (the root input). Done and released in v0.1.0 as the Island Size sliders.
 - Apple has a content element model (`SBSystemApertureProvidedContentElement`, `SBUISystemApertureCustomContentProvider`, `SAUISystemApertureManager`, `SBSystemApertureElementAuthority`) that may let OITI add its own elements as real Island elements. This replaces the "own overlay window" idea as the default plan.
+
+## Later (17 to 18 Nov 2026)
+
+- **Private and incognito tabs in Arc Search and Chrome (not checked).** 0.3.7 hides Safari's Private Browsing downloads (the web view's data store is not persistent). Arc and Chrome downloads (public `WKDownload`) are not checked: a download there shows whether or not it comes from a private tab. A public `WKDownload.originatingWebView` is recalled, not verified; it would need the same measurement as Safari got (a research log with a normal and a private download in each browser) before any change.
 
 ## Confirmed via code review (Oct 2026)
 

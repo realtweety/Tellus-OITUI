@@ -8,6 +8,7 @@ Content-Length, so a browser treats it as a download and can show a percentage.
 Usage (repo root, on the PC):
     python3 tools/throttle_server.py                       # 400 MB at 1 MB/s (about 7 minutes) on port 8099
     python3 tools/throttle_server.py --size-mb 200 --rate-mb 0.5 --port 8099 --name test.bin
+    python3 tools/throttle_server.py --no-length            # no Content-Length (the browser cannot know the total; 0.3.7 research)
 
 Notes. Plain HTTP: if a browser refuses an http:// link, try the same link in Safari. The phone and the PC must be on the same
 network, and the PC's firewall must allow the port. Range requests are honoured (a paused download that resumes asks for a range).
@@ -39,6 +40,7 @@ class Handler(BaseHTTPRequestHandler):
     size = 0
     rate = 0.0
     name = "test.bin"
+    no_length = False
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s %s\n" % (time.strftime("%H:%M:%S"), fmt % args))
@@ -60,6 +62,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404, "the file is /" + self.name)
             return
         start, end, partial = self._range()
+        if self.no_length:
+            start, end, partial = 0, self.size - 1, False   # no ranges either: the whole body, ended by closing the connection
         if start > end:
             self.send_error(416)
             return
@@ -68,7 +72,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Disposition", 'attachment; filename="%s"' % self.name)
         self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Content-Length", str(length))
+        if self.no_length:
+            self.send_header("Connection", "close")
+            self.close_connection = True
+        else:
+            self.send_header("Content-Length", str(length))
         if partial:
             self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, self.size))
         self.end_headers()
@@ -99,10 +107,12 @@ def main():
     parser.add_argument("--rate-mb", type=float, default=1.0, help="megabytes per second")
     parser.add_argument("--port", type=int, default=8099)
     parser.add_argument("--name", default="test.bin")
+    parser.add_argument("--no-length", action="store_true", help="send no Content-Length (the total is unknown to the browser)")
     args = parser.parse_args()
     Handler.size = int(args.size_mb * 1e6)
     Handler.rate = args.rate_mb * 1e6
     Handler.name = args.name
+    Handler.no_length = args.no_length
     print("Serving %.0f MB at %.2f MB/s (about %.0f s)." % (args.size_mb, args.rate_mb, args.size_mb / args.rate_mb))
     print("Open this on the phone:  http://%s:%d/%s" % (lan_address(), args.port, args.name))
     ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()
