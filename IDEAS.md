@@ -159,6 +159,10 @@ on-device measurement, not before.
 - The Island can be resized without scaling its content: scale `SBUISystemApertureLayoutMetrics -sensorRegionSize` (the root input). Done and released in v0.1.0 as the Island Size sliders.
 - Apple has a content element model (`SBSystemApertureProvidedContentElement`, `SBUISystemApertureCustomContentProvider`, `SAUISystemApertureManager`, `SBSystemApertureElementAuthority`) that may let OITI add its own elements as real Island elements. This replaces the "own overlay window" idea as the default plan.
 
+## Later (17 to 18 Nov 2026)
+
+- **Private and incognito tabs in Arc Search and Chrome (not checked).** 0.3.7 hides Safari's Private Browsing downloads (the web view's data store is not persistent). Arc and Chrome downloads (public `WKDownload`) are not checked: a download there shows whether or not it comes from a private tab. A public `WKDownload.originatingWebView` is recalled, not verified; it would need the same measurement as Safari got (a research log with a normal and a private download in each browser) before any change.
+
 ## Confirmed via code review (Oct 2026)
 
 - OITI is a positioning/appearance shim over Apple's real Dynamic Island. `islandEnabled` spoofs `ArtworkDeviceSubType` (2556) so

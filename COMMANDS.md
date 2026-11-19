@@ -1999,18 +1999,18 @@ After the run, on the phone: `sh /var/mobile/br.sh level 0`, `sh /var/mobile/br.
 
 ## 32. 0.3.7 release candidate: test the exact release package, then release
 
-Changes since batch 1 (`OITI-exp-0.3.7-a`): `OITI/control` `0.3.7`, build tag `OITI-0.3.7`, Settings tag `OITIPrefs-0.3.7`, the Show Download Progress footer (`Downloads.plist`) and `README.md` name Safari and say that Safari's Private Browsing downloads are shown too, docs. No other code change: what the owner tested on the debug build of batch 1 is what ships, and the release build differs from the CI debug build by `FINALPACKAGE=1` only (quiet defaults, no `+debug`). OITCore stays `0.1.0`. Known and shipped as documented: Private Browsing downloads are shown; failure and crash of a Safari download show as Cancelled (not observed in the logs, the owner reported the server-stopped test as expected). The research logs of batch 1 were not collected; if they show that Private Browsing can be told apart, that is a change for a later version, and any package change after a tested release candidate means the release workflow runs again and the new files are tested.
+Changes since batch 1 (`OITI-exp-0.3.7-a`): `OITI/control` `0.3.7`, build tag `OITI-0.3.7`, Settings tag `OITIPrefs-0.3.7`, the Show Download Progress footer (`Downloads.plist`) and `README.md` name Safari and say that Safari's Private Browsing downloads are not shown, docs, and one code change (batch 3, `OITI/Browser/OITIBrowserDump.xm`): a Safari download from a private tab, or one that cannot be told from one, is hidden (the web view's data store is read once when a download begins; measured on 18 Nov 2026: `persistent=1` in a normal tab, `persistent=0` in a private one, every call on the main thread). Everything else is what the owner tested on the debug build of batch 1, and the release build differs from the CI debug build by `FINALPACKAGE=1` only (quiet defaults, no `+debug`). OITCore stays `0.1.0`. Known and shipped as documented: failure and crash of a Safari download show as Cancelled (not seen in a log; the owner reported the server-stopped test as expected); private tabs of Arc Search and Chrome are not checked (IDEAS.md). The hiding of batch 3 is mechanically verified (model, compile) and NOT device-tested: checks 5 and 10 below are its test, and on a failure there the fix is a new package. Any package change after a tested release candidate means the release workflow runs again and the new files are tested.
 
-**1. Push (PC, fish).** The archive is cumulative: it contains the 5 files of batch 1 as well, so it applies whether or not batch 1 was committed.
+**1. Push (PC, fish).** The archive `oitui-v037-private.tar.gz` is cumulative (batch 1, the release candidate files and batch 3, 14 files), so it applies over the earlier `oitui-v037-rc.tar.gz` and over a clean tree alike; use this one, not the earlier archive.
 
 ```
 cd ~/OITUI
 git rev-parse HEAD origin/experiments
-tar -xzf ~/Downloads/oitui-v037-rc.tar.gz -C ~/OITUI .
+tar -xzf ~/Downloads/oitui-v037-private.tar.gz -C ~/OITUI .
 git status --short
 ```
 
-If batch 1 was already committed and pushed, `git status --short` must list exactly these 8 files: `COMMANDS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `README.md`, `OITI/Tweak.xm`, `OITI/control`, `OITI/OITIPrefs/OITIRootListController.m`, `OITI/OITIPrefs/Resources/Downloads.plist`. If batch 1 was never committed, it must list those 8 plus `DIAGNOSTICS.md`, `OITI/Browser/OITIBrowserDump.xm`, `OITI/DownloadProgress/OITIBrowserSource.xm`, `tools/throttle_server.py` and `tools/safari_source_model.py` (shown as `??`): 13 files. Anything else: stop. Then:
+If batch 1 was already committed and pushed, `git status --short` must list exactly these 9 files: `COMMANDS.md`, `IDEAS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `README.md`, `OITI/Tweak.xm`, `OITI/control`, `OITI/OITIPrefs/OITIRootListController.m`, `OITI/OITIPrefs/Resources/Downloads.plist`. If batch 1 was never committed (the case on 18 Nov 2026), it must list those 9 plus `DIAGNOSTICS.md`, `OITI/Browser/OITIBrowserDump.xm`, `OITI/DownloadProgress/OITIBrowserSource.xm`, `tools/throttle_server.py` and `tools/safari_source_model.py` (shown as `??`): 14 files. Anything else: stop. Then:
 
 ```
 git add -A
@@ -2083,12 +2083,12 @@ Expect `Version: 0.3.7` (no `+debug`), `Version: 0.1.0`, `build=OITI-0.3.7`, and
 2. Stock look: with every Island setting at its default the Island and a real notification look stock.
 3. Respring-loop guard (sections 7 and 21, step 3): five `sbreload` about 10 s apart trip it, the banner appears, **Clear Safe Mode & Respring** brings OITI back.
 4. **Safari with the switch off (the state a user has):** Safari opens and downloads a file normally with Show Browser Downloads off; nothing appears in the Island; nothing crashes.
-5. Show Download Progress and Show Browser Downloads on (Settings, or `sh /var/mobile/br.sh source on`), then in each of Arc Search, Chrome and Safari a download shows `<Browser> - <file name>` and the percentage (Chrome: tap "Download" in its bar; Safari: tap Download); the Detailed look has one percentage.
+5. Show Download Progress and Show Browser Downloads on (Settings, or `sh /var/mobile/br.sh source on`), then in each of Arc Search, Chrome and Safari a download shows `<Browser> - <file name>` and the percentage (Chrome: tap "Download" in its bar; Safari: tap Download, in a NORMAL tab: this is the proof that the private-tab check does not hide normal downloads on the release package); the Detailed look has one percentage.
 6. In each of the three browsers: cancel shows the short red `Cancelled`, then idle; a finished download shows the check, then idle, and no `Cancelled` appears about 17 s later. Chrome's immediate first cancel shows nothing.
 7. Force-quit each of the three browsers during a download: `Cancelled` within about 3 s.
 8. Show Browser Downloads off during a download: the bar goes, the browser keeps going; turned on again during the Safari download, `Safari - Download` appears. Apple Mode on during a download: the bar goes.
 9. Safari: stop the server (Ctrl+C) during a download: write down what the Island does (Cancelled, or the bar stays; if it stays, how long).
-10. Safari, a Private Browsing tab: a download shows in the Island (this is the documented behavior; write down if it does not).
+10. Safari, Private Browsing (new in batch 3): a 100 MB download from a private tab shows NOTHING in the Island while Safari itself downloads it normally; a download from a normal tab right afterwards shows `Safari - test.bin` again; and with a normal 400 MB download running, start a private download: the normal one's bar keeps going and does not switch to the private one. Write down anything else you see.
 11. Diagnostics on the release package: Copy Report works; the report says `OITI-0.3.7` in the session line and has `== Environment checks ==`; Log Detail Detailed then Run Status Bar Check works; set it back to Normal.
 12. A real App Store install or update, if you have one: unchanged (one percentage in the Detailed look).
 13. Set the phone back: `sh /var/mobile/br.sh level 0`.

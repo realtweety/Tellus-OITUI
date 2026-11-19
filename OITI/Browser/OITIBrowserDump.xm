@@ -25,7 +25,8 @@
 //    eight name chunks (OITIBrowserProtocol.h, version 2) and SpringBoard logs what it read back at DiagnosticsLevel 1.
 //    0.3.6 batch 2 adds, in Safari only: a log-only probe of Safari's private download classes (OITIBrowserInstallSafariProbe).
 //    0.3.7 batch 1 turns that probe into the Safari source and adds to its log: the first argument and the thread of every call,
-//    and what the download's web view says about its data store (Private Browsing research, nothing is hidden yet).
+//    and what the download's web view says about its data store; the Safari source (0.3.7 batch 3) does not show a Private Browsing
+//    download (a download whose web view's data store is not persistent) or one it cannot tell from one.
 //  * Every other process: one string comparison against the allowlist, then return.
 //
 // WHAT IS KNOWN (measured on the iPhone 8 Plus, iOS 16.7.16, Arc Search 1.49.0, 10 Nov 2026; LEARNINGS.md)
@@ -512,17 +513,20 @@ static BOOL OITIBrowserArgumentIs(Method method, unsigned index, const char *typ
 // Measured on 15 Nov 2026 (LEARNINGS.md "Safari's download calls, measured"): every download event arrives at the one global
 // _SFDownloadDispatcher, whose first argument is the _WKDownload (confirmed for -_downloadDidStart:; for the other selectors the
 // research line now logs the argument, 0.3.7 batch 1, because the source keys every event on it). The source keeps ONE record, the
-// newest download, in a small struct under an os_unfair_lock (the calls may not all come on the main thread: unmeasured, the research
-// line logs main=0/1). The hot call, -_download:didWriteData:..., only stores two integers; once a second a timer on the main
-// run loop turns the record into a protocol v2 message (browser ID Safari), exactly as the Arc and Chrome path does. A download
-// object's pointer is only compared, never dereferenced and never retained here.
+// newest download, in a small struct under an os_unfair_lock (measured on 18 Nov 2026: every call comes on the main thread, main=1;
+// the lock stays, it costs nothing). The hot call, -_download:didWriteData:..., only stores two integers; once a second a timer on the main
+// run loop turns the record into a protocol v2 message (browser ID Safari), exactly as the Arc and Chrome path does. Except for
+// the one check when a download begins (Private Browsing, below), a download object's pointer is only compared, never dereferenced and
+// never retained here.
 //
 // Rules: the newest started download is the one shown; a write for a download that was not announced (the switch was turned on
 // mid-download) is adopted only when nothing is running (its name is then unknown, so the Island says "Download"); finish, cancel,
 // failure and a crash of the download process all end the record (failure and crash show as cancelled, UNVERIFIED: neither was seen
 // in the measurement); a download that ends before anything was shown shows nothing, except a finish, which shows the finished state.
-// Nothing is published without a positive expected size. Private Browsing is NOT handled in batch 1 (the research log only records
-// what the download's web view says about its data store); see LEARNINGS.md once measured.
+// Nothing is published without a positive expected size. Private Browsing (batch 3): when a download begins (start, or the first
+// destination or write that is seen for it), its web view's data store is read once (OITISafariPersistence); a download that is not
+// from a persistent store, or whose web view cannot be read, is put in a small ring of hidden downloads and never shown or adopted; a
+// visible download that is already running is not disturbed by it. Fail-closed: not knowing hides.
 
 enum { kSFNone = 0, kSFStart, kSFFinish, kSFCancel, kSFCrash, kSFFail, kSFResponse, kSFDestination, kSFWrite };
 
@@ -539,6 +543,8 @@ static os_unfair_lock sSafariLock = OS_UNFAIR_LOCK_INIT;
 static OITISafariRecord sSafariRecord;      // under sSafariLock
 static NSString *sSafariName;               // under sSafariLock; the file name of the record, nil until -decideDestination
 static NSUInteger sSafariOrderCounter;      // under sSafariLock
+static uintptr_t sSafariHidden[8];          // under sSafariLock: downloads that are never shown (Private Browsing, or not known to be normal); a small ring
+static unsigned sSafariHiddenNext;          // under sSafariLock
 // Main thread only: what was already sent for the record with order sSafariPubOrder.
 static NSUInteger sSafariPubOrder;
 static BOOL sSafariPubPublished, sSafariPubNameSent, sSafariPubDone, sSafariPubBadLogged, sSafariPubHasLast;
@@ -638,16 +644,70 @@ static void OITISafariKick(void) {
 static void OITISafariReset(void) {
     os_unfair_lock_lock(&sSafariLock);
     memset(&sSafariRecord, 0, sizeof sSafariRecord);
+    memset(sSafariHidden, 0, sizeof sSafariHidden);
     sSafariName = nil;
     os_unfair_lock_unlock(&sSafariLock);
     OITISafariStopTimer();
     sSafariPubOrder = 0;
 }
 
-static void OITISafariBegin(uintptr_t key, const char *why, NSString *name) {
+// The hidden ring: caller holds sSafariLock. key is never 0.
+static BOOL OITISafariIsHiddenLocked(uintptr_t key) {
+    for (unsigned i = 0; i < 8; i++) if (sSafariHidden[i] == key) return YES;
+    return NO;
+}
+
+static void OITISafariHideLocked(uintptr_t key) {
+    if (!OITISafariIsHiddenLocked(key)) sSafariHidden[sSafariHiddenNext++ & 7u] = key;
+}
+
+static void OITISafariUnhideLocked(uintptr_t key) {
+    for (unsigned i = 0; i < 8; i++) if (sSafariHidden[i] == key) sSafariHidden[i] = 0;
+}
+
+// Whether the download's web view uses a persistent data store: 1 a normal tab, 0 Private Browsing, -1 cannot tell (`why` says why).
+// Measured on 18 Nov 2026 (iOS 16.7.16, the research log of 0.3.7 batch 1): -[_WKDownload originatingWebView] answers with a
+// _SFWebView, and its configuration.websiteDataStore.isPersistent was 1 for a normal tab and 0 for a private one; every dispatcher call
+// came on the main thread. The public getters are called through the runtime; any other answer is "cannot tell", which is hidden.
+static int OITISafariPersistence(id download, NSString **why) {
+    if (!download) { *why = @"no download object"; return -1; }
+    if (![NSThread isMainThread]) { *why = @"not on the main thread"; return -1; }
+    @try {
+        SEL webViewSelector = sel_registerName("originatingWebView");
+        if (![download respondsToSelector:webViewSelector]) { *why = @"the download has no originatingWebView"; return -1; }
+        id webView = ((id (*)(id, SEL))objc_msgSend)(download, webViewSelector);
+        if (!webView) { *why = @"originatingWebView is nil"; return -1; }
+        id configuration = OITIBrowserGetter(webView, "configuration");
+        id store = OITIBrowserGetter(configuration, "websiteDataStore");
+        SEL persistentSelector = sel_registerName("isPersistent");
+        if (!store || ![store respondsToSelector:persistentSelector]) { *why = @"no websiteDataStore.isPersistent"; return -1; }
+        return ((BOOL (*)(id, SEL))objc_msgSend)(store, persistentSelector) ? 1 : 0;
+    } @catch (NSException *exception) {
+        *why = [NSString stringWithFormat:@"%@ thrown", exception.name];
+        return -1;
+    }
+}
+
+// Starts tracking `download` as the newest one, unless it is a Private Browsing download or cannot be told from one: then it is put in the
+// hidden ring, the record (a normal download that is already running) stays as it is, and NO is returned. Main thread (the dispatcher's calls).
+static BOOL OITISafariBegin(uintptr_t key, id download, const char *why, NSString *name) {
+    NSString *reason = nil;
+    int persistence = OITISafariPersistence(download, &reason);
+    if (persistence != 1) {
+        os_unfair_lock_lock(&sSafariLock);
+        OITISafariHideLocked(key);
+        os_unfair_lock_unlock(&sSafariLock);
+        if (sBrowserLog) {
+            OITI_BLOG(@"Safari source: download hidden (%@; %s; object %p)",
+                      persistence == 0 ? @"Private Browsing: the data store is not persistent" : [NSString stringWithFormat:@"cannot tell whether it is private (%@), hidden to be safe", reason],
+                      why, (void *)key);
+        }
+        return NO;
+    }
     uint32_t serial;
     NSUInteger order;
     os_unfair_lock_lock(&sSafariLock);
+    OITISafariUnhideLocked(key);
     order = ++sSafariOrderCounter;
     serial = (++sBrowserSerialCounter) & 0xFFu;
     sSafariRecord = (OITISafariRecord){key, order, serial, 1, 0, 0};
@@ -655,6 +715,7 @@ static void OITISafariBegin(uintptr_t key, const char *why, NSString *name) {
     os_unfair_lock_unlock(&sSafariLock);
     if (sBrowserLog) OITI_BLOG(@"Safari source: download %lu begun (%s; serial %u; object %p)", (unsigned long)order, why, serial, (void *)key);
     OITISafariKick();
+    return YES;
 }
 
 // One dispatcher call. `extra` is the second argument for the destination (the suggested file name), `total` and `expected` come with a write.
@@ -667,7 +728,7 @@ static void OITISafariEvent(int kind, id download, id extra, long long total, lo
             os_unfair_lock_lock(&sSafariLock);
             BOOL same = sSafariRecord.download == key && sSafariRecord.phase == 1;
             os_unfair_lock_unlock(&sSafariLock);
-            if (!same) OITISafariBegin(key, "start", nil);
+            if (!same) OITISafariBegin(key, download, "start", nil);
             break;
         }
         case kSFDestination: {
@@ -675,14 +736,14 @@ static void OITISafariEvent(int kind, id download, id extra, long long total, lo
             BOOL begin = NO, named = NO;
             os_unfair_lock_lock(&sSafariLock);
             if (sSafariRecord.download != key) {
-                begin = YES;   // a download whose start was not seen
+                begin = !OITISafariIsHiddenLocked(key);   // a download whose start was not seen (a hidden one stays hidden)
             } else if (sSafariRecord.phase == 1 && name.length) {
                 sSafariName = name;
                 named = YES;
             }
             os_unfair_lock_unlock(&sSafariLock);
-            if (begin) OITISafariBegin(key, "destination, no start seen", name);
-            if ((begin || named) && sBrowserLog) OITI_BLOG(@"Safari source: file name %@", name ?: @"(none)");
+            BOOL began = begin ? OITISafariBegin(key, download, "destination, no start seen", name) : NO;
+            if ((began || named) && sBrowserLog) OITI_BLOG(@"Safari source: file name %@", name ?: @"(none)");
             break;
         }
         case kSFWrite: {
@@ -691,11 +752,10 @@ static void OITISafariEvent(int kind, id download, id extra, long long total, lo
             if (sSafariRecord.download == key) {
                 if (sSafariRecord.phase == 1) { sSafariRecord.written = total; sSafariRecord.expected = expected; }
             } else if (sSafariRecord.phase != 1) {
-                adopt = YES;   // nothing is running and this download was not announced
+                adopt = !OITISafariIsHiddenLocked(key);   // nothing is running and this download was not announced (a hidden one stays hidden)
             }
             os_unfair_lock_unlock(&sSafariLock);
-            if (adopt) {
-                OITISafariBegin(key, "write, no start seen", nil);
+            if (adopt && OITISafariBegin(key, download, "write, no start seen", nil)) {
                 os_unfair_lock_lock(&sSafariLock);
                 if (sSafariRecord.download == key) { sSafariRecord.written = total; sSafariRecord.expected = expected; }
                 os_unfair_lock_unlock(&sSafariLock);
