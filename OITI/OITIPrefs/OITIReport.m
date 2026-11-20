@@ -1,11 +1,11 @@
 #import "OITIReport.h"
 #import "OITIReportText.h"
-#import "OITIBaseListController.h"
 #import "../OITIDeviceProfiles.h"
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
 #import <sys/stat.h>
 #import <stdio.h>
+#import <dlfcn.h>
 #import <objc/runtime.h>
 
 static NSString * const kOITIReportLogPath = @"/tmp/OITIDebug.log";             // the tweak's log (SpringBoard and the other processes)
@@ -70,6 +70,24 @@ static NSString *OITIReportOneLine(id value, NSUInteger limit) {
     NSString *text = [[value description] stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
     text = [text stringByReplacingOccurrencesOfString:@"\r" withString:@" "];
     return text.length > limit ? [[text substringToIndex:limit] stringByAppendingString:@"..."] : text;
+}
+
+NSString *OITIReportInstalledVersionText(void) {
+    NSString *(*versionHelper)(void) = (NSString *(*)(void))dlsym(RTLD_DEFAULT, "OITIInstalledVersionText");
+    if (versionHelper) return versionHelper();
+
+    for (NSString *path in @[@"/var/jb/var/lib/dpkg/status", @"/var/lib/dpkg/status"]) {
+        NSString *status = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+        for (NSString *paragraph in [status componentsSeparatedByString:@"\n\n"]) {
+            if (![paragraph hasPrefix:@"Package: com.wilburt.oiti\n"]) continue;
+            for (NSString *line in [paragraph componentsSeparatedByString:@"\n"]) {
+                if ([line hasPrefix:@"Version: "]) {
+                    return [NSString stringWithFormat:@"Insula (OITI) version %@", [line substringFromIndex:9]];
+                }
+            }
+        }
+    }
+    return @"Insula (OITI) version unknown";
 }
 
 static NSString *OITIReportSettings(void) {
@@ -142,7 +160,8 @@ NSString *OITIReportBuild(BOOL full) {
         if ([NSThread isMainThread]) readScreen(); else dispatch_sync(dispatch_get_main_queue(), readScreen);
         NSISO8601DateFormatter *formatter = [[NSISO8601DateFormatter alloc] init];
         NSInteger level = [[OITPreferences preferencesWithDomain:kOITIReportDomain] integerForKey:@"DiagnosticsLevel" default:0];
-        NSBundle *bundle = [NSBundle bundleForClass:NSClassFromString(@"OITIBaseListController")];
+        Class settingsController = NSClassFromString(@"OITIBaseListController");
+        NSBundle *bundle = settingsController ? [NSBundle bundleForClass:settingsController] : [NSBundle mainBundle];
 
         // the log sections first (they also give the newest session line), then the report in reading order
         NSString *logInfo = nil, *latestSession = nil, *prefsLogInfo = nil;
@@ -160,7 +179,8 @@ NSString *OITIReportBuild(BOOL full) {
         [report appendString:@"== Environment checks ==\n"];
         [report appendString:OITIReportEnvironmentChecks(bundle.bundlePath ?: @"")];
         [report appendString:@"\n== Insula ==\n"];
-        [report appendFormat:@"%@\n", OITIInstalledVersionText()];
+        NSString *versionText = OITIReportInstalledVersionText();
+        [report appendFormat:@"%@\n", versionText];
         [report appendFormat:@"Latest SpringBoard session start in the log: %@\n", latestSession ?: @"none found (the tweak has not written a session line, or the log is empty)"];
         [report appendFormat:@"Log Detail (DiagnosticsLevel): %ld (0 = Normal, 1 = Detailed)\n", (long)level];
         [report appendFormat:@"%@\n", OITIReportGestaltLine()];

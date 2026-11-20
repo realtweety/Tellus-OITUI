@@ -1,0 +1,9 @@
+Package: com.wilburt.tellus
+Name: Tellus
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Standalone Tellus app for Insula settings.
+Maintainer: wilburt
+Author: wilburt
+Section: Applications
+Depends: firmware (>= 16.0), com.wilburt.oiti (>= 0.3.7-7+debug)

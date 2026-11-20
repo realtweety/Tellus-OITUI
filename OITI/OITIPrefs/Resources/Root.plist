@@ -281,26 +281,6 @@
         <string>PSGroupCell</string>
       </dict>
       <dict>
-        <key>action</key>
-        <string>sourceCode</string>
-        <key>cell</key>
-        <string>PSButtonCell</string>
-        <key>label</key>
-        <string>Source Code (VisibleIsland)</string>
-        <key>defaults</key>
-        <string>com.wilburt.oiti.prefs</string>
-      </dict>
-      <dict>
-        <key>action</key>
-        <string>twitter</string>
-        <key>cell</key>
-        <string>PSButtonCell</string>
-        <key>label</key>
-        <string>ethxnn88 on Twitter</string>
-        <key>defaults</key>
-        <string>com.wilburt.oiti.prefs</string>
-      </dict>
-      <dict>
         <key>cell</key>
         <string>PSGroupCell</string>
       </dict>

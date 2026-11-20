@@ -2,7 +2,7 @@ include $(THEOS)/makefiles/common.mk
 
 BUNDLE_NAME = OITIPrefs
 
-OITIPrefs_FILES = OITIBaseListController.m OITIRootListController.m OITIColorListController.m OITIScaleListController.m OITINotificationsListController.m OITIDownloadsListController.m OITIStartupListController.m OITIDiagnosticsListController.m OITIReport.m
+OITIPrefs_FILES = OITIBaseListController.m OITIRootListController.m OITIColorListController.m OITIScaleListController.m OITINotificationsListController.m OITIDownloadsListController.m OITIStartupListController.m OITIDiagnosticsListController.m OITIReport.m ../Shared/OITIMobileGestalt.m
 OITIPrefs_FRAMEWORKS = UIKit
 OITIPrefs_INSTALL_PATH = /Library/PreferenceBundles
 # The package version from ../control, used as a fallback for the version line on the main settings page.

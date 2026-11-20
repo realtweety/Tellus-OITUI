@@ -110,7 +110,7 @@ extern BOOL sIslandNotificationStackEnabled;
 extern CGFloat sIslandNoticeDuration;
 
 // The MobileGestalt cache location and keys (defined in Shared/OITIState.xm). The startup self-check (Safety/) and
-// StatusBar/OITIStatusBarProvider.xm both use them; OITIMachineHasNativeIsland is declared in Safety/OITISafety.h.
+// StatusBar/OITIStatusBarProvider.xm both use them; OITIMachineHasNativeIsland is declared in Shared/OITIMobileGestalt.h.
 extern NSString * const kOITIGestaltPlistPath;
 extern NSString * const kOITIGestaltCacheExtraKey;
 extern NSString * const kOITIGestaltNestedKey;

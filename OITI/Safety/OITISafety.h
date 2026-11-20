@@ -22,4 +22,3 @@ BOOL OITIEvaluateLoopGuard(void);        // step 2: YES = safe mode (hooks are n
 void OITIMarkElementsOff(int failures, NSString *reason);   // the promotion guard switched element creation off until a respring
 void OITIClearElementsOffFlag(void);     // a new launch turns it back on
 void OITIRunStartupSelfCheck(void);
-BOOL OITIMachineHasNativeIsland(NSString *machine);

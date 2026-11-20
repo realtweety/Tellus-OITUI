@@ -190,14 +190,75 @@
 #import "StatusBar/OITIStatusBar.h"
 #import "Safety/OITISafety.h"
 #import "Browser/OITIBrowser.h"
+#import "OITIPrefs/OITIReport.h"
+#import "Shared/OITIMobileGestalt.h"
 
 
 extern NSString * const kOITIBuildTag = @"OITI-0.3.7";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
+static NSString * const kOITIRespringNotification = @"com.wilburt.oiti/Respring";
+static NSString * const kOITIClearSafeModeAndRespringNotification = @"com.wilburt.oiti/ClearSafeModeAndRespring";
 static NSString * const kOITITestDownloadStartNotification = @"com.wilburt.oiti/TestDownloadStart";
 static NSString * const kOITITestDownloadStopNotification = @"com.wilburt.oiti/TestDownloadStop";
 static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
+static NSString * const kOITIRespringIntentPath = @"/var/mobile/Library/Preferences/OITIRespringIntent.plist";
+static NSString * const kOITITellusDiagnosticsNotification = @"com.wilburt.oiti/TellusDiagnosticsRequest";
+static NSString * const kOITITellusBridgeDomain = @"com.wilburt.tellus.bridge";
+static NSString *sLastTellusDiagnosticsRequestID;
+
+static BOOL OITIMarkRespringIntent(void) {
+    NSDictionary *marker = @{ @"time": @([[NSDate date] timeIntervalSince1970]) };
+    BOOL written = [marker writeToFile:kOITIRespringIntentPath atomically:YES];
+    if (!written) [sLog logTag:@"SAFE" format:@"respring request aborted: could not write intentional-respring marker"];
+    return written;
+}
+
+// Tellus gets these three Diagnostics operations through a fixed action
+// allowlist. The app never receives general filesystem access.
+static void OITIHandleTellusDiagnosticsRequest(void) {
+    OITPreferences *bridge = [OITPreferences preferencesWithDomain:kOITITellusBridgeDomain];
+    NSString *requestID = [bridge objectForKey:@"RequestID" default:nil];
+    NSString *action = [bridge objectForKey:@"Action" default:nil];
+    if (![requestID isKindOfClass:[NSString class]] || requestID.length == 0 ||
+        ![action isKindOfClass:[NSString class]] || action.length == 0 ||
+        [requestID isEqualToString:sLastTellusDiagnosticsRequestID]) return;
+    if (![@[@"shortReport", @"fullReport", @"clearLogs", @"islandIdentity", @"recoveryState", @"insulaVersion"] containsObject:action]) return;
+
+    sLastTellusDiagnosticsRequestID = [requestID copy];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *payload = nil;
+        if ([action isEqualToString:@"shortReport"]) payload = OITIReportBuild(NO);
+        else if ([action isEqualToString:@"fullReport"]) payload = OITIReportBuild(YES);
+        else if ([action isEqualToString:@"clearLogs"]) {
+            OITIReportClearLogs();
+            payload = @"cleared";
+        } else if ([action isEqualToString:@"recoveryState"]) {
+            NSDictionary *safeFlag = [NSDictionary dictionaryWithContentsOfFile:kOITISafeModePath];
+            if (![safeFlag[@"tripped"] boolValue]) safeFlag = nil;
+            NSDictionary *elementsFlag = [NSDictionary dictionaryWithContentsOfFile:kOITIElementsOffPath];
+            NSDictionary *state = @{
+                @"safeMode": safeFlag ?: (id)[NSNull null],
+                @"elementsOff": elementsFlag ?: (id)[NSNull null]
+            };
+            NSData *json = [NSJSONSerialization dataWithJSONObject:state options:0 error:nil];
+            payload = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : @"{}";
+        } else if ([action isEqualToString:@"insulaVersion"]) {
+            payload = OITIReportInstalledVersionText();
+        } else {
+            OITPreferences *insula = [OITPreferences preferencesWithDomain:@"com.wilburt.oiti.prefs"];
+            BOOL enabled = [insula boolForKey:@"islandEnabled" default:NO];
+            payload = OITIMobileGestaltSetIslandEnabled(enabled, sLog)
+                ? @"ok"
+                : @"Tellus saved the Island preference, but Insula could not update the device identity. Check the Insula log and backup before changing it again.";
+        }
+
+        OITPreferences *response = [OITPreferences preferencesWithDomain:kOITITellusBridgeDomain];
+        [response setObject:requestID forKey:@"ResponseID"];
+        [response setObject:payload ?: @"The diagnostics operation failed." forKey:@"ResponsePayload"];
+        [response synchronize];
+    });
+}
 
 %ctor {
     // OITI.plist also loads this dylib into every UIKit app, but every class hooked below exists only in
@@ -245,6 +306,24 @@ static NSString * const kOITILogPath = @"/tmp/OITIDebug.log";
         [[NSFileManager defaultManager] removeItemAtPath:kOITIBootLogPath error:nil];
         [sLog logTag:@"SAFE" format:@"clear requested: safe-mode file %@. Respring to re-enable OITI's hooks.",
          removed ? @"removed" : @"was not present"];
+    });
+    OITObserveDarwinNotification(kOITIRespringNotification, ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (OITIMarkRespringIntent()) OITRequestRespring();
+        });
+    });
+    OITObserveDarwinNotification(kOITIClearSafeModeAndRespringNotification, ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSFileManager *fileManager = [NSFileManager defaultManager];
+            BOOL removed = [fileManager removeItemAtPath:kOITISafeModePath error:nil];
+            [fileManager removeItemAtPath:kOITIBootLogPath error:nil];
+            if (!OITIMarkRespringIntent()) return;
+            [sLog logTag:@"SAFE" format:@"clear-and-respring requested: safe-mode file %@", removed ? @"removed" : @"was not present"];
+            OITRequestRespring();
+        });
+    });
+    OITObserveDarwinNotification(kOITITellusDiagnosticsNotification, ^{
+        OITIHandleTellusDiagnosticsRequest();
     });
 
     if (sSafeModeActive) {
