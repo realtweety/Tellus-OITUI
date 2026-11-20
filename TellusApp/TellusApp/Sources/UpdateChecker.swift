@@ -143,6 +143,15 @@ struct GitHubRelease: Decodable {
     struct Asset: Decodable {
         let name: String?
         let size: Int?
+        let browserDownloadURL: String?
+        let digest: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case size
+            case digest
+            case browserDownloadURL = "browser_download_url"
+        }
     }
 
     let tagName: String
@@ -171,10 +180,10 @@ struct GitHubRelease: Decodable {
         assets = (try? container.decodeIfPresent([Asset].self, forKey: .assets)) ?? []
     }
 
-    /// Package versions found in the attached `<package-id>_<version>_<arch>.deb`
-    /// assets. A component without a matching asset is simply absent.
-    func availableVersions() -> [UpdateComponent: String] {
-        var result: [UpdateComponent: String] = [:]
+    /// Packages found in the attached `<package-id>_<version>_<arch>.deb` assets.
+    /// A component without a matching asset is simply absent.
+    func availablePackages() -> [UpdateComponent: AvailablePackage] {
+        var result: [UpdateComponent: AvailablePackage] = [:]
         for asset in assets {
             guard let fileName = asset.name, fileName.hasSuffix(".deb") else { continue }
             for component in UpdateComponent.allCases {
@@ -184,12 +193,45 @@ struct GitHubRelease: Decodable {
                 let version = remainder.split(separator: "_", maxSplits: 1, omittingEmptySubsequences: false)
                     .first.map(String.init) ?? ""
                 guard let parsed = DebianVersion(version) else { continue }
-                if let existing = result[component].flatMap(DebianVersion.init), existing >= parsed { continue }
-                result[component] = parsed.raw
+                if let existing = result[component], let existingVersion = DebianVersion(existing.version),
+                   existingVersion >= parsed { continue }
+                result[component] = AvailablePackage(
+                    component: component,
+                    version: parsed.raw,
+                    fileName: fileName,
+                    downloadURL: asset.browserDownloadURL.flatMap { URL(string: $0) },
+                    size: asset.size,
+                    apiDigest: Self.sha256Hex(fromDigest: asset.digest)
+                )
             }
         }
         return result
     }
+
+    /// The `SHA256SUMS` asset that release workflow runs attach, if this release has one.
+    var checksumsURL: URL? {
+        assets.first(where: { $0.name == "SHA256SUMS" })?
+            .browserDownloadURL.flatMap { URL(string: $0) }
+    }
+
+    /// GitHub reports asset digests as `sha256:<64 hex digits>`.
+    private static func sha256Hex(fromDigest digest: String?) -> String? {
+        guard let digest = digest?.lowercased(), digest.hasPrefix("sha256:") else { return nil }
+        let hex = String(digest.dropFirst("sha256:".count))
+        let isHex = hex.count == 64 && hex.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+        return isHex ? hex : nil
+    }
+}
+
+/// One downloadable package from a release.
+struct AvailablePackage {
+    let component: UpdateComponent
+    let version: String
+    let fileName: String
+    let downloadURL: URL?
+    let size: Int?
+    /// SHA-256 (lowercase hex) reported by GitHub's API for the asset, when present.
+    let apiDigest: String?
 }
 
 // MARK: - Errors
@@ -309,10 +351,11 @@ enum UpdateStatus: Equatable {
 struct ComponentUpdate: Identifiable {
     let component: UpdateComponent
     let installed: InstalledVersion
-    let availableVersion: String?
+    let package: AvailablePackage?
     let status: UpdateStatus
 
     var id: UpdateComponent { component }
+    var availableVersion: String? { package?.version }
 }
 
 struct UpdateReport {
@@ -321,6 +364,7 @@ struct UpdateReport {
     let publishedAt: Date?
     let releaseURL: URL?
     let notes: String?
+    let checksumsURL: URL?
     let components: [ComponentUpdate]
 
     var updatesAvailable: [ComponentUpdate] {
@@ -330,21 +374,21 @@ struct UpdateReport {
 
 enum UpdateReportBuilder {
     static func build(release: GitHubRelease, installed: [UpdateComponent: InstalledVersion]) -> UpdateReport {
-        let available = release.availableVersions()
+        let packages = release.availablePackages()
         var components: [ComponentUpdate] = []
 
         for component in UpdateComponent.allCases {
             let installedVersion = installed[component] ?? .unknown
-            let availableVersion = available[component]
+            let package = packages[component]
 
             // A component that is neither installed nor in the release is not interesting.
-            if installedVersion == .notInstalled && availableVersion == nil { continue }
+            if installedVersion == .notInstalled && package == nil { continue }
 
             components.append(ComponentUpdate(
                 component: component,
                 installed: installedVersion,
-                availableVersion: availableVersion,
-                status: status(installed: installedVersion, available: availableVersion)
+                package: package,
+                status: status(installed: installedVersion, available: package?.version)
             ))
         }
 
@@ -355,8 +399,9 @@ enum UpdateReportBuilder {
             releaseTitle: title,
             tagName: release.tagName,
             publishedAt: release.publishedAt.flatMap { ISO8601DateFormatter().date(from: $0) },
-            releaseURL: release.htmlURL.flatMap(URL.init(string:)),
+            releaseURL: release.htmlURL.flatMap { URL(string: $0) },
             notes: (notes?.isEmpty ?? true) ? nil : notes,
+            checksumsURL: release.checksumsURL,
             components: components
         )
     }

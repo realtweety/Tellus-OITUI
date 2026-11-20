@@ -21,3 +21,8 @@ after-stage::
 	find "$(THEOS_STAGED_APP)" -type f -print0 | while IFS= read -r -d '' file; do \
 		if file -b "$$file" | grep -q 'Mach-O'; then ldid -S "$$file"; fi; \
 	done
+	ldid -S"$(CURDIR)/Entitlements.plist" "$(THEOS_STAGED_APP)/Tellus"
+	mkdir -p "$(THEOS_STAGING_DIR)/usr/libexec"
+	xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0 -O2 -o "$(THEOS_STAGING_DIR)/usr/libexec/tellus-helper" Helper/tellus-helper.c
+	ldid -S"$(CURDIR)/Helper/Helper.entitlements" "$(THEOS_STAGING_DIR)/usr/libexec/tellus-helper"
+	chmod 0755 "$(THEOS_STAGING_DIR)/usr/libexec/tellus-helper"
