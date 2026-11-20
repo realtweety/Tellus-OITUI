@@ -91,7 +91,8 @@ jobs:
         continue-on-error: true
         working-directory: TellusApp
         run: |
-          DEBUG=1 make clean package
+          # TellusApp/Makefile has no "clean" target; the checkout is fresh, so none is needed.
+          DEBUG=1 make package
 
       - name: Collect packages
         run: |

@@ -99,8 +99,9 @@ jobs:
       - name: Build Tellus (release)
         working-directory: TellusApp
         run: |
+          # TellusApp/Makefile has no "clean" target; the checkout is fresh, so none is needed.
           rm -rf packages
-          make clean package FINALPACKAGE=1
+          make package FINALPACKAGE=1
 
       - name: Collect and check packages
         run: |
