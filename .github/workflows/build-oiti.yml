@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build OITCore + OITI
+    name: Build OITCore + OITI + Tellus
     runs-on: macos-15-intel
     timeout-minutes: 30
     env:
@@ -84,12 +84,25 @@ jobs:
         run: |
           DEBUG=1 make clean package
 
+      # A Tellus build problem must not hide the Insula packages, so this step may fail without stopping the job;
+      # the last step turns the run red when it did.
+      - name: Build Tellus
+        id: tellus
+        continue-on-error: true
+        working-directory: TellusApp
+        run: |
+          DEBUG=1 make clean package
+
       - name: Collect packages
         run: |
           mkdir -p "$RUNNER_TEMP/tellus-packages"
 
           cp OITCore/packages/*.deb OITI/packages/*.deb \
             "$RUNNER_TEMP/tellus-packages/"
+
+          if ls TellusApp/packages/*.deb > /dev/null 2>&1; then
+            cp TellusApp/packages/*.deb "$RUNNER_TEMP/tellus-packages/"
+          fi
 
           ls -lh "$RUNNER_TEMP/tellus-packages"
 
@@ -105,3 +118,9 @@ jobs:
           path: ${{ runner.temp }}/tellus-packages/*.deb
           if-no-files-found: error
           retention-days: 7
+
+      - name: Fail the run if the Tellus build failed
+        if: steps.tellus.outcome == 'failure'
+        run: |
+          echo "The Tellus app build failed (the OITCore and OITI packages above were still built and uploaded)." >&2
+          exit 1

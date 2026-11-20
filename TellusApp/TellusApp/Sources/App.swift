@@ -221,6 +221,16 @@ private struct AboutSettingsView: View {
             Section("Insula") {
                 LabeledContent("Version", value: insulaVersion)
             }
+
+            Section {
+                NavigationLink {
+                    UpdateCheckView()
+                } label: {
+                    Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
+                }
+            } footer: {
+                Text("Looks for newer releases on GitHub. This only checks; it does not install anything.")
+            }
         }
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
