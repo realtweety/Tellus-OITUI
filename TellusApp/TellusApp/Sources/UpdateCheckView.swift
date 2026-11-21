@@ -24,6 +24,8 @@ final class UpdateCheckViewModel: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var downloads: [UpdateComponent: DownloadState] = [:]
     @Published private(set) var installs: [UpdateComponent: InstallState] = [:]
+    /// Off by default: Tellus only offers real updates. Turning it on also offers reinstalling and downgrading.
+    @Published var allowAnyVersion = false
 
     private let client = GitHubReleaseClient()
     private let downloader = PackageDownloader()
@@ -146,13 +148,19 @@ struct UpdateCheckView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    Task { await model.check() }
+                Menu {
+                    Button {
+                        Task { await model.check() }
+                    } label: {
+                        Label("Check Again", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(model.isLoading || model.isInstalling)
+
+                    Toggle("Allow Reinstall and Downgrade", isOn: $model.allowAnyVersion)
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Image(systemName: "ellipsis.circle")
                 }
-                .disabled(model.isLoading)
-                .accessibilityLabel("Check Again")
+                .accessibilityLabel("More")
             }
         }
         .task { await model.check() }
@@ -188,6 +196,7 @@ struct UpdateCheckView: View {
                     download: model.downloads[item.component],
                     install: model.installs[item.component],
                     installingElsewhere: model.isInstalling,
+                    allowAnyVersion: model.allowAnyVersion,
                     onDownload: { Task { await model.download(item, checksumsURL: report.checksumsURL) } },
                     onInstall: { Task { await model.install(item) } }
                 )
@@ -216,6 +225,7 @@ private struct ComponentUpdateRow: View {
     let download: UpdateCheckViewModel.DownloadState?
     let install: UpdateCheckViewModel.InstallState?
     let installingElsewhere: Bool
+    let allowAnyVersion: Bool
     let onDownload: () -> Void
     let onInstall: () -> Void
 
@@ -233,7 +243,7 @@ private struct ComponentUpdateRow: View {
             }
             LabeledContent("Installed", value: installedText)
             LabeledContent("Available", value: item.availableVersion ?? "Not in this release")
-            if item.package?.downloadURL != nil {
+            if item.package?.downloadURL != nil && (item.status == .updateAvailable || allowAnyVersion || download != nil) {
                 downloadControls
             }
         }
