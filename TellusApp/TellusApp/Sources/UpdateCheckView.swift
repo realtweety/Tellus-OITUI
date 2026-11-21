@@ -34,6 +34,14 @@ final class UpdateCheckViewModel: ObservableObject {
     private let installer = PackageInstaller()
     private var latestRelease: GitHubRelease?
 
+    /// Set while Update All is working, for example "Updating Insula (2 of 3)\u{2026}".
+    @Published private(set) var updateAllProgress: String?
+
+    /// Anything that changes packages is running, so other buttons wait.
+    var isBusy: Bool {
+        isInstalling || updateAllProgress != nil
+    }
+
     var isInstalling: Bool {
         installs.values.contains { state in
             if case .installing = state { return true }
@@ -47,7 +55,7 @@ final class UpdateCheckViewModel: ObservableObject {
     }
 
     func check() async {
-        guard !isLoading, !isInstalling else { return }
+        guard !isLoading, !isBusy else { return }
         state = .loading
         downloads = [:]
         installs = [:]
@@ -97,6 +105,41 @@ final class UpdateCheckViewModel: ObservableObject {
         }
     }
 
+    /// Updates, in a safe order, every component that has an update Tellus can install: OITCore, then Insula, and Tellus last
+    /// because installing Tellus may close the app. It stops at the first failure, which stays visible in that component's row.
+    func updateAll(_ report: UpdateReport) async {
+        guard !isBusy, !isLoading else { return }
+        let order: [UpdateComponent] = [.oitCore, .insula, .tellus]
+        let items = order.compactMap { component in
+            report.components.first {
+                $0.component == component && $0.status == .updateAvailable
+                    && PackageInstaller.installableComponents.contains(component)
+            }
+        }
+        guard !items.isEmpty else { return }
+
+        for (index, item) in items.enumerated() {
+            updateAllProgress = "Updating \(item.component.displayName) (\(index + 1) of \(items.count))\u{2026}"
+
+            if case .verified? = downloads[item.component] {
+                // Already downloaded and verified earlier.
+            } else {
+                await download(item, checksumsURL: report.checksumsURL)
+            }
+            guard case .verified? = downloads[item.component] else {
+                updateAllProgress = nil
+                return
+            }
+
+            await install(item)
+            guard case .installed? = installs[item.component] else {
+                updateAllProgress = nil
+                return
+            }
+        }
+        updateAllProgress = nil
+    }
+
     /// Re-reads the installed versions without asking GitHub again, so the rows update after an install.
     private func refreshInstalledVersions() async {
         guard let release = latestRelease else { return }
@@ -107,6 +150,7 @@ final class UpdateCheckViewModel: ObservableObject {
 
 struct UpdateCheckView: View {
     @StateObject private var model = UpdateCheckViewModel()
+    @State private var confirmingUpdateAll = false
 
     var body: some View {
         Form {
@@ -156,7 +200,7 @@ struct UpdateCheckView: View {
                     } label: {
                         Label("Check Again", systemImage: "arrow.clockwise")
                     }
-                    .disabled(model.isLoading || model.isInstalling)
+                    .disabled(model.isLoading || model.isBusy)
 
                     Toggle("Allow Reinstall and Downgrade", isOn: $model.allowAnyVersion)
                     Toggle("Include Pre-releases", isOn: $model.includePrereleases)
@@ -186,12 +230,56 @@ struct UpdateCheckView: View {
                     systemImage: "arrow.down.circle.fill"
                 )
                 .foregroundStyle(.blue)
+
+                let installable = updates.filter { PackageInstaller.installableComponents.contains($0.component) }
+                if !installable.isEmpty {
+                    updateAllControls(installable, report: report)
+                }
             }
             LabeledContent("Latest Release", value: report.releaseTitle + (report.isPrerelease ? " (pre-release)" : ""))
             if let date = report.publishedAt {
                 LabeledContent("Published", value: date.formatted(date: .abbreviated, time: .omitted))
             }
         }
+    }
+
+    @ViewBuilder
+    private func updateAllControls(_ installable: [ComponentUpdate], report: UpdateReport) -> some View {
+        if let progress = model.updateAllProgress {
+            HStack(spacing: 12) {
+                ProgressView()
+                Text(progress)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Button("Update All") { confirmingUpdateAll = true }
+                .font(.body.weight(.semibold))
+                .buttonStyle(.borderless)
+                .disabled(model.isBusy)
+                .confirmationDialog("Update All?", isPresented: $confirmingUpdateAll, titleVisibility: .visible) {
+                    Button("Update All") {
+                        Task { await model.updateAll(report) }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(updateAllMessage(installable))
+                }
+        }
+    }
+
+    private func updateAllMessage(_ installable: [ComponentUpdate]) -> String {
+        let list = installable
+            .map { $0.component.displayName + " " + ($0.availableVersion ?? "") }
+            .joined(separator: ", ")
+        var message = "This installs: \(list). Keep Tellus open."
+        if installable.contains(where: { $0.component == .insula }) {
+            message += " Respring afterwards to load the new Insula."
+        }
+        if installable.contains(where: { $0.component == .tellus }) {
+            message += " Tellus updates last and may close while it does; open it again afterwards."
+        }
+        return message
     }
 
     private func componentsSection(_ report: UpdateReport) -> some View {
@@ -201,7 +289,7 @@ struct UpdateCheckView: View {
                     item: item,
                     download: model.downloads[item.component],
                     install: model.installs[item.component],
-                    installingElsewhere: model.isInstalling,
+                    installingElsewhere: model.isBusy,
                     allowAnyVersion: model.allowAnyVersion,
                     onDownload: { Task { await model.download(item, checksumsURL: report.checksumsURL) } },
                     onInstall: { Task { await model.install(item) } }

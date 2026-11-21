@@ -6,7 +6,6 @@
 //
 //   tellus-helper --install <file> <sha256> <package-id>
 //   tellus-helper --probe
-//   tellus-helper --stat <path>
 //
 // --install refuses to run unless it is really root, only accepts the packages
 // in the allowlist below, only reads files from Tellus's update folder, hashes
@@ -428,11 +427,6 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if (argc >= 3 && strcmp(argv[1], "--stat") == 0) {
-        reportFile("file", argv[2]);
-        return 0;
-    }
-
-    fprintf(stderr, "usage: tellus-helper --install <file> <sha256> <package-id> | --probe | --stat <path>\n");
+    fprintf(stderr, "usage: tellus-helper --install <file> <sha256> <package-id> | --probe\n");
     return 2;
 }

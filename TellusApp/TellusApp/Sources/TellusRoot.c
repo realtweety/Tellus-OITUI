@@ -1,7 +1,6 @@
 #include "TellusRoot.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdint.h>
@@ -23,27 +22,6 @@ extern char **environ;
 extern int posix_spawnattr_set_persona_np(const posix_spawnattr_t *__restrict, uid_t, uint32_t);
 extern int posix_spawnattr_set_persona_uid_np(const posix_spawnattr_t *__restrict, uid_t);
 extern int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t *__restrict, gid_t);
-
-int tellus_try_write(const char *directory)
-{
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/tellus-probe-%d", directory, (int)getpid());
-
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) return errno;
-
-    const char payload[] = "tellus probe";
-    if (write(fd, payload, sizeof(payload)) < 0) {
-        int saved = errno;
-        close(fd);
-        unlink(path);
-        return saved;
-    }
-    close(fd);
-
-    if (unlink(path) != 0) return errno;
-    return 0;
-}
 
 static long long millisecondsNow(void)
 {
@@ -170,14 +148,4 @@ int tellus_spawn_capture_ex(const char *path,
     if (argument4 != NULL) argv[count++] = (char *)argument4;
     argv[count] = NULL;
     return spawnCapture(path, argv, use_persona, timeout_milliseconds, kill_on_timeout, out, out_length, exit_status);
-}
-
-int tellus_spawn_capture(const char *path,
-                         const char *argument,
-                         int use_persona,
-                         char *out,
-                         size_t out_length,
-                         int *exit_status)
-{
-    return tellus_spawn_capture_ex(path, argument, NULL, NULL, NULL, use_persona, 5000, 1, out, out_length, exit_status);
 }
