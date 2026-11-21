@@ -26,6 +26,8 @@ final class UpdateCheckViewModel: ObservableObject {
     @Published private(set) var installs: [UpdateComponent: InstallState] = [:]
     /// Off by default: Tellus only offers real updates. Turning it on also offers reinstalling and downgrading.
     @Published var allowAnyVersion = false
+    /// Off by default: pre-releases are for testing a release candidate before it is published for everyone.
+    @Published var includePrereleases = false
 
     private let client = GitHubReleaseClient()
     private let downloader = PackageDownloader()
@@ -51,7 +53,7 @@ final class UpdateCheckViewModel: ObservableObject {
         installs = [:]
 
         do {
-            let release = try await client.fetchLatestRelease()
+            let release = try await client.fetchLatestRelease(includePrereleases: includePrereleases)
             latestRelease = release
             let installed = await InstalledVersionReader.collect()
             state = .loaded(UpdateReportBuilder.build(release: release, installed: installed))
@@ -157,6 +159,7 @@ struct UpdateCheckView: View {
                     .disabled(model.isLoading || model.isInstalling)
 
                     Toggle("Allow Reinstall and Downgrade", isOn: $model.allowAnyVersion)
+                    Toggle("Include Pre-releases", isOn: $model.includePrereleases)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -164,6 +167,9 @@ struct UpdateCheckView: View {
             }
         }
         .task { await model.check() }
+        .onChange(of: model.includePrereleases) { _ in
+            Task { await model.check() }
+        }
     }
 
     // MARK: Sections
@@ -181,7 +187,7 @@ struct UpdateCheckView: View {
                 )
                 .foregroundStyle(.blue)
             }
-            LabeledContent("Latest Release", value: report.releaseTitle)
+            LabeledContent("Latest Release", value: report.releaseTitle + (report.isPrerelease ? " (pre-release)" : ""))
             if let date = report.publishedAt {
                 LabeledContent("Published", value: date.formatted(date: .abbreviated, time: .omitted))
             }
@@ -316,6 +322,9 @@ private struct ComponentUpdateRow: View {
         if item.component == .insula {
             message += "Respring afterwards to load the new Insula."
         }
+        if item.component == .tellus {
+            message += "Tellus will replace itself and may close while it does. Open it again afterwards."
+        }
         return message
     }
 
@@ -354,6 +363,11 @@ private struct ComponentUpdateRow: View {
                         .foregroundStyle(.green)
                     if item.component == .insula {
                         Text("Respring to load the new version.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if item.component == .tellus {
+                        Text("Close Tellus and open it again to use the new version.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

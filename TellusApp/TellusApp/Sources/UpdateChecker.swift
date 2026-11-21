@@ -159,6 +159,7 @@ struct GitHubRelease: Decodable {
     let body: String?
     let htmlURL: String?
     let publishedAt: String?
+    let isPrerelease: Bool
     let assets: [Asset]
 
     private enum CodingKeys: String, CodingKey {
@@ -167,6 +168,7 @@ struct GitHubRelease: Decodable {
         case body
         case htmlURL = "html_url"
         case publishedAt = "published_at"
+        case prerelease
         case assets
     }
 
@@ -177,6 +179,7 @@ struct GitHubRelease: Decodable {
         body = try? container.decodeIfPresent(String.self, forKey: .body)
         htmlURL = try? container.decodeIfPresent(String.self, forKey: .htmlURL)
         publishedAt = try? container.decodeIfPresent(String.self, forKey: .publishedAt)
+        isPrerelease = (try? container.decodeIfPresent(Bool.self, forKey: .prerelease)) ?? false
         assets = (try? container.decodeIfPresent([Asset].self, forKey: .assets)) ?? []
     }
 
@@ -267,16 +270,53 @@ enum UpdateCheckError: LocalizedError {
 
 // MARK: - Client
 
+/// Decodes one list element without letting a malformed neighbour break the whole list.
+private struct LossyRelease: Decodable {
+    let release: GitHubRelease?
+
+    init(from decoder: Decoder) throws {
+        release = try? GitHubRelease(from: decoder)
+    }
+}
+
 struct GitHubReleaseClient {
     static let repository = "realtweety/Tellus-OITUI"
     // `/releases/latest` skips drafts and pre-releases, which is what a normal
     // user wants to be told about.
     static let latestReleaseURL = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+    // The release list includes pre-releases, newest first.
+    static let releaseListURL = URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=10")!
 
     var session: URLSession = .shared
 
-    func fetchLatestRelease() async throws -> GitHubRelease {
-        var request = URLRequest(url: Self.latestReleaseURL)
+    /// The newest release. Pre-releases are only considered when asked for.
+    func fetchLatestRelease(includePrereleases: Bool = false) async throws -> GitHubRelease {
+        if includePrereleases {
+            let data = try await fetch(Self.releaseListURL)
+            let candidates: [LossyRelease]
+            do {
+                candidates = try JSONDecoder().decode([LossyRelease].self, from: data)
+            } catch {
+                throw UpdateCheckError.malformedResponse
+            }
+            guard let release = candidates.compactMap({ $0.release }).first(where: { !$0.tagName.isEmpty }) else {
+                throw UpdateCheckError.noRelease
+            }
+            return release
+        }
+
+        let data = try await fetch(Self.latestReleaseURL)
+        do {
+            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+            guard !release.tagName.isEmpty else { throw UpdateCheckError.malformedResponse }
+            return release
+        } catch {
+            throw UpdateCheckError.malformedResponse
+        }
+    }
+
+    private func fetch(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -306,7 +346,7 @@ struct GitHubReleaseClient {
 
         switch http.statusCode {
         case 200:
-            break
+            return data
         case 404:
             throw UpdateCheckError.noRelease
         case 429:
@@ -319,14 +359,6 @@ struct GitHubReleaseClient {
             throw UpdateCheckError.httpStatus(403)
         default:
             throw UpdateCheckError.httpStatus(http.statusCode)
-        }
-
-        do {
-            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
-            guard !release.tagName.isEmpty else { throw UpdateCheckError.malformedResponse }
-            return release
-        } catch {
-            throw UpdateCheckError.malformedResponse
         }
     }
 }
@@ -362,6 +394,7 @@ struct UpdateReport {
     let releaseTitle: String
     let tagName: String
     let publishedAt: Date?
+    let isPrerelease: Bool
     let releaseURL: URL?
     let notes: String?
     let checksumsURL: URL?
@@ -399,6 +432,7 @@ enum UpdateReportBuilder {
             releaseTitle: title,
             tagName: release.tagName,
             publishedAt: release.publishedAt.flatMap { ISO8601DateFormatter().date(from: $0) },
+            isPrerelease: release.isPrerelease,
             releaseURL: release.htmlURL.flatMap { URL(string: $0) },
             notes: (notes?.isEmpty ?? true) ? nil : notes,
             checksumsURL: release.checksumsURL,

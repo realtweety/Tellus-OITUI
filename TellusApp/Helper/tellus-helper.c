@@ -51,6 +51,7 @@ extern char **environ;
 static const char *const kAllowedPackages[] = {
     "com.wilburt.oitcore",
     "com.wilburt.oiti",
+    "com.wilburt.tellus",
     NULL
 };
 

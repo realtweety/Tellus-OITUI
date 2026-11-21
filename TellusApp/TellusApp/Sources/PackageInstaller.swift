@@ -15,9 +15,8 @@ struct InstallOutcome {
 struct PackageInstaller {
     static let helperPath = "/var/jb/usr/libexec/tellus-helper"
 
-    /// Components Tellus may install. Litus is not hooked up yet, and Tellus
-    /// updating itself comes later.
-    static let installableComponents: Set<UpdateComponent> = [.insula, .oitCore]
+    /// Components Tellus may install. Litus is not hooked up yet.
+    static let installableComponents: Set<UpdateComponent> = [.insula, .oitCore, .tellus]
 
     func install(_ verified: VerifiedPackage) async -> InstallOutcome {
         let component = verified.package.component
@@ -68,7 +67,10 @@ struct PackageInstaller {
             )
         }
         if status == 0 {
-            return InstallOutcome(succeeded: true, summary: "\(displayName) was installed.", log: log)
+            let summary = packageID == UpdateComponent.tellus.packageID
+                ? "Tellus was updated. Close and reopen Tellus to use the new version."
+                : "\(displayName) was installed."
+            return InstallOutcome(succeeded: true, summary: summary, log: log)
         }
 
         let lastError = log.split(separator: "\n").last(where: { $0.hasPrefix("ERROR:") })
