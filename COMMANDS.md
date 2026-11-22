@@ -2241,7 +2241,7 @@ In Tellus: About > Check for Updates > menu > **Include Pre-releases** on. It mu
 10. Optional (not run in earlier releases): remove Insula, which runs the `prerm` MobileGestalt restore, then reinstall all three from the candidate and respring.
 11. Set the phone back to a normal state (level 0, no research files) and delete the pre-release when the release is out (`gh release delete v0.4.0-rc.1 --cleanup-tag --yes`).
 
-**6. Update All (optional, recommended before the release).** Update All needs a release that is newer than what is installed, so the candidate itself cannot show it. If you want to see it run, tell me and I will prepare a throwaway change (Insula `0.4.1`, Tellus `0.1.1` and a matching `Depends`) for a second pre-release; the real release does not include it.
+**6. Update All (0.4.0 shipped without this test; do it with the first release newer than 0.4.0).** Update All needs a release that is newer than what is installed, so the 0.4.0 candidate itself could not show it. Next time: install the current release (all three packages), publish the next candidate as a pre-release with higher versions, switch Include Pre-releases on, and Update All must appear and install OITCore, Insula and Tellus in that order. If you want to see it run, tell me and I will prepare a throwaway change (Insula `0.4.1`, Tellus `0.1.1` and a matching `Depends`) for a second pre-release; the real release does not include it.
 
 **7. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
 
