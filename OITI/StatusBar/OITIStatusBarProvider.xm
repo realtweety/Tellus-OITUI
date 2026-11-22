@@ -11,6 +11,7 @@
 #import "Shared/OITIShared.h"
 #import "StatusBar/OITIStatusBar.h"
 #import "Safety/OITISafety.h"
+#import "Shared/OITIMobileGestalt.h"
 
 // With the Island spoof on, some notch iPhones get UIKit's placeholder provider (_UIStatusBarVisualProvider_Fallback,
 // the red "rdar:45025538" bar). UIKit picks the provider in +visualProviderSubclassForScreen:visualProviderInfo:.

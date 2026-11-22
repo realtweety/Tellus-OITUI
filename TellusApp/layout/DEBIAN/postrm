@@ -1,0 +1,10 @@
+#!/bin/sh
+# When Tellus is removed, clean up what it left behind: downloaded update packages and the root helper's temporary folder.
+case "$1" in
+    remove|purge)
+        rm -rf /var/mobile/Library/Caches/TellusUpdates >/dev/null 2>&1 || true
+        rm -rf /var/jb/var/mobile/Library/Caches/TellusUpdates >/dev/null 2>&1 || true
+        rm -rf /var/jb/var/tmp/tellus-install >/dev/null 2>&1 || true
+        ;;
+esac
+exit 0

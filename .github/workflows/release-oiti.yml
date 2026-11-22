@@ -1,10 +1,11 @@
-name: Release build (OITCore + OITI)
+name: Release build (OITCore + OITI + Tellus)
 
-# Builds the release packages with FINALPACKAGE=1 (no "+debug" in the version) and uploads them as artifacts.
+# Builds the release packages (OITCore, OITI and the Tellus app) with FINALPACKAGE=1 (no "+debug" in the version) and uploads them,
+# together with a SHA256SUMS file, as one artifact.
 # It never publishes anything: the GitHub Release is created by hand after the exact .deb files have been tested.
 # OITS is never built here (it is not part of the release).
 #
-#   Manual:  Actions > "Release build (OITCore + OITI)" > Run workflow, choose the branch (experiments for a release candidate,
+#   Manual:  Actions > "Release build (OITCore + OITI + Tellus)" > Run workflow, choose the branch (experiments for a release candidate,
 #            main for the release itself).
 #   Tag:     pushing a tag that starts with v builds the tagged commit.
 
@@ -23,7 +24,7 @@ concurrency:
 
 jobs:
   release-build:
-    name: Build OITCore + OITI (FINALPACKAGE=1)
+    name: Build OITCore + OITI + Tellus (FINALPACKAGE=1)
     runs-on: macos-15-intel
     timeout-minutes: 30
     env:
@@ -95,20 +96,55 @@ jobs:
           rm -rf packages
           make clean package FINALPACKAGE=1
 
+      - name: Build Tellus (release)
+        working-directory: TellusApp
+        run: |
+          # TellusApp/Makefile has no "clean" target; the checkout is fresh, so none is needed.
+          rm -rf packages
+          make package FINALPACKAGE=1
+
       - name: Collect and check packages
         run: |
           mkdir -p "$RUNNER_TEMP/tellus-packages"
-          cp OITCore/packages/*.deb OITI/packages/*.deb "$RUNNER_TEMP/tellus-packages/"
+          cp OITCore/packages/*.deb OITI/packages/*.deb TellusApp/packages/*.deb "$RUNNER_TEMP/tellus-packages/"
           cd "$RUNNER_TEMP/tellus-packages"
           ls -lh
           shasum -a 256 *.deb
 
-          # A release package must be exactly the two expected files, with the versions from the control files and no debug marker.
-          test "$(ls *.deb | wc -l)" -eq 2
+          # A release must be exactly the three expected packages, with the versions from the control files and no debug marker.
+          test "$(ls *.deb | wc -l)" -eq 3
           core_version="$(sed -n 's/^Version: //p' "$GITHUB_WORKSPACE/OITCore/control")"
           oiti_version="$(sed -n 's/^Version: //p' "$GITHUB_WORKSPACE/OITI/control")"
           ls com.wilburt.oitcore_${core_version}*.deb > /dev/null
           ls com.wilburt.oiti_${oiti_version}*.deb > /dev/null
+          tellus_control="$GITHUB_WORKSPACE/TellusApp/layout/DEBIAN/control"
+          tellus_version="$(sed -n 's/^Version: //p' "$tellus_control")"
+          ls com.wilburt.tellus_${tellus_version}*.deb > /dev/null
+
+          # The version shown inside the app (MARKETING_VERSION) and the package version must be the same number.
+          marketing_version="$(sed -n 's/.*MARKETING_VERSION = \([^;]*\);.*/\1/p' "$GITHUB_WORKSPACE/TellusApp/TellusApp.xcodeproj/project.pbxproj" | sort -u)"
+          if [ "$marketing_version" != "$tellus_version" ]; then
+            echo "Tellus MARKETING_VERSION ($marketing_version) does not match TellusApp/layout/DEBIAN/control ($tellus_version)." >&2
+            exit 1
+          fi
+
+          # Tellus must depend on an Insula version this release can satisfy. A "+debug" requirement (or one above the Insula in
+          # this release) would make the released Tellus impossible to install.
+          tellus_depends="$(sed -n 's/^Depends: //p' "$tellus_control")"
+          if echo "$tellus_depends" | grep -q "+debug"; then
+            echo "TellusApp/layout/DEBIAN/control Depends on a +debug package: $tellus_depends" >&2
+            exit 1
+          fi
+          python3 - "$tellus_depends" "$oiti_version" <<'PY'
+          import re, sys
+          depends, oiti = sys.argv[1], sys.argv[2]
+          match = re.search(r"com\.wilburt\.oiti \(>=\s*([^)\s]+)\)", depends)
+          if match:
+              def key(version):
+                  return tuple(int(part) for part in re.findall(r"\d+", re.split(r"[-~+]", version)[0]))
+              if key(match.group(1)) > key(oiti):
+                  sys.exit("Tellus requires Insula >= %s but this release contains Insula %s" % (match.group(1), oiti))
+          PY
           if ls *.deb | grep -qi "debug"; then
             echo "A package name contains 'debug': this is not a release build." >&2
             exit 1
@@ -117,6 +153,12 @@ jobs:
             echo "== $deb"
             ar t "$deb"
           done
+
+          # Checksums for the exact files of this run. Attach SHA256SUMS to the GitHub Release next to the .deb files; Tellus's
+          # updater uses it to verify downloads.
+          shasum -a 256 *.deb > SHA256SUMS
+          shasum -a 256 -c SHA256SUMS
+          cat SHA256SUMS
 
       - name: Remove generated OITCore output before caching
         run: |
@@ -127,6 +169,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: tellus-release-${{ github.ref_name }}-${{ github.sha }}
-          path: ${{ runner.temp }}/tellus-packages/*.deb
+          path: |
+            ${{ runner.temp }}/tellus-packages/*.deb
+            ${{ runner.temp }}/tellus-packages/SHA256SUMS
           if-no-files-found: error
           retention-days: 30

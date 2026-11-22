@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# The root helper is started by Tellus through the persona API, so it must not be setuid.
+chown root:wheel /var/jb/usr/libexec/tellus-helper >/dev/null 2>&1 || true
+chmod 0755 /var/jb/usr/libexec/tellus-helper >/dev/null 2>&1 || true
+rm -f /var/jb/usr/libexec/tellus-helper-nosuid >/dev/null 2>&1 || true
+
+if [ -x /var/jb/usr/bin/uicache ]; then
+	/var/jb/usr/bin/uicache -p /var/jb/Applications/Tellus.app >/dev/null 2>&1 || true
+fi
+
+exit 0

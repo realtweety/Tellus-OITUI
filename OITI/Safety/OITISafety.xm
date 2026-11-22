@@ -6,6 +6,7 @@
 
 #import "Shared/OITIShared.h"
 #import "Safety/OITISafety.h"
+#import "Shared/OITIMobileGestalt.h"
 
 extern char **environ;
 
@@ -161,12 +162,6 @@ void OITIMarkElementsOff(int failures, NSString *reason) {
 
 void OITIClearElementsOffFlag(void) {
     [[NSFileManager defaultManager] removeItemAtPath:kOITIElementsOffPath error:nil];
-}
-
-// 2556 is the spoofed value. iOS 16 only ever runs on one model that natively reports it (iPhone 14 Pro).
-// Keep in sync with OITIMachineHasNativeIsland in OITIRootListController.m.
-BOOL OITIMachineHasNativeIsland(NSString *machine) {
-    return [machine isEqualToString:@"iPhone15,2"];
 }
 
 void OITIRunStartupSelfCheck(void) {

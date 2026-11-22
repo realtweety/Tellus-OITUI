@@ -21,6 +21,8 @@ Treat this file as project guidance, not a substitute for inspecting the current
 - OITI implements Dynamic Island-related behavior and has included notification-related features. OITS customizes status-bar elements. OITCore provides shared utilities. Inspect current code before relying on these summaries.
 - The project targets jailbroken iOS, with iOS 16 and rootless Theos packaging important to compatibility. Confirm the current target and package settings in the relevant Makefiles and control files.
 - The iPhone 8 Plus on Dopamine/rootless iOS 16 has been a key test environment, but do not assume a device is connected or available for testing.
+- `TellusApp/` is the SwiftUI companion app (new in 0.4.0): Insula's settings, recovery tools and an updater that installs OITCore, Insula and Tellus through a root helper (`TellusApp/Helper/tellus-helper.c`, started through the persona API; the app is signed with `platform-application`, `no-sandbox` and `persona-mgmt`). Read `TellusApp/Documentation/` and `LEARNINGS.md`, "The Tellus app", before changing it. It is built with `xcodebuild` (the Mac or the macOS runner), not in the container.
+- **The root helper's checks are a security boundary.** Do not widen its package allowlist, its folder rules or its checksum and package-name checks, and do not add a mode that touches arbitrary paths, without discussing it with the owner first. After any change to `tellus-helper.c`, run `sh tools/tellus_helper_test.sh` (as root; it needs `dpkg-deb`) and report the result.
 - OITG is not active scope unless the user explicitly asks to work on it. Do not introduce or revive it as part of unrelated work.
 
 ## Implementation Standards
@@ -36,7 +38,7 @@ Treat this file as project guidance, not a substitute for inspecting the current
 ## Build and Test
 
 - Inspect the relevant Makefile and available targets before running build commands; run commands from the correct component directory.
-- Builds run in GitHub Actions: `.github/workflows/build-oiti.yml` (DEBUG, every push to `experiments`) and `.github/workflows/release-oiti.yml` (`FINALPACKAGE=1`, manual or `v*` tag). Claude does not build or release packages itself; off the phone it runs `tools/offline_check.sh` (see below). Do not build release packages on the Arch PC.
+- Builds run in GitHub Actions: `.github/workflows/build-oiti.yml` (DEBUG, every push to `experiments`) and `.github/workflows/release-oiti.yml` (`FINALPACKAGE=1`, manual or `v*` tag). Claude does not build or release packages itself; off the phone it runs `tools/offline_check.sh` (see below). `TellusApp/Makefile` has no `clean` target: use `make package`. Do not build release packages on the Arch PC.
 - Do not run `make install`, deploy a package to a phone, respring a device, or change device settings unless the user explicitly requests that action in the current conversation.
 - Do not assume Theos, SDKs, a signing setup, or a test device is available (a local `make package` needs Theos). If validation cannot run, explain the specific limitation and perform appropriate static checks instead.
 - After edits, inspect the final diff and check for accidental unrelated changes. Summarize what changed, what was tested, and any remaining risks.

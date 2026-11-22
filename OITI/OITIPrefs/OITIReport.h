@@ -9,7 +9,16 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 NSString *OITIReportBuild(BOOL full);
+NSString *OITIReportInstalledVersionText(void);
 
 // Removes the log files the tweak and this bundle write (the next log lines start a fresh file).
 void OITIReportClearLogs(void);
+
+#ifdef __cplusplus
+}
+#endif

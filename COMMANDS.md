@@ -2096,3 +2096,153 @@ Expect `Version: 0.3.7` (no `+debug`), `Version: 0.1.0`, `build=OITI-0.3.7`, and
 **5. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
 
 **6. Release (only after we both agree).** I will give the PR, merge, tree check, tag and `gh release create --verify-tag` block with the tested hashes and the release text then (tag first; the text of the GitHub Release is the only release note: `--notes`, never `--notes-file`; the pattern is section 30, step 6).
+
+## 33. Tellus app (0.4.0): build, install and check
+
+The app needs Xcode, so it is built on the Mac (zsh) or by GitHub Actions. There is no `clean` target: use `make package`.
+
+**Build (Mac).**
+
+```
+cd ~/theos-projects/OITUI/TellusApp && make package
+ls -l packages
+```
+
+The newest `.deb` in `packages` is the one to install. CI builds the same three packages on every push to `experiments` (artifact of `build-oiti.yml`).
+
+**Install over USB (Mac).** Terminal A (leave it running):
+
+```
+iproxy 2222 22
+```
+
+Terminal B:
+
+```
+cd ~/theos-projects/OITUI/TellusApp && THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install
+```
+
+Tellus depends on Insula 0.4.0 or later: on a phone that still has an older Insula, install OITCore and Insula first (section 34, step 3 does all three at once with `dpkg -i`).
+
+**Look at what is installed (phone, as root over SSH: `ssh -p 2222 root@127.0.0.1`).**
+
+```
+dpkg -s com.wilburt.tellus | grep -E 'Status|Version'
+dpkg -s com.wilburt.oiti | grep Version
+ls -l /var/jb/usr/libexec/
+grep -a -o -E 'CFBundleShortVersionString|CFBundleVersion' /var/jb/Applications/Tellus.app/Info.plist | sort | uniq -c
+/var/jb/usr/libexec/tellus-helper --probe
+ls -l /var/mobile/Library/Caches/TellusUpdates
+```
+
+Expect `install ok installed`, the helper `-rwxr-xr-x` owned by root (no `tellus-helper-nosuid`), each Info.plist key once, `--probe` printing `uid=0 euid=0` (you are root), and `TellusUpdates` empty or `No such file or directory` before the first download.
+
+**Checks (yes or no each).**
+1. Tellus > About shows the Tellus and Insula versions (no `Unknown`) and a **Check for Updates** row.
+2. Check for Updates loads; the menu (top right) holds **Check Again**, **Allow Reinstall and Downgrade** and **Include Pre-releases**, both switches off.
+3. With nothing to update there is no Download button. Switch **Allow Reinstall and Downgrade** on: OITCore shows **Download Anyway**; it ends in **Downloaded and verified** with a hash and a path under `/var/mobile/Library/Caches/TellusUpdates`; **Reinstall** asks for confirmation and ends in **OITCore was installed**. Then `dpkg -s com.wilburt.oitcore | grep -E 'Status|Version'` says `install ok installed` and `0.1.0`, and the downloaded file is gone from `TellusUpdates`.
+4. Airplane Mode on, **Check Again**: `No internet connection`.
+5. Insula's **Reset This Page** (Tellus is not involved; use Settings > Insula): on Notifications, Downloads, Color, Scale, Startup Animation and Diagnostics a red **Reset This Page** is at the bottom and asks first; change a setting, reset, and it is back to the default; the main page has none; the section resets on Color and Scale still work.
+6. **Update All** appears only when an update is available (needs the setup in section 34, step 6).
+7. Remove Tellus and look for leftovers, then put it back:
+
+```
+dpkg -r com.wilburt.tellus
+ls /var/mobile/Library/Caches/TellusUpdates /var/jb/var/tmp/tellus-install
+```
+
+Both folders must say `No such file or directory`. Reinstall Tellus afterwards (`dpkg -i` the `.deb`).
+8. Off the phone (a container or Linux, as root, `dpkg-deb` installed): `sh tools/tellus_helper_test.sh` ends in `19 passed, 0 failed`.
+
+**If Tellus will not open after an install** (a wrong entitlement can do that): from the Mac, `scp -P 2222` the previous `.deb` from `TellusApp/packages` to the phone and `dpkg -i` it over SSH; dpkg accepts the downgrade.
+
+## 34. 0.4.0 release candidate: test the exact release package, then release
+
+Run it only after the docs and the code are committed. Mac, zsh, with `iproxy 2222 22` running in another window.
+
+**1. Push.**
+
+```
+cd ~/theos-projects/OITUI
+git status --short
+git rev-parse HEAD origin/experiments
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+`git status --short` must print nothing (everything committed). The last line must print the same hash twice.
+
+**2. The normal CI run must be green, then run the release workflow and download its artifact.**
+
+```
+SHA=$(git rev-parse HEAD)
+RUN=""
+for i in $(seq 36); do RUN=$(gh run list --workflow=build-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -n 1); [ -n "$RUN" ] && break; sleep 5; done
+echo $RUN
+gh run watch $RUN --exit-status
+gh workflow run release-oiti.yml --ref experiments
+RELRUN=""
+for i in $(seq 36); do RELRUN=$(gh run list --workflow=release-oiti.yml --branch experiments --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -n 1); [ -n "$RELRUN" ] && break; sleep 5; done
+echo $RELRUN
+gh run watch $RELRUN --exit-status
+rm -rf ~/Downloads/oiti-rc
+gh run download $RELRUN -D ~/Downloads/oiti-rc
+find ~/Downloads/oiti-rc -type f
+```
+
+Both `echo` lines must print one number. The `find` must list exactly four files: `com.wilburt.oitcore_0.1.0...deb`, `com.wilburt.oiti_0.4.0...deb`, `com.wilburt.tellus_0.1.0...deb` (no `debug` in any name) and `SHA256SUMS`. If the release run fails, the guard message says why (a `+debug` dependency, an Insula version below Tellus's requirement, or Tellus's two versions differing). Check the sums:
+
+```
+cd "$(dirname "$(find ~/Downloads/oiti-rc -name SHA256SUMS | head -n 1)")" && shasum -a 256 -c SHA256SUMS
+```
+
+Three `OK` lines.
+
+**3. Install those exact files (all three in one `dpkg -i`), then check.**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-rc; mkdir /var/mobile/oiti-rc'
+scp -P 2222 $(find ~/Downloads/oiti-rc -name '*.deb') root@127.0.0.1:/var/mobile/oiti-rc/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-rc/*.deb; sbreload'
+```
+
+Wait about 20 s, open Settings and Tellus once, then `ssh -p 2222 root@127.0.0.1` and on the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.oitcore | grep Version
+dpkg -s com.wilburt.tellus | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+ls -l /var/jb/usr/libexec/
+```
+
+Expect `0.4.0`, `0.1.0`, `0.1.0` (no `+debug`), `build=OITI-0.4.0`, and the helper `-rwxr-xr-x` owned by root.
+
+**4. Publish the candidate as a pre-release (only the tested files) and try the updater against it.** Pushing a `v*` tag also starts a release workflow run; ignore that run's artifact and attach the files you tested.
+
+```
+git tag -a v0.4.0-rc.1 -m "0.4.0 release candidate 1" $SHA
+git push origin v0.4.0-rc.1
+gh release create v0.4.0-rc.1 --verify-tag --prerelease --title "0.4.0 release candidate 1" --notes "Test build for the Tellus updater. Not for general use." $(find ~/Downloads/oiti-rc -type f \( -name '*.deb' -o -name SHA256SUMS \))
+```
+
+In Tellus: About > Check for Updates > menu > **Include Pre-releases** on. It must say `0.4.0 release candidate 1 (pre-release)` and show all three components `Up to date`. Then **Allow Reinstall and Downgrade** on and reinstall each from the pre-release: OITCore, Insula (respring afterwards) and Tellus (it may close; open it again). This exercises the real Release-configuration package, `SHA256SUMS` against GitHub's digest, and Tellus updating itself from a release.
+
+**5. The checks on the release package** (yes or no each; tell me what you saw if it is not a plain yes):
+1. Settings > Insula (the old pane) shows `0.4.0` at the bottom and every page opens; Tellus opens and every page opens, including Diagnostics; About shows Tellus `0.1.0` and Insula `0.4.0`.
+2. Stock look: with every Island setting at its default the Island and a real notification look stock.
+3. Respring-loop guard (sections 7 and 21, step 3): five `sbreload` about 10 s apart trip it, the banner appears in Insula's Settings and in Tellus, **Clear Safe Mode & Respring** (in either) brings OITI back.
+4. Tellus: a slider applies live; **Respring** asks first and works; **Enable Dynamic Island** off and on again works (respring each time).
+5. The normal check (switch off) shows what the latest published release holds; the pre-release switch shows the candidate (step 4).
+6. The three reinstalls of step 4 end in a success message and `dpkg -s` is unchanged afterwards; the helper is still `-rwxr-xr-x`; `ls /var/mobile/Library/Caches/TellusUpdates` is empty.
+7. **Reset This Page** on every Insula page except the main one (section 33, check 5).
+8. Settings > Insula > Diagnostics > Copy Report: the session line says `OITI-0.4.0`.
+9. Remove Tellus: the two folders of section 33, check 7, are gone; reinstall it.
+10. Optional (not run in earlier releases): remove Insula, which runs the `prerm` MobileGestalt restore, then reinstall all three from the candidate and respring.
+11. Set the phone back to a normal state (level 0, no research files) and delete the pre-release when the release is out (`gh release delete v0.4.0-rc.1 --cleanup-tag --yes`).
+
+**6. Update All (optional, recommended before the release).** Update All needs a release that is newer than what is installed, so the candidate itself cannot show it. If you want to see it run, tell me and I will prepare a throwaway change (Insula `0.4.1`, Tellus `0.1.1` and a matching `Depends`) for a second pre-release; the real release does not include it.
+
+**7. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
+
+**8. Release (only after we both agree).** I will give the PR, merge, tree check, tag and `gh release create --verify-tag` block with the tested hashes and the release text then (tag first; the text of the GitHub Release is the only release note: `--notes`, never `--notes-file`; attach the three `.deb` files and `SHA256SUMS` of the tested run; the pattern is section 32).

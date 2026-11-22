@@ -467,6 +467,21 @@ static void OITIMarkRespringIntent(void) {
         if (pendingFooter.length) [rows addArrangedSubview:[self oitiFootnote:pendingFooter]];
         [self.oiti_contentStack addArrangedSubview:card];
     }
+    // "Reset This Page" at the bottom of every page that has settings of its own. The main page is left out: its switches turn the
+    // Island and Apple Mode on and off, and its position reset is already there.
+    if (![[self oiti_plistName] isEqualToString:@"Root"] && [self oitiResettableSpecifiers].count) {
+        UIView *resetCard = [self oitiCard];
+        UIStackView *resetRows = [self oiti_rowsInCard:resetCard];
+        UIButton *resetButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        resetButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+        resetButton.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+        [resetButton setTitle:@"Reset This Page" forState:UIControlStateNormal];
+        [resetButton setTitleColor:UIColor.systemRedColor forState:UIControlStateNormal];
+        [resetButton.heightAnchor constraintGreaterThanOrEqualToConstant:52].active = YES;
+        [resetButton addTarget:self action:@selector(oitiResetPageAsk:) forControlEvents:UIControlEventTouchUpInside];
+        [resetRows addArrangedSubview:resetButton];
+        [self.oiti_contentStack addArrangedSubview:resetCard];
+    }
     if ([[self oiti_plistName] isEqualToString:@"Root"]) {
         UILabel *credit = [[UILabel alloc] initWithFrame:CGRectZero];
         credit.text = @"Insula · Settings design adapted from Liquid (Gl)Ass";
@@ -827,6 +842,52 @@ static NSString *OITIPositionString(double value) {
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     UIPopoverPresentationController *popover = sheet.popoverPresentationController; popover.sourceView = sender; popover.sourceRect = sender.bounds;
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+// The specifiers on this page that store a setting: a switch, slider, text field or choice with a key.
+- (NSArray<PSSpecifier *> *)oitiResettableSpecifiers {
+    NSSet<NSString *> *cells = [NSSet setWithObjects:@"PSSwitchCell", @"PSSliderCell", @"PSEditTextCell", @"PSLinkListCell", nil];
+    NSMutableArray<PSSpecifier *> *result = [NSMutableArray array];
+    for (PSSpecifier *specifier in self.specifiers) {
+        NSString *key = [specifier propertyForKey:@"key"];
+        NSString *cell = [specifier propertyForKey:@"cell"];
+        if ([key isKindOfClass:[NSString class]] && key.length && [cells containsObject:cell]) [result addObject:specifier];
+    }
+    return result;
+}
+
+- (void)oitiResetPageAsk:(id)sender {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Reset This Page"
+        message:@"Every setting on this page goes back to its default, including the switches."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Reset" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self oitiResetPage];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+// Puts each setting on this page back to the default its plist gives it. A setting with no default (the typed position fields)
+// is removed, which is what "not set" means everywhere else. Everything is written first and the tweak is told once.
+- (void)oitiResetPage {
+    [self.view endEditing:YES];
+    NSMutableDictionary<NSString *, OITPreferences *> *domains = [NSMutableDictionary dictionary];
+    for (PSSpecifier *specifier in [self oitiResettableSpecifiers]) {
+        NSString *key = [specifier propertyForKey:@"key"];
+        NSString *domain = [specifier propertyForKey:@"defaults"];
+        if (![domain isKindOfClass:[NSString class]] || !domain.length) domain = kOITIPrefsDomain;
+        OITPreferences *prefs = domains[domain];
+        if (!prefs) {
+            prefs = [OITPreferences preferencesWithDomain:domain];
+            domains[domain] = prefs;
+        }
+        id defaultValue = [specifier propertyForKey:@"default"];
+        if (defaultValue) [prefs setObject:defaultValue forKey:key];
+        else [prefs removeObjectForKey:key];
+    }
+    for (OITPreferences *prefs in domains.allValues) [prefs synchronize];
+    OITPostDarwinNotification(kOITIPrefsChanged);
+    [self oitiRefreshSettingsPage];
 }
 
 - (void)respringAsk:(id)sender {
