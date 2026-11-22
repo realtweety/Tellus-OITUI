@@ -173,3 +173,19 @@ The Tellus and fallback Insula Settings interfaces no longer display the upstrea
 Insula package versioning follows the owner's requested `0.3.7` series. The link-removal build is `0.3.7-5+debug`; subsequent Insula changes continue at `0.3.7-6+debug` and upward. Tellus depends on Insula `0.3.7-5+debug` or later.
 
 Tellus `0.1.0-23+debug` and Insula `0.3.7-7+debug` are installed. The standalone Recovery navigation row is removed; recovery banners and the Miscellaneous Exit Safe Mode action remain. About now fetches the installed Insula package version through the fixed SpringBoard bridge.
+
+## Updates (Tellus app, 0.4.0)
+
+| Control | Behavior |
+| --- | --- |
+| About > Check for Updates | Fetches the latest GitHub release (not pre-releases) and lists OITCore, Insula, Tellus and, if installed or published, Litus with installed and available versions and a status (Update, Up to date, Newer than release, Not installed, Not published, Unknown). Shows the release title, date and notes and a link to the release. |
+| Download | Only for a component with an update (or any, with the reinstall switch on). Downloads in memory and verifies size, `.deb` header and SHA-256 (GitHub's digest and `SHA256SUMS`), then stores the file in `/var/mobile/Library/Caches/TellusUpdates`. |
+| Install / Reinstall / Downgrade | After a verified download, for OITCore, Insula and Tellus. Asks first (a downgrade is marked destructive). Runs through the root helper; Details shows the helper's output. Insula needs a respring afterwards; Tellus replaces itself and may close. |
+| Update All | Shown when at least one installable component has an update. Installs them in the order OITCore, Insula, Tellus; stops at the first failure. |
+| Menu: Check Again | Re-runs the check (not while something is installing). |
+| Menu: Allow Reinstall and Downgrade | Off each time the screen opens. Offers download and install for components that are not updates. |
+| Menu: Include Pre-releases | Off each time the screen opens. Uses the release list so a pre-release (a release candidate) is considered; the summary says `(pre-release)`. |
+
+## Insula settings: Reset This Page (0.4.0, in the Settings bundle `OITIPrefs`)
+
+A red **Reset This Page** button is the last card of the Color, Scale, Notifications, Downloads, Startup Animation and Diagnostics pages (not the main page). After a confirmation it writes every setting on the page back to the default in its plist, including switches, or removes the setting if it has no default (the typed position fields), then posts `com.wilburt.oiti/PrefsChanged` once and refreshes the page. The existing section resets (Color, Scale, Position) stay. Tellus does not have this button yet.

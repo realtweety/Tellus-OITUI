@@ -27,3 +27,8 @@ packages/
 
 # Claude
 .claude
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/

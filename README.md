@@ -8,12 +8,27 @@ Every tweak has two names. The **Latin name** is what you see in Sileo and Setti
 | --- | --- | --- |
 | **Insula** | OITI | A Dynamic Island for iPhones that don't have one, with notifications and download progress |
 | **Litus** | OITS | Moves status bar elements around the Island (paused) |
+| **Tellus** (the app) | TellusApp | The companion app: Insula's settings as an app, recovery tools and in-app updates (new in 0.4.0) |
 | OITCore | OITCore | The shared library. It installs with Insula |
 | OITInspector | OITInspector | A read-only developer tool |
 
 Tested on an **iPhone 8 Plus** with **Dopamine 3** on **iOS 16.7.16**. Other devices may behave differently, so please tell me what you find.
 
 <!-- screenshot: the Insula Settings page (main page) -->
+
+---
+
+# Tellus (the app)
+
+Tellus is a SwiftUI app for Insula: its settings in one place, with the recovery tools and an updater. It is new in 0.4.0 and optional. Insula works without it, and Insula's own pane in Settings stays.
+
+- **Insula's settings:** the Island (position, size, scale), Appearance, Notifications, Startup Animations and Download Progress, plus Diagnostics. A **Reset This Page** button on each page puts that page back to its defaults.
+- **Recovery:** the banners for safe mode and for Island elements being off, **Exit Safe Mode**, and a confirmed **Respring**.
+- **Updates (About > Check for Updates):** looks at the latest release on GitHub and shows what is installed next to what is available, with the release notes. **Download** fetches a package and checks its SHA-256 against GitHub's checksums before anything is installed; **Install** and **Update All** install OITCore, then Insula, and Tellus last. Tellus can update itself; it may close while it does, so open it again afterwards. After an Insula update, respring. The menu in the top corner has switches for reinstalling or downgrading and for including pre-releases (both off each time the screen opens).
+
+Tellus needs Insula 0.4.0 or later. Litus is not part of it yet.
+
+**What Tellus can do to your phone.** To install packages, Tellus runs outside the app sandbox and starts a small helper as root (`/var/jb/usr/libexec/tellus-helper`). The helper installs only OITCore, Insula and Tellus, only from Tellus's own download folder, and only after it has checked the file's SHA-256 itself and confirmed the package name inside it. The checksums come from the same GitHub release as the package and the packages are **not signed**, so the updater trusts that repository and your connection to it. If you do not want that, do not install Tellus: install the `.deb` files by hand.
 
 ---
 
@@ -60,10 +75,14 @@ The shared library the tweaks use. It installs automatically with Insula.
 
 # Installation
 
-You need a rootless jailbreak on iOS 16 (Insula is built and tested on an iPhone 8 Plus, iOS 16.7.16, Dopamine 3; other iOS versions and roothide are not supported and may not work). Install both `.deb` files from the [latest release](https://github.com/realtweety/Tellus-OITUI/releases/latest): **OITCore** first (or both in one `dpkg -i`), then **Insula**. To remove everything, remove Insula before OITCore.
+You need a rootless jailbreak on iOS 16 (Insula is built and tested on an iPhone 8 Plus, iOS 16.7.16, Dopamine 3; other iOS versions and roothide are not supported and may not work). Install the `.deb` files from the [latest release](https://github.com/realtweety/Tellus-OITUI/releases/latest): **OITCore** first, then **Insula**, then **Tellus** if you want the app (or all of them in one `dpkg -i`). To remove everything, remove Tellus, then Insula, then OITCore.
 
-Older releases: [v0.3.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.3.0), [v0.2.5](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.2.5), [v0.2.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.2.0), [v0.1.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.1.0), [first_release](https://github.com/realtweety/Tellus-OITUI/releases/tag/first_release) (the only release of Litus).
+**Updating.** With Tellus installed, open About > Check for Updates. Moving from an Insula older than 0.4.0 to 0.4.0 is a manual install, because Tellus cannot read the version of an older Insula; from 0.4.0 on, Tellus does the updating.
+
+**Checking a download by hand.** Each release (from 0.4.0) has a `SHA256SUMS` file. Put it next to the `.deb` files and run `shasum -a 256 -c SHA256SUMS` (on the phone `sha256sum -c SHA256SUMS`).
+
+Older releases: [v0.3.7](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.3.7), [v0.3.6](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.3.6), [v0.3.5](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.3.5), [v0.3.1](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.3.1), [v0.3.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.3.0), [v0.2.5](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.2.5), [v0.2.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.2.0), [v0.1.0](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.1.0), [first_release](https://github.com/realtweety/Tellus-OITUI/releases/tag/first_release) (the only release of Litus).
 
 # Documentation
 
-`OVERVIEW.md` (the modules and plans), `COMMANDS.md` (commands and test steps), `DIAGNOSTICS.md` (logging), `LEARNINGS.md` (technical lessons), `WORKFLOW.md` (branches and releases), `IDEAS.md` (the backlog), `OITUI_HISTORY.md` (how the project got here), `Third Party Licenses/`.
+`OVERVIEW.md` (the modules and plans), `COMMANDS.md` (commands and test steps), `DIAGNOSTICS.md` (logging), `LEARNINGS.md` (technical lessons), `WORKFLOW.md` (branches and releases), `IDEAS.md` (the backlog), `OITUI_HISTORY.md` (how the project got here), `TellusApp/Documentation/` (the app's architecture and feature inventory), `Third Party Licenses/`.

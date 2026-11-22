@@ -277,3 +277,33 @@ Safari source, 0.3.7 batch 1 (build `OITI-exp-0.3.7-a`). Browser side (Safari; t
 Browser research, 0.3.6 batch 1 (build `OITI-exp-0.3.6-a`). Browser research log (Arc, Safari, Chrome; only with `OITIBrowserDump.enable`): `census (<when>) image <path>: <n> classes, <m> with "download": <names>` (one per image that has any; `<when>` is `8 s after launch` or `channel test`), `census (<when>) summary: ...`, `census (<when>) class <name> (super <name>): <n> instance methods; related: <selectors>`, `census (<when>) done`; `destination hook installed on <delegate class> (encoding ...)` or `destination hook: <class> does not implement the destination method (no hook)`; per download `WKDownload <ptr> destination: suggestedFilename=<name> (<n> chars, <n> UTF-8 bytes) response.suggestedFilename=<name> mime=<type> expectedContentLength=<n> urlLastComponent=<name>`; the `seen (setDelegate:)` line now ends with `lastComponent=<name>`; `name test: <n> of <m> bytes packed in 8 chunk states (<k> failures)`. The log contains the file names of the test downloads. SpringBoard (`BROWSER`, level 1): `name test: pid <pid> serial <n>: read failures=<k> header=0x<hex> length=<n> valid UTF-8=<0|1> name=<text>`. None of this is part of `DiagnosticsLevel`.
 
 0.3.5 build tags: `OITI-0.3.5` (the release; the DEBUG build of the same commit has the same tag, tell them apart with `dpkg -s com.wilburt.oiti | grep Version`: the DEBUG version ends in `+debug`) and `OITIPrefs-0.3.5`.
+
+### Tellus app: updater, download and install (0.4.0)
+
+Tellus has no log file of its own. What it knows is on screen, and the helper's output is kept in the row's **Details** while the screen is open (it is copyable). Read it with this table:
+
+| Where | What you see | Meaning |
+| --- | --- | --- |
+| Check for Updates | `No internet connection`, `GitHub did not respond in time` | Network. Try again. |
+| Check for Updates | `GitHub is limiting requests from this network` | GitHub's 60 requests an hour per address is used up. Wait, or use another network. |
+| Check for Updates | `No published release was found` | The repository has no release (or no pre-release when that switch is on). |
+| Check for Updates | `GitHub's release information could not be read` | Malformed answer. Report it with the time. |
+| Download | `...does not match its checksum`, `...not the size the release lists`, `...not a Debian package` | The file was discarded. Try again; if it repeats the release may be wrong. |
+| Download | `GitHub's digest and the release's checksum list disagree` | The release's `SHA256SUMS` was made from a different run than the attached `.deb` files. Nothing was downloaded. |
+| Download | `This release has no checksum for the package` | Neither GitHub's digest nor `SHA256SUMS` is there, so nothing is installed. |
+| Download | `The package could not be saved: no writable folder (...)` | Tellus lost its entitlements (see `LEARNINGS.md`, "The Tellus app"). Reinstall the package. |
+| Install | `The installer could not be started (...)` | The persona spawn failed: check `ls -l /var/jb/usr/libexec/tellus-helper` and the entitlements. |
+| Install | `ERROR: ...` lines in Details, with a code | The helper's exit codes are in `LEARNINGS.md`; 18 and 20 mean the file or the checksum is wrong, 30 means `dpkg` failed (its own message is just above). |
+| Install | `dpkg: error: dpkg frontend lock is locked by another process` | Sileo, Zebra or another `dpkg` is running. Close it and try again. |
+| Install | `still running` | The install went past five minutes. It was not stopped; check `dpkg -s <package>` before trying again. |
+
+On the phone (zsh, as root over SSH):
+
+```
+ls -l /var/jb/usr/libexec/tellus-helper
+/var/jb/usr/libexec/tellus-helper --probe
+ls -l /var/mobile/Library/Caches/TellusUpdates /var/jb/var/tmp/tellus-install
+dpkg -s com.wilburt.tellus | grep -E 'Status|Version'
+```
+
+The helper should be `-rwxr-xr-x` owned by root (no `s` bit). `--probe` run as root prints `uid=0 euid=0`; run as `mobile` it prints `uid=501`. A verified download waits in `TellusUpdates` until it is installed or Tellus is removed; the helper's private copy in `tellus-install` should not outlive an install. Off the phone, `sh tools/tellus_helper_test.sh` (as root, needs `dpkg-deb`) checks every refusal path of the helper.

@@ -226,7 +226,14 @@ static void OITIHandleTellusDiagnosticsRequest(void) {
     if (![@[@"shortReport", @"fullReport", @"clearLogs", @"islandIdentity", @"recoveryState", @"insulaVersion"] containsObject:action]) return;
 
     sLastTellusDiagnosticsRequestID = [requestID copy];
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    // One request at a time: two quick Island toggles must not interleave their read-modify-write of the MobileGestalt cache.
+    static dispatch_queue_t bridgeQueue;
+    static dispatch_once_t bridgeQueueOnce;
+    dispatch_once(&bridgeQueueOnce, ^{
+        bridgeQueue = dispatch_queue_create("com.wilburt.oiti.tellus-bridge",
+            dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
+    });
+    dispatch_async(bridgeQueue, ^{
         NSString *payload = nil;
         if ([action isEqualToString:@"shortReport"]) payload = OITIReportBuild(NO);
         else if ([action isEqualToString:@"fullReport"]) payload = OITIReportBuild(YES);
