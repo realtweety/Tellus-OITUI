@@ -2302,6 +2302,8 @@ killall -9 SpringBoard
 
 Insula `0.4.1~rc.1` (build tags `OITI-0.4.1-rc.1`, `OITIPrefs-0.4.1-rc.1`); OITCore `0.1.0` and Tellus `0.1.0` unchanged. Run it after section 35 passed on your phone (it did, build `-b`). Arch PC, fish only (the blocks use fish syntax, and `$(...)` needs fish 3.4 or newer). `gh` must be logged in there: check with `gh auth status`; if it is not, tell me and I will give the Mac (zsh) version instead. `iproxy 2222 22` must run in another terminal for step 3.
 
+**Lesson from this release candidate (23 Nov 2026):** GitHub rewrote `~` to `.` in the Insula asset name, which made Tellus refuse the download until `SHA256SUMS` was re-uploaded with the dotted name (`WORKFLOW.md`, "No `~` in a version that Tellus has to download"). For the next pre-release give the version no `~`.
+
 **1. Apply the archive and commit.**
 
 ```
@@ -2391,4 +2393,44 @@ Then check it through Tellus on your own phone: About > Check for Updates > menu
 > To tell me whether it worked: lock and unlock your phone a few times. If the Island still goes back behind the notch, open Tellus > Diagnostics, set Log Detail to Detailed, respring, lock and unlock again until it happens, then tap "Copy Report to Clipboard" and send me the text (a paste or a DM is fine). If it works now, just tell me, no log needed.
 
 **6. After his answer.** If it works: tell me and we release `0.4.1` (a normal release: section 32's pattern, with the rc deleted by `gh release delete v0.4.1-rc.1 --cleanup-tag --yes`). If it does not: the report's `ISLANDFRAME` lines (or their absence) tell us whether the window frame is reset through `setFrame:` at all.
+
+## 37. 0.4.1 batch 2: Insula Status page (Tellus > Diagnostics > Insula Status; build tag `OITI-exp-0.4.1-c`)
+
+Implemented; the OITI side passes `tools/offline_check.sh`, the Swift side has not been compiled anywhere yet (CI is the first compile) and nothing is device-tested. Insula and Tellus both change, so push to `experiments` first and let CI build the packages (section 36 step 2 shows how to watch the run), or build Tellus on the Mac (`cd TellusApp && make package`). Install both, respring, then:
+
+**1. Self-check file (phone, after a respring and about 10 s).**
+
+```
+cat /var/mobile/Library/Preferences/OITISelfCheck.plist
+```
+
+Expected: a plist with `result` = `ok`, an empty `issues` array and `build` = `OITI-exp-0.4.1-c`.
+
+**2. The page (phone screen).** Open Tellus > Diagnostics > Insula Status. Checks (yes or no each):
+1. **Healthy state:** the summary says "Nothing is switched off", and Now shows Insula switch On, Apple Mode Off, Safe mode Off, Hooks installed Yes, Island elements On and the running build.
+2. **Respring-loop guard:** it says On and `0 of 5 in 120 s` (or a small count if you just resprang).
+3. **Startup Check:** Result OK with a time, no issue lines.
+4. **Insula switch:** in Tellus > Island turn **Enable Dynamic Island** off (it asks for a respring as before). Open Tellus > Diagnostics > Insula Status: the summary lists "The Insula switch is off." and Now shows Insula switch Off. Turn **Enable Dynamic Island** on again and respring.
+5. **Apple Mode:** turn it on: the summary lists Apple Mode. Turn it off again.
+6. **Safe mode.** On the phone (SSH, zsh) fake four recent launches, so the next respring is the fifth and trips the guard:
+
+```
+NOW=$(date +%s)
+cat > /var/mobile/Library/Preferences/OITIBootLog.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>launches</key><array>
+<real>$((NOW-30))</real><real>$((NOW-20))</real><real>$((NOW-15))</real><real>$((NOW-10))</real>
+</array></dict></plist>
+EOF
+chown mobile:mobile /var/mobile/Library/Preferences/OITIBootLog.plist
+sbreload
+```
+
+   After about 10 seconds open Tellus > Diagnostics > Insula Status: the summary says safe mode is on, Hooks installed says No, the reason ("5 SpringBoard launches within 120 s") is under Now, and the guard section shows the launches counted. Then tap **Clear Safe Mode & Respring** in the banner at the top of the page: the Island comes back after the respring and the page says "Nothing is switched off" again.
+7. **Old file test:** `rm /var/mobile/Library/Preferences/OITISelfCheck.plist`, then open the page: Startup Check says "Not run yet" (no crash, no empty page).
+
+**3. Insula switched off in a tweak manager (optional).** If your tweak manager can disable Insula for SpringBoard, do it and respring: the page shows "No answer from SpringBoard" with the explanation under it, and enabling Insula again brings the page back after a respring.
+
+**4. Tellus 0.1.0 with the new Insula (optional but worth one look).** The released Tellus 0.1.0 must still show its Recovery banners correctly with the new Insula (it ignores the new keys).
 

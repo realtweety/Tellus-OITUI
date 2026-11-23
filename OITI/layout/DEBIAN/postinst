@@ -4,5 +4,6 @@
 # If the new build still causes a respring loop, the guard simply trips again.
 rm -f /var/mobile/Library/Preferences/OITISafeMode.plist
 rm -f /var/mobile/Library/Preferences/OITIBootLog.plist
+rm -f /var/mobile/Library/Preferences/OITISelfCheck.plist
 
 exit 0

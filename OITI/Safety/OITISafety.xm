@@ -153,6 +153,17 @@ BOOL OITIEvaluateLoopGuard(void) {
 // (sPoCDisabledAfterFailure). That used to be visible only in the log. The tweak now also writes this small file so the Settings
 // pages can say so; the next SpringBoard launch deletes it, because a launch turns element creation back on.
 NSString * const kOITIElementsOffPath = @"/var/mobile/Library/Preferences/OITIElementsOff.plist";
+// The result of the last startup self-check, kept for Tellus' Insula Status page (0.4.1). The log lines stay the full record; this
+// file holds short plain-language lines. Written by OITIRunStartupSelfCheck, removed by the package's postinst.
+NSString * const kOITISelfCheckPath = @"/var/mobile/Library/Preferences/OITISelfCheck.plist";
+
+static void OITIWriteSelfCheckResult(NSString *result, NSArray<NSString *> *issues) {
+    NSDictionary *record = @{ @"time": @([[NSDate date] timeIntervalSince1970]), @"result": result,
+                              @"issues": issues ?: @[], @"build": kOITIBuildTag };
+    if (![record writeToFile:kOITISelfCheckPath atomically:YES]) {
+        [sLog logTag:@"CHECK" format:@"could not write the self-check result file"];
+    }
+}
 
 void OITIMarkElementsOff(int failures, NSString *reason) {
     NSDictionary *flag = @{ @"time": @([[NSDate date] timeIntervalSince1970]), @"failures": @(failures),
@@ -168,6 +179,7 @@ void OITIRunStartupSelfCheck(void) {
     NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:kOITIGestaltPlistPath];
     if (!plist) {
         [sLog logTag:@"CHECK" format:@"WARN MobileGestalt cache not readable at the expected path; cannot verify the spoof"];
+        OITIWriteSelfCheckResult(@"unknown", @[@"The MobileGestalt cache could not be read, so the Island spoof could not be checked."]);
         return;
     }
     id value = ((NSDictionary *)((NSDictionary *)plist[kOITIGestaltCacheExtraKey])[kOITIGestaltNestedKey])[kOITIGestaltLeafKey];
@@ -191,15 +203,19 @@ void OITIRunStartupSelfCheck(void) {
      originalValue ?: @"(none)", backupSuspect];
 
     BOOL warned = NO;
+    NSMutableArray<NSString *> *issues = [NSMutableArray array];   // short lines for the Insula Status page (0.4.1)
     if (backupHoldsSpoofValue) {
         warned = YES;
+        [issues addObject:@"The saved MobileGestalt backup holds the Island spoof value as the original, so turning Insula off or removing it cannot remove the spoof. Opening Insula's settings once repairs the backup."];
         [sLog logTag:@"CHECK" format:@"WARN the restore breadcrumb records 2556 as the ORIGINAL ArtworkDeviceSubType, but 2556 is the spoof value and %@ is not Dynamic Island hardware. The backup was captured while the spoof was already active, so restoring it cannot remove the spoof (this also affects the prerm helper). Open OITI's settings page once: it repairs the backup. Then check the next CHECK line after a respring.", machine];
     }
     if (islandEnabled && !isSpoofed) {
         warned = YES;
+        [issues addObject:@"The Insula switch is on, but the Island spoof is not active in the device identity (an iOS update or something else may have reset it)."];
         [sLog logTag:@"CHECK" format:@"WARN islandEnabled is ON but the cache does not hold 2556: the Island spoof is not active (iOS update rebuilt the cache, or something restored it)"];
     } else if (!islandEnabled && isSpoofed) {
         warned = YES;
+        [issues addObject:@"The Insula switch is off, but the Island spoof is still set in the device identity."];
         if (backupHoldsSpoofValue) {
             [sLog logTag:@"CHECK" format:@"WARN islandEnabled is OFF but the cache still holds 2556, and the poisoned backup (above) cannot remove it. Repair the backup first, then turn islandEnabled off again."];
         } else {
@@ -208,6 +224,7 @@ void OITIRunStartupSelfCheck(void) {
     }
     if (islandEnabled && !haveBreadcrumb) {
         warned = YES;
+        [issues addObject:@"The Insula switch is on, but there is no restore breadcrumb, so removing Insula cannot restore the original device identity."];
         [sLog logTag:@"CHECK" format:@"WARN islandEnabled is ON but there is no restore breadcrumb: the prerm helper cannot restore the original value"];
     }
     if (backupSuspect && !backupHoldsSpoofValue) {
@@ -216,4 +233,42 @@ void OITIRunStartupSelfCheck(void) {
     if (!warned) {
         [sLog logTag:@"CHECK" format:@"OK spoof state matches islandEnabled"];
     }
+    OITIWriteSelfCheckResult(warned ? @"warn" : @"ok", issues);
+}
+
+// ---- The Insula Status snapshot (0.4.1, IDEAS #17) ---------------------------------------------------------------------------
+// Answers Tellus' "recoveryState" request. The bridge handler is installed before the safe-mode branch of the %ctor, so this
+// works while safe mode is on; it reads files and preferences only and changes nothing. Tellus 0.1.0 reads only safeMode and
+// elementsOff and ignores the rest.
+NSDictionary *OITIBuildStatusSnapshot(void) {
+    NSDictionary *safeFlag = [NSDictionary dictionaryWithContentsOfFile:kOITISafeModePath];
+    if (![safeFlag[@"tripped"] boolValue]) safeFlag = nil;
+    NSDictionary *elementsFlag = [NSDictionary dictionaryWithContentsOfFile:kOITIElementsOffPath];
+    NSDictionary *selfCheck = [NSDictionary dictionaryWithContentsOfFile:kOITISelfCheckPath];
+
+    // Launches still counted by the guard: those inside the window (the file also keeps older ones until a stable launch).
+    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    NSInteger counted = 0;
+    id stored = [NSDictionary dictionaryWithContentsOfFile:kOITIBootLogPath][@"launches"];
+    if ([stored isKindOfClass:[NSArray class]]) {
+        for (id entry in (NSArray *)stored) {
+            if (![entry isKindOfClass:[NSNumber class]]) continue;
+            NSTimeInterval age = now - [entry doubleValue];
+            if (age >= 0 && age < (NSTimeInterval)sGuardWindowSeconds) counted++;
+        }
+    }
+
+    // Read the switches fresh: in safe mode the in-memory values are not refreshed for every setting.
+    OITPreferences *prefs = [OITPreferences preferencesWithDomain:@"com.wilburt.oiti.prefs"];
+    return @{
+        @"safeMode": safeFlag ?: (id)[NSNull null],
+        @"elementsOff": elementsFlag ?: (id)[NSNull null],
+        @"islandEnabled": @([prefs boolForKey:@"islandEnabled" default:NO]),
+        @"appleMode": @([prefs boolForKey:@"appleMode" default:NO]),
+        @"hooksInstalled": @(!sSafeModeActive),
+        @"build": kOITIBuildTag ?: @"",
+        @"guard": @{ @"enabled": @(sGuardEnabled), @"launches": @(counted), @"maxLaunches": @(sGuardMaxLaunches),
+                     @"windowSeconds": @(sGuardWindowSeconds) },
+        @"selfCheck": selfCheck ?: (id)[NSNull null],
+    };
 }

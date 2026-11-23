@@ -21,6 +21,16 @@ struct DiagnosticsSettingsView: View {
             RecoveryStatusBanner()
 
             Section {
+                NavigationLink {
+                    InsulaStatusView()
+                } label: {
+                    Label("Insula Status", systemImage: "stethoscope")
+                }
+            } footer: {
+                Text("Shows why Insula might be off: safe mode, the switches, the respring-loop guard and the last startup check.")
+            }
+
+            Section {
                 Picker("Log Detail", selection: levelBinding) {
                     Text("Normal").tag(0)
                     Text("Detailed").tag(1)
@@ -204,4 +214,250 @@ private struct ActivityView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Insula Status (0.4.1, IDEAS #17)
+
+// What SpringBoard answers to the "recoveryState" request. Every field is optional: Insula older than 0.4.1 sends only
+// safeMode and elementsOff, and the page then says that some details need Insula 0.4.1 or later.
+private struct InsulaStatusSnapshot: Decodable {
+    struct SafeMode: Decodable {
+        let time: Double?
+        let reason: String?
+    }
+
+    struct ElementsOff: Decodable {
+        let time: Double?
+        let failures: Int?
+    }
+
+    struct LoopGuard: Decodable {
+        let enabled: Bool?
+        let launches: Int?
+        let maxLaunches: Int?
+        let windowSeconds: Int?
+    }
+
+    struct SelfCheck: Decodable {
+        let time: Double?
+        let result: String?
+        let issues: [String]?
+    }
+
+    let safeMode: SafeMode?
+    let elementsOff: ElementsOff?
+    let islandEnabled: Bool?
+    let appleMode: Bool?
+    let hooksInstalled: Bool?
+    let build: String?
+    let loopGuard: LoopGuard?
+    let selfCheck: SelfCheck?
+
+    enum CodingKeys: String, CodingKey {
+        case safeMode, elementsOff, islandEnabled, appleMode, hooksInstalled, build, selfCheck
+        case loopGuard = "guard"
+    }
+
+    // The main reasons Insula is not showing, most important first. Empty when nothing is switched off.
+    var reasons: [String] {
+        var list: [String] = []
+        if safeMode != nil {
+            list.append("Safe mode is on: Insula switched itself off after repeated SpringBoard restarts, so its hooks are not installed.")
+        }
+        if islandEnabled == false {
+            list.append("The Insula switch is off.")
+        }
+        if appleMode == true {
+            list.append("Apple Mode is on: every customization is paused.")
+        }
+        if elementsOff != nil {
+            list.append("Island elements are switched off until the next respring.")
+        }
+        if selfCheck?.result == "warn" {
+            list.append("The last startup check found a problem (see Startup Check below).")
+        }
+        return list
+    }
+}
+
+struct InsulaStatusView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var snapshot: InsulaStatusSnapshot?
+    @State private var errorText: String?
+    @State private var isLoading = false
+
+    var body: some View {
+        Form {
+            AppleModeBanner()
+            RecoveryStatusBanner()
+
+            if let errorText {
+                Section {
+                    Label("No answer from SpringBoard", systemImage: "exclamationmark.triangle")
+                    Text(errorText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Summary")
+                } footer: {
+                    Text("If Insula is installed, it may be switched off in your tweak manager or injection may be off, or SpringBoard may still be starting. Pull down to try again.")
+                }
+            } else if let snapshot {
+                summarySection(snapshot)
+                detailsSection(snapshot)
+                guardSection(snapshot)
+                selfCheckSection(snapshot)
+            } else {
+                Section {
+                    HStack {
+                        ProgressView()
+                        Text("Asking SpringBoard…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Insula Status")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await refresh() }
+        .refreshable { await refresh() }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { Task { await refresh() } }
+        }
+    }
+
+    // MARK: Sections
+
+    @ViewBuilder
+    private func summarySection(_ snapshot: InsulaStatusSnapshot) -> some View {
+        let reasons = snapshot.reasons
+        Section {
+            if reasons.isEmpty {
+                Label("Nothing is switched off", systemImage: "checkmark.circle")
+                Text("Insula is loaded in SpringBoard and its hooks are installed.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(reasons, id: \.self) { reason in
+                    Label(reason, systemImage: "exclamationmark.circle")
+                }
+            }
+        } header: {
+            Text("Summary")
+        } footer: {
+            if snapshot.build == nil {
+                Text("Some details need Insula 0.4.1 or later. Only safe mode and Island elements are shown with this Insula version.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func detailsSection(_ snapshot: InsulaStatusSnapshot) -> some View {
+        if snapshot.build != nil {
+            Section {
+                row("Insula switch", flag(snapshot.islandEnabled, on: "On", off: "Off"))
+                row("Apple Mode", flag(snapshot.appleMode, on: "On", off: "Off"))
+                row("Safe mode", snapshot.safeMode == nil ? "Off" : "On" + timeText(snapshot.safeMode?.time))
+                row("Hooks installed", flag(snapshot.hooksInstalled, on: "Yes", off: "No"))
+                row("Island elements", snapshot.elementsOff == nil ? "On" : "Off until respring" + timeText(snapshot.elementsOff?.time))
+                row("Running build", snapshot.build ?? "")
+            } header: {
+                Text("Now")
+            } footer: {
+                if let reason = snapshot.safeMode?.reason {
+                    Text("Safe mode reason: \(reason).")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func guardSection(_ snapshot: InsulaStatusSnapshot) -> some View {
+        if let loopGuard = snapshot.loopGuard {
+            Section {
+                if loopGuard.enabled == false {
+                    row("Respring-loop guard", "Off")
+                } else {
+                    row("Respring-loop guard", "On")
+                    row(
+                        "SpringBoard launches counted",
+                        "\(loopGuard.launches ?? 0) of \(loopGuard.maxLaunches ?? 0) in \(loopGuard.windowSeconds ?? 0) s"
+                    )
+                }
+            } header: {
+                Text("Respring-Loop Guard")
+            } footer: {
+                Text("Safe mode starts when SpringBoard restarts that many times inside the time window. A launch that stays up for a while clears the count, and a respring you ask for in Insula or Tellus is not counted.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func selfCheckSection(_ snapshot: InsulaStatusSnapshot) -> some View {
+        if snapshot.build != nil {
+            Section {
+                if let check = snapshot.selfCheck {
+                    row("Result", resultText(check.result) + timeText(check.time))
+                    ForEach(check.issues ?? [], id: \.self) { issue in
+                        Text(issue)
+                            .font(.footnote)
+                    }
+                } else {
+                    row("Result", "Not run yet")
+                }
+            } header: {
+                Text("Startup Check")
+            } footer: {
+                Text("Insula compares the Island setting with the device identity a few seconds after SpringBoard starts. The Insula log has the full details.")
+            }
+        }
+    }
+
+    // MARK: Helpers
+
+    private func row(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func flag(_ value: Bool?, on: String, off: String) -> String {
+        guard let value else { return "Unknown" }
+        return value ? on : off
+    }
+
+    private func resultText(_ result: String?) -> String {
+        switch result {
+        case "ok": return "OK"
+        case "warn": return "Problem found"
+        case "unknown": return "Could not check"
+        default: return "Unknown"
+        }
+    }
+
+    private func timeText(_ timestamp: Double?) -> String {
+        guard let timestamp else { return "" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return " (\(formatter.string(from: Date(timeIntervalSince1970: timestamp))))"
+    }
+
+    private func refresh() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let response = try await DiagnosticsBridge.perform("recoveryState")
+            snapshot = try JSONDecoder().decode(InsulaStatusSnapshot.self, from: Data(response.utf8))
+            errorText = nil
+        } catch {
+            snapshot = nil
+            errorText = error.localizedDescription
+        }
+    }
 }

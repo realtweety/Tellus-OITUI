@@ -194,7 +194,7 @@
 #import "Shared/OITIMobileGestalt.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-0.4.1-rc.1";
+extern NSString * const kOITIBuildTag = @"OITI-exp-0.4.1-c";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITIRespringNotification = @"com.wilburt.oiti/Respring";
@@ -241,13 +241,7 @@ static void OITIHandleTellusDiagnosticsRequest(void) {
             OITIReportClearLogs();
             payload = @"cleared";
         } else if ([action isEqualToString:@"recoveryState"]) {
-            NSDictionary *safeFlag = [NSDictionary dictionaryWithContentsOfFile:kOITISafeModePath];
-            if (![safeFlag[@"tripped"] boolValue]) safeFlag = nil;
-            NSDictionary *elementsFlag = [NSDictionary dictionaryWithContentsOfFile:kOITIElementsOffPath];
-            NSDictionary *state = @{
-                @"safeMode": safeFlag ?: (id)[NSNull null],
-                @"elementsOff": elementsFlag ?: (id)[NSNull null]
-            };
+            NSDictionary *state = OITIBuildStatusSnapshot();   // 0.4.1: the same keys as before plus the Insula Status page data
             NSData *json = [NSJSONSerialization dataWithJSONObject:state options:0 error:nil];
             payload = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : @"{}";
         } else if ([action isEqualToString:@"insulaVersion"]) {

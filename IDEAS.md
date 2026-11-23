@@ -42,11 +42,11 @@ Status, 21 Nov 2026: the **Tellus app** was built for 0.4.0 (OVERVIEW.md, "Curre
 
 11. Per-app exclude list for Island Notifications (the list logic is easy, the app picker in the Settings bundle is the real work).
 12. Per-app accent colors for notifications.
-13. Tapping the download Island opens the app or its downloads list.
+13. Tapping the download Island opens the app or its downloads list. **Changed by the owner (23 Nov 2026): opening the Tellus app should need a DOUBLE TAP on the Island while it is idle** (not a tap on the download Island). Not started; research first (how touches reach the Island window, and the pass-through touch handling that already exists for notifications), and it should be off by default.
 14. Pause and resume where a browser supports it (Arc has no pause, per the 0.3.5 measurements).
 15. A finish haptic or sound for downloads, off by default.
 16. An Installing/Updating state for the App Store beyond percentage (the Installing state already exists, so this would be small).
-17. A "why is Insula off?" page showing safe-mode state, the last self-check and the respring-loop guard counter.
+17. A "why is Insula off?" page showing safe-mode state, the last self-check and the respring-loop guard counter. **Built in 0.4.1 batch 2 as Tellus > Diagnostics > Insula Status (not device-tested yet; see `OVERVIEW.md`).**
 18. A Diagnostics page in Settings with a level toggle, so users do not need SSH.
 19. Hello animation variants or a customizable clip.
 20. Reduce Motion, VoiceOver labels and Dynamic Type support for the custom cards (accessibility has not been looked at yet).
