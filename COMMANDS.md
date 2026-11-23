@@ -2246,3 +2246,149 @@ In Tellus: About > Check for Updates > menu > **Include Pre-releases** on. It mu
 **7. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
 
 **8. Release (only after we both agree).** I will give the PR, merge, tree check, tag and `gh release create --verify-tag` block with the tested hashes and the release text then (tag first; the text of the GitHub Release is the only release note: `--notes`, never `--notes-file`; attach the three `.deb` files and `SHA256SUMS` of the tested run; the pattern is section 32).
+
+## 35. 0.4.1 batch 1: Island position after lock and unlock (build tag `OITI-exp-0.4.1-b`)
+
+Implemented and checked off the phone (`tools/offline_check.sh`); build `-a` was device-tested on the 8 Plus (checks 1, 2, 4, 5 passed, check 3 failed), build `-b` is not. You cannot reproduce the bug on the iPhone 8 Plus, so this check is a regression check, and the reporter's phone is the real test.
+
+**1. Build and install (Arch PC, fish).** OITCore is unchanged, so only OITI is built. The USB tunnel from section 3 must be running (`iproxy 2222 22` in another terminal); the phone asks for the root password twice.
+
+```
+cd ~/OITUI/OITI
+THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install
+```
+
+Expected: the build finishes without errors (the known arm64e ABI linker warnings can be ignored), the package installs and the phone resprings.
+
+**2. Boot summary (phone).**
+
+```
+grep -e SESSION /tmp/OITIDebug.log
+```
+
+Expected: a `SESSION` line with the build tag `OITI-exp-0.4.1-b`.
+
+**3. Regression checks (phone screen).**
+
+1. Settings > Insula > main page, turn on **Use Custom Position** and move the X and Y sliders: the Island moves live, as before.
+2. Lock and unlock the phone twice: the Island stays at the custom position (on your phone it did before the change; this must stay so).
+3. Turn **Use Custom Position** off: the Island returns to the stock place with no respring (build `-a` failed this check: the gap is older than the hook and build `-b` fixes it). Also try it with **Use Custom Scale** on and then off, and turn the position on again afterwards: it must move back to your custom place.
+4. Start a timer (Clock) and lock and unlock: the Island still shows it at the right place.
+5. Respring-loop guard: `COMMANDS.md`, section 7, unchanged.
+
+**4. Log check (optional, shows whether the hook ever corrects a frame).**
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
+killall -9 SpringBoard
+```
+
+Then lock and unlock the phone a few times and run:
+
+```
+grep ISLANDFRAME /tmp/OITIDebug.log
+```
+
+On your phone no line (or only lines at the first layout) is the normal result, since you never see the bug. Set the level back afterwards:
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0
+killall -9 SpringBoard
+```
+
+**5. For the Reddit reporter** (iPhone 14 Plus, iOS 16.6): after you publish a pre-release with the package, ask him to turn Diagnostics Level to 1, lock and unlock, and send `/tmp/OITIDebug.log` (the `ISLANDFRAME` lines are the evidence). I will write his exact message when the package exists.
+
+## 36. 0.4.1 release candidate 1 (pre-release for the Reddit reporter): build, test, publish
+
+Insula `0.4.1~rc.1` (build tags `OITI-0.4.1-rc.1`, `OITIPrefs-0.4.1-rc.1`); OITCore `0.1.0` and Tellus `0.1.0` unchanged. Run it after section 35 passed on your phone (it did, build `-b`). Arch PC, fish only (the blocks use fish syntax, and `$(...)` needs fish 3.4 or newer). `gh` must be logged in there: check with `gh auth status`; if it is not, tell me and I will give the Mac (zsh) version instead. `iproxy 2222 22` must run in another terminal for step 3.
+
+**1. Apply the archive and commit.**
+
+```
+tar -xzf ~/Downloads/oitui-v041-rc1.tar.gz -C ~/OITUI
+cd ~/OITUI
+git status --short
+```
+
+Expected: the files of the archive (the position fix of `-a` and `-b` plus this batch) and nothing else. Then:
+
+```
+git add -A
+git commit -m "0.4.1 rc.1: Island position after lock/unlock and when switched off, ISLANDFRAME in Copy Report"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+The last command must print the same hash twice.
+
+**2. CI, then the release workflow, then the artifact.** Wait about 10 s after the push so the run exists.
+
+```
+gh run watch $(gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+```
+
+Expected: ends green. Then:
+
+```
+gh workflow run release-oiti.yml --ref experiments
+```
+
+Wait about 10 s, then:
+
+```
+gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId,headSha,status
+git rev-parse HEAD
+```
+
+The `headSha` must equal the hash printed second. Then:
+
+```
+gh run watch $(gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+rm -rf ~/Downloads/oiti-rc2
+gh run download $(gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') -D ~/Downloads/oiti-rc2
+find ~/Downloads/oiti-rc2 -type f
+```
+
+Expected: the `find` lists exactly four files: `com.wilburt.oitcore_0.1.0...deb`, `com.wilburt.oiti_0.4.1~rc.1...deb` (or `0.4.1-rc.1`, depending on how the file name is written), `com.wilburt.tellus_0.1.0...deb` (no `debug` in any name) and `SHA256SUMS`. Then the sums:
+
+```
+cd (dirname (find ~/Downloads/oiti-rc2 -name SHA256SUMS | head -n 1)); and sha256sum -c SHA256SUMS; cd ~/OITUI
+```
+
+Expected: three `OK` lines.
+
+**3. Install those exact files on your phone.**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-rc2; mkdir /var/mobile/oiti-rc2'
+scp -P 2222 (find ~/Downloads/oiti-rc2 -name '*.deb') root@127.0.0.1:/var/mobile/oiti-rc2/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-rc2/*.deb; sbreload'
+```
+
+(dpkg may print a downgrade note for OITCore or Tellus if your phone had a `+debug` build: that is fine.) Wait about 20 s, then on the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.tellus | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+```
+
+Expected: `Version: 0.4.1~rc.1`, `Version: 0.1.0` (no `+debug`) and `build=OITI-0.4.1-rc.1`. Repeat the checks of section 35 step 3 (position on, lock and unlock, position off and on) and section 34 step 5 checks 1 to 4 on this release package. Open Tellus > About: Insula must say `0.4.1~rc.1` (if it shows something else, tell me what).
+
+**4. Publish the tested files as a pre-release.** Pushing a `v*` tag also starts a release workflow run; ignore that run's artifact and attach the files you tested.
+
+```
+git tag -a v0.4.1-rc.1 -m "0.4.1 release candidate 1" (git rev-parse HEAD)
+git push origin v0.4.1-rc.1
+gh release create v0.4.1-rc.1 --verify-tag --prerelease --title "0.4.1 release candidate 1" --notes "Test build for a bug where the Island goes back behind the notch after a lock and unlock. Not for general use. Install it from Tellus (About > Check for Updates > menu > Include Pre-releases), or install the Insula .deb by hand." (find ~/Downloads/oiti-rc2 -type f \( -name '*.deb' -o -name SHA256SUMS \))
+```
+
+Then check it through Tellus on your own phone: About > Check for Updates > menu > **Include Pre-releases** on. If your phone already has `0.4.1~rc.1` it says `Up to date`; with **Allow Reinstall and Downgrade** on you can reinstall Insula from it.
+
+**5. Message for the Reddit reporter** (reply to his comment):
+
+> Thanks for the report! I think I found a likely cause and made a test build (I can't reproduce it on my own phone, so you are the test). Please try it: in Tellus go to About > Check for Updates, open the menu (top right) and switch on "Include Pre-releases", then tap Update (or Update All) and respring. If you don't have Tellus, download the Insula .deb from the 0.4.1 release candidate 1 page on GitHub and install it with Sileo or Filza.
+> To tell me whether it worked: lock and unlock your phone a few times. If the Island still goes back behind the notch, open Tellus > Diagnostics, set Log Detail to Detailed, respring, lock and unlock again until it happens, then tap "Copy Report to Clipboard" and send me the text (a paste or a DM is fine). If it works now, just tell me, no log needed.
+
+**6. After his answer.** If it works: tell me and we release `0.4.1` (a normal release: section 32's pattern, with the rc deleted by `gh release delete v0.4.1-rc.1 --cleanup-tag --yes`). If it does not: the report's `ISLANDFRAME` lines (or their absence) tell us whether the window frame is reset through `setFrame:` at all.
+

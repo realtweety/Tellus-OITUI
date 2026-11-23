@@ -24,6 +24,12 @@ static const void *kOITIColorAppliedKey = &kOITIColorAppliedKey;
 static const void *kOITITransparencyAppliedKey = &kOITITransparencyAppliedKey;
 static const void *kOITILineHiddenKey = &kOITILineHiddenKey;
 static const void *kOITIPassThroughTouchedKey = &kOITIPassThroughTouchedKey;
+// Island position: the window center Apple gave the window (NSValue CGPoint) and a flag that OITI moved the window away from it,
+// so turning Use Custom Position off puts the Island back at Apple's place live (0.4.1). The center is used because a window
+// transform (Use Custom Scale) scales around the center and leaves it alone; main thread only.
+static const void *kOITIStockCenterKey = &kOITIStockCenterKey;
+static const void *kOITIPositionMovedKey = &kOITIPositionMovedKey;
+static BOOL sOITIWritingOwnIslandFrame;   // set while OITI writes the window frame itself, so the setFrame: hook leaves it alone
 
 static CGFloat OITISafeScaleValue(CGFloat value) {
     if (!isfinite(value)) return 1.0;
@@ -50,25 +56,54 @@ static CGFloat OITIAppleCanvasScale(UIView *window) {
 // MARK: Island position (unchanged from Step 1)
 // =============================================================================================
 
-// Moves the Island window to the custom (posEnabled) position. Since 0.3.0 (batch 8) there are no built-in positions any more:
-// "Fix Island Position" was turned into this custom position once, at the first launch (OITIMigratePresetPositions).
-static void OITIApplyIslandPosition(UIView *window) {
+// The frame the Island window should have for the custom (posEnabled) position, given the frame it has or is about to get.
+// Pure arithmetic apart from the one-screen limit (UIKit, called from hooks only). Idempotent: running it on its own result
+// returns the same frame, which the setFrame: hook below relies on. Since 0.3.0 (batch 8) there are no built-in positions any
+// more: "Fix Island Position" was turned into this custom position once, at the first launch (OITIMigratePresetPositions).
+static CGRect OITIIslandPositionedFrame(CGRect frame) {
+    if (!posEnabled) return frame;
     CGFloat sx = scaleEnabled ? OITISafeScaleValue(scaleX) : 1.0;
     CGFloat sy = scaleEnabled ? OITISafeScaleValue(scaleY) : 1.0;
+    // Stored values are finite and within kOITIPositionCeiling; the one-screen limit is applied here, where UIKit is up.
+    CGFloat yUse = OITIClampedPositionForUse(yPos, NO);
+    CGFloat xUse = OITIClampedPositionForUse(xPos, YES);
+    frame.origin.y = yUse / sy;
+    // Original behavior: with scaling on, only override x when it is set; without scaling, always set it.
+    if (!scaleEnabled || xUse > 0) frame.origin.x = xUse / sx;
+    return frame;
+}
+
+// Remembers the center the window has right now as Apple's own, unless one is known already. Called before OITI moves the window.
+static void OITIRememberStockCenter(UIView *window) {
+    if (objc_getAssociatedObject(window, kOITIStockCenterKey)) return;
+    CGPoint center = window.center;
+    if (!isfinite(center.x) || !isfinite(center.y)) return;
+    objc_setAssociatedObject(window, kOITIStockCenterKey, [NSValue valueWithCGPoint:center], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+// Moves the Island window to the custom position (called from layoutSubviews). The setFrame: hook does the same for frames
+// that SpringBoard sets itself.
+static void OITIApplyIslandPosition(UIView *window) {
+    if (!posEnabled) return;
     CGRect frame = window.frame;
+    CGRect wanted = OITIIslandPositionedFrame(frame);
+    if (CGRectEqualToRect(wanted, frame)) return;
+    OITIRememberStockCenter(window);
+    sOITIWritingOwnIslandFrame = YES;
+    window.frame = wanted;
+    sOITIWritingOwnIslandFrame = NO;
+    objc_setAssociatedObject(window, kOITIPositionMovedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
-    if (posEnabled) {
-        // Stored values are finite and within kOITIPositionCeiling; the one-screen limit is applied here, where UIKit is up.
-        CGFloat yUse = OITIClampedPositionForUse(yPos, NO);
-        CGFloat xUse = OITIClampedPositionForUse(xPos, YES);
-        frame.origin.y = yUse / sy;
-        // Original behavior: with scaling on, only override x when it is set; without scaling, always set it.
-        if (!scaleEnabled || xUse > 0) frame.origin.x = xUse / sx;
-    } else {
-        return;
-    }
-
-    if (!CGRectEqualToRect(frame, window.frame)) window.frame = frame;
+// Use Custom Position was switched off: if OITI had moved the window, put its center back to the one Apple gave it. Done once
+// (the flag is cleared), so it never fights a later layout of Apple's own.
+static void OITIRestoreStockIslandPosition(UIView *window) {
+    if (posEnabled || !objc_getAssociatedObject(window, kOITIPositionMovedKey)) return;
+    objc_setAssociatedObject(window, kOITIPositionMovedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    NSValue *stock = objc_getAssociatedObject(window, kOITIStockCenterKey);
+    if (!stock) return;
+    CGPoint center = stock.CGPointValue;
+    if (isfinite(center.x) && isfinite(center.y) && !CGPointEqualToPoint(window.center, center)) window.center = center;
 }
 
 // Notification banner window position. Returns YES and fills `out` when an override applies.
@@ -103,6 +138,35 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 
 %hook SBSystemApertureWindow
 
+// Reported by a user (iPhone 14 Plus, iOS 16.6, 22 Nov 2026; never seen on the owner's 8 Plus): after a lock and unlock the Island
+// goes back behind the notch until a respring. The position used to be applied only from layoutSubviews, and UIKit does not lay
+// a view out again when only its frame origin changes, so a frame that SpringBoard sets itself (suspected on lock or unlock)
+// was never corrected. This applies the same position to every frame the window is given: Apple's frame goes in first (so the
+// center Apple wanted is known and kept for switching the position off again), then the custom frame replaces it in the same
+// call. It never re-enters setFrame:, the arithmetic is the one layoutSubviews uses, and unusable frames (not finite, null,
+// empty) pass through unchanged. Not device-tested; the cause is a suspicion until the log below shows it.
+- (void)setFrame:(CGRect)frame {
+    %orig(frame);
+    if (sOITIWritingOwnIslandFrame) return;
+    BOOL usable = isfinite(frame.origin.x) && isfinite(frame.origin.y) && isfinite(frame.size.width) &&
+                  isfinite(frame.size.height) && !CGRectIsNull(frame) && !CGRectIsEmpty(frame);
+    if (!usable) return;
+    // Apple's own frame was just applied: its center is the stock place (replaces an older one, Apple may have moved it).
+    CGPoint center = self.center;
+    if (isfinite(center.x) && isfinite(center.y)) {
+        objc_setAssociatedObject(self, kOITIStockCenterKey, [NSValue valueWithCGPoint:center], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (!posEnabled) return;
+    CGRect use = OITIIslandPositionedFrame(frame);
+    if (CGRectEqualToRect(use, frame)) return;
+    // Only when the position had to be corrected: a line here after an unlock is the evidence for the cause.
+    OITLOGGER_LOG_RATED(sLog, 1, @"ISLANDFRAME", @"island.setframe", 5,
+                        @"setFrame incoming=%@ used=%@ current=%@ scale=%d",
+                        NSStringFromCGRect(frame), NSStringFromCGRect(use), NSStringFromCGRect(self.frame), scaleEnabled);
+    %orig(use);
+    objc_setAssociatedObject(self, kOITIPositionMovedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 - (void)layoutSubviews {
     CGRect before = self.frame;
 
@@ -120,6 +184,8 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 
     %orig;
     CGRect afterOrig = self.frame;
+    OITIRememberStockCenter(self);        // before OITI moves anything: this is Apple's place
+    OITIRestoreStockIslandPosition(self); // Use Custom Position was switched off: back to Apple's place
     OITIApplyIslandPosition(self);
 
     if (![sLiveApertureWindows containsObject:self]) [sLiveApertureWindows addObject:self];
