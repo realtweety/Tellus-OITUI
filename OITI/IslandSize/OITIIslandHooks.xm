@@ -29,6 +29,7 @@ static const void *kOITIPassThroughTouchedKey = &kOITIPassThroughTouchedKey;
 // transform (Use Custom Scale) scales around the center and leaves it alone; main thread only.
 static const void *kOITIStockCenterKey = &kOITIStockCenterKey;
 static const void *kOITIPositionMovedKey = &kOITIPositionMovedKey;
+static const void *kOITIDoubleTapProbeKey = &kOITIDoubleTapProbeKey;   // the research probe object (IDEAS #13)
 static BOOL sOITIWritingOwnIslandFrame;   // set while OITI writes the window frame itself, so the setFrame: hook leaves it alone
 
 static CGFloat OITISafeScaleValue(CGFloat value) {
@@ -136,7 +137,114 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 
 %group OITIHooks
 
+// ---- IDEAS #13: double tap on the idle Island opens Tellus (0.4.1 batch 3, builds -d research, -e feature) ---------------------
+// Tellus > Extras > Double Tap Opens Tellus (key ExtrasDoubleTapOpensTellus, default NO, off in Apple Mode). A double-tap
+// recognizer on SBSystemApertureWindow; research build -d showed that the idle Island window takes touches (hit view: a plain
+// UIView under _SBSystemApertureContainerViewContentView) and that the recognizer coexists with Apple's handling. It never cancels
+// or delays touches (cancelsTouchesInView, delaysTouchesBegan and delaysTouchesEnded are all NO, so a single tap reaches Apple's
+// views at the normal time), it takes only touches that start in a band at the top centre of the screen, and it is inert when the
+// switch is off and Log Detail is below 1 (it then refuses every touch). With Log Detail 1 it also logs (ISLANDTOUCH), also with
+// the switch off. A recognized double tap opens Tellus only when every check passes; every decision is logged.
+@interface OITIDoubleTapProbe : NSObject <UIGestureRecognizerDelegate>
+@property (nonatomic, copy) NSString *lastSuperviewClass;   // the class above the view the last offered touch hit
+@property (nonatomic) CFAbsoluteTime lastOpenTime;
+@end
+
+static NSString *const kOITITellusBundleID = @"com.wilburt.tellus";
+static NSString *const kOITIIdleIslandContentClass = @"_SBSystemApertureContainerViewContentView";   // seen for idle taps in build -d
+
+static BOOL OITIProbeInBand(CGPoint screenPoint) {
+    CGRect bounds = [UIScreen mainScreen].bounds;
+    return screenPoint.y < 140.0 && fabs(screenPoint.x - CGRectGetMidX(bounds)) < 130.0;
+}
+
+// nil when the device is unlocked; fails closed when the lock state cannot be read.
+static NSString *OITIDoubleTapLockReason(void) {
+    id lockManager = OITISafeObject(NSClassFromString(@"SBLockScreenManager"), @"sharedInstance");
+    BOOL available = NO;
+    BOOL locked = OITISafeBool(lockManager, @"isUILocked", &available);
+    if (!available) return @"lock state not available";
+    return locked ? @"device is locked" : nil;
+}
+
+@implementation OITIDoubleTapProbe
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    return YES;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldReceiveTouch:(UITouch *)touch {
+    if (!sExtrasDoubleTapOpensTellus && sLog.level < 1) return NO;
+    CGPoint screenPoint = [touch locationInView:nil];
+    BOOL inBand = OITIProbeInBand(screenPoint);
+    if (inBand) {
+        self.lastSuperviewClass = NSStringFromClass([touch.view.superview class]);
+        OITLOGGER_LOG_RATED(sLog, 1, @"ISLANDTOUCH", @"island.touch.receive", 5,
+                            @"recognizer offered a touch at %@ (taps so far %lu) view=%@ superview=%@", NSStringFromCGPoint(screenPoint),
+                            (unsigned long)touch.tapCount, NSStringFromClass([touch.view class]), self.lastSuperviewClass);
+    }
+    return inBand;
+}
+// The first reason this double tap must not open Tellus, or nil when it may.
+- (NSString *)rejectionReason {
+    if (sSafeModeActive) return @"safe mode";
+    if (sAppleMode) return @"Apple Mode";
+    if (!islandEnabled) return @"Insula is off";
+    if (CFAbsoluteTimeGetCurrent() - self.lastOpenTime < 1.0) return @"debounced (opened less than a second ago)";
+    NSString *lockReason = OITIDoubleTapLockReason();
+    if (lockReason) return lockReason;
+    if (sIslandNoticeItems.count > 0 || sDownloadItem) return @"Insula is showing an element";
+    if (![self.lastSuperviewClass isEqualToString:kOITIIdleIslandContentClass]) {
+        return [NSString stringWithFormat:@"the touch did not land in the idle Island view (superview %@)", self.lastSuperviewClass ?: @"unknown"];
+    }
+    return nil;
+}
+- (void)handleDoubleTap:(UITapGestureRecognizer *)recognizer {
+    CGPoint screenPoint = [recognizer locationInView:nil];
+    [sLog logLevel:1 tag:@"ISLANDTOUCH" format:@"DOUBLE TAP recognized at %@ (window frame %@, switch %d)",
+     NSStringFromCGPoint(screenPoint), NSStringFromCGRect(recognizer.view.frame), sExtrasDoubleTapOpensTellus];
+    if (!sExtrasDoubleTapOpensTellus) return;
+    NSString *reason = [self rejectionReason];
+    if (reason) {
+        [sLog logLevel:1 tag:@"ISLANDTOUCH" format:@"double tap rejected: %@", reason];
+        return;
+    }
+    self.lastOpenTime = CFAbsoluteTimeGetCurrent();
+    [sLog logLevel:1 tag:@"ISLANDTOUCH" format:@"double tap accepted: opening %@", kOITITellusBundleID];
+    OITIOpenApp(kOITITellusBundleID);
+}
+@end
+
+// Attached once per window, always: while the switch is off and Log Detail is below 1 it refuses every touch, so it does nothing.
+static void OITIAttachDoubleTapProbe(UIView *window) {
+    if (objc_getAssociatedObject(window, kOITIDoubleTapProbeKey)) return;
+    OITIDoubleTapProbe *probe = [OITIDoubleTapProbe new];
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:probe action:@selector(handleDoubleTap:)];
+    tap.numberOfTapsRequired = 2;
+    tap.cancelsTouchesInView = NO;
+    tap.delaysTouchesBegan = NO;
+    tap.delaysTouchesEnded = NO;   // a tap recognizer delays touchesEnded by default; Apple's views must not wait for us
+    tap.delegate = probe;
+    [window addGestureRecognizer:tap];
+    objc_setAssociatedObject(window, kOITIDoubleTapProbeKey, probe, OBJC_ASSOCIATION_RETAIN_NONATOMIC);   // the delegate is weak
+    [sLog logLevel:1 tag:@"ISLANDTOUCH" format:@"double-tap recognizer attached to %@ (frame %@, interaction %d)", NSStringFromClass([window class]),
+     NSStringFromCGRect(window.frame), window.userInteractionEnabled];
+}
+
 %hook SBSystemApertureWindow
+
+// IDEAS #13 research (log only): what the window answers for a touch near the top centre. nil means the touch passes through to
+// whatever is below; a view means the window's own hierarchy takes it. Returns exactly what Apple returned.
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit = %orig(point, event);
+    if (sLog.level >= 1) {
+        CGPoint screenPoint = [self convertPoint:point toView:nil];
+        if (OITIProbeInBand(screenPoint)) {
+            OITLOGGER_LOG_RATED(sLog, 1, @"ISLANDTOUCH", @"island.touch.hit", 5, @"hitTest point=%@ hit=%@ (superview %@) window frame=%@",
+                                NSStringFromCGPoint(point), hit ? NSStringFromClass([hit class]) : @"nil (passes through)",
+                                hit.superview ? NSStringFromClass([hit.superview class]) : @"-", NSStringFromCGRect(self.frame));
+        }
+    }
+    return hit;
+}
 
 // Reported by a user (iPhone 14 Plus, iOS 16.6, 22 Nov 2026; never seen on the owner's 8 Plus): after a lock and unlock the Island
 // goes back behind the notch until a respring. The position used to be applied only from layoutSubviews, and UIKit does not lay
@@ -187,6 +295,7 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
     OITIRememberStockCenter(self);        // before OITI moves anything: this is Apple's place
     OITIRestoreStockIslandPosition(self); // Use Custom Position was switched off: back to Apple's place
     OITIApplyIslandPosition(self);
+    OITIAttachDoubleTapProbe(self);   // IDEAS #13: inert unless Double Tap Opens Tellus is on or Log Detail is 1
 
     if (![sLiveApertureWindows containsObject:self]) [sLiveApertureWindows addObject:self];
 

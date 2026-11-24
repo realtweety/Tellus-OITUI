@@ -2434,3 +2434,69 @@ sbreload
 
 **4. Tellus 0.1.0 with the new Insula (optional but worth one look).** The released Tellus 0.1.0 must still show its Recovery banners correctly with the new Insula (it ignores the new keys).
 
+## 38. 0.4.1 batch 3: double-tap research probe (build `OITI-exp-0.4.1-d`, IDEAS #13)
+
+Log only: the build opens no app and changes no touch. It answers two questions: does the idle Island window receive a touch near the top centre at all, and does a double-tap recognizer on it coexist with Apple's own handling. Not device-tested.
+
+**1. Install the CI build** (after you push to `experiments` and the run is green; Arch PC, fish; `iproxy 2222 22` running):
+
+```
+cd ~/OITUI
+gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json headSha,conclusion,status
+git rev-parse HEAD
+```
+
+The `headSha` must equal the second line and `conclusion` must be `success`. Then:
+
+```
+rm -rf ~/Downloads/oiti-ci
+gh run download (gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') -D ~/Downloads/oiti-ci
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-ci; mkdir /var/mobile/oiti-ci'
+scp -P 2222 (find ~/Downloads/oiti-ci -name '*.deb') root@127.0.0.1:/var/mobile/oiti-ci/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-ci/*.deb; sbreload'
+```
+
+**2. Turn the probe on.** Tellus > Diagnostics > **Log Detail: Detailed**, then respring.
+
+**3. Do these, in this order, without touching anything else in between** (the Island idle: no timer, download or notification):
+1. Double tap three times on the spot where the Island is (top centre), about a second apart.
+2. Single tap three times on the same spot.
+3. Double tap once near the top left corner, and once in the middle of the screen.
+4. Start a timer in Clock so the Island shows it, double tap the Island twice, then cancel the timer.
+
+**4. Read the result.**
+
+```
+ssh -p 2222 root@127.0.0.1 'grep ISLANDTOUCH /tmp/OITIDebug.log | tail -n 70'
+```
+
+Send me the output and what you saw. How to read it: `hit=nil (passes through)` on the idle Island means the window does not take touches there; a view class means it does; `DOUBLE TAP recognized` lines mean the recognizer works in that state.
+
+**5. Regression (must all pass).** With the probe attached: tapping the status bar still scrolls an app to the top; a notification Island still opens its app when tapped; nothing near the top of the screen feels delayed on a single tap. Turn Log Detail back to Normal afterwards (the probe is inactive there).
+
+## 39. 0.4.1 batch 3: Double Tap Opens Tellus (build `OITI-exp-0.4.1-e`, Tellus > Insula > Extras)
+
+Implemented; the OITI side passes `tools/offline_check.sh`, the Swift side and the project file edit have not been compiled yet (CI is the first compile), nothing is device-tested. **1. Install:** use the install block of section 38, step 1 (push, wait for a green run, download and install the CI packages; this time both Insula and Tellus change). Respring.
+
+**2. Turn it on.** Tellus > Insula > **Extras** > **Double Tap Opens Tellus** on. Tellus > Diagnostics > **Log Detail: Detailed** (so the decisions are logged).
+
+**3. Checks (yes or no each, and what you saw):**
+1. On the Home Screen with the Island idle, double tap the Island: Tellus opens.
+2. Inside another app (Safari, for example), double tap the Island: Tellus opens.
+3. A single tap, and two taps with a pause between them, do not open Tellus.
+4. Two quick double taps in a row: Tellus opens once (a second goes by before it can open again).
+5. Lock the phone, wake it, double tap the Island on the Lock Screen: nothing happens.
+6. Start a timer in Clock (Apple's own Island shows it) and double tap the Island. Tell me what happened: I expect nothing, but this is the check I am least sure of.
+7. With an Insula notification or download element showing, double tap it: Tellus does not open and the notification still behaves as before.
+8. Apple Mode on: nothing happens. Apple Mode off again.
+9. Switch **Double Tap Opens Tellus** off: nothing happens, immediately, without a respring.
+10. Regression (must still pass): the status bar tap scrolls an app to the top; a notification Island opens its app when tapped; single taps near the top do not feel delayed.
+
+**4. Read the log.**
+
+```
+ssh -p 2222 root@127.0.0.1 'grep ISLANDTOUCH /tmp/OITIDebug.log | tail -n 80'
+```
+
+Send me the output and your results. `double tap accepted` and `double tap rejected: <reason>` lines show every decision; an unexpected reason (for example `the touch did not land in the idle Island view` when the Island was idle) tells me which check to change. Afterwards set Log Detail back to Normal.
+

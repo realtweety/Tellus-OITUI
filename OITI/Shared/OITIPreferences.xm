@@ -119,6 +119,7 @@ void preferencesChanged(void) {
     sIslandNotificationStackEnabled = [sOITIPreferences boolForKey:@"islandNotificationStackEnabled" default:YES];
     sNotificationHapticEnabled = [sOITIPreferences boolForKey:@"NotificationHaptic" default:NO];
     sIslandNotificationTapDismisses = [sOITIPreferences boolForKey:@"NotificationTapDismisses" default:NO];
+    sExtrasDoubleTapOpensTellus = [sOITIPreferences boolForKey:@"ExtrasDoubleTapOpensTellus" default:NO];
     islandStartupHelloEnabled = [sOITIPreferences boolForKey:@"IslandStartupHelloEnabled" default:NO];
     BOOL downloadProgressWasEnabled = sDownloadProgressEnabled;
     sDownloadProgressEnabled = [sOITIPreferences boolForKey:@"DownloadProgressEnabled" default:NO];
@@ -159,6 +160,7 @@ void preferencesChanged(void) {
         islandNotificationsEnabled = NO;
         islandNotificationsHideBanner = NO;
         sNotificationHapticEnabled = NO;   // a customization of the stock notification experience, so it is off too
+        sExtrasDoubleTapOpensTellus = NO;       // an Insula extra, so it is off too
         sIslandNotificationTapDismisses = NO;   // it only acts on Island notices, which Apple Mode removes; off for consistency
         islandStartupHelloEnabled = NO;
         sDownloadProgressEnabled = NO;

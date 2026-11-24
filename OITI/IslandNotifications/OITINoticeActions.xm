@@ -23,7 +23,7 @@ void OITIProbeObject(id object, NSString *role) {
 }
 
 // ---- Tap / swipe on the element ----------------------------------------------------------------
-static void OITIOpenApp(NSString *bundleID) {
+void OITIOpenApp(NSString *bundleID) {
     if (!bundleID.length) return;
     UIApplication *application = [UIApplication sharedApplication];
     SEL launch = NSSelectorFromString(@"launchApplicationWithIdentifier:suspended:");

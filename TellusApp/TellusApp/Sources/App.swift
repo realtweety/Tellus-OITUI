@@ -51,6 +51,12 @@ struct TellusApp: App {
                             Label("Download Progress", systemImage: "arrow.down.circle")
                         }
                         .listRowInsets(miscCardInsets)
+                        NavigationLink {
+                            ExtrasSettingsView()
+                        } label: {
+                            Label("Extras", systemImage: "sparkles")
+                        }
+                        .listRowInsets(miscCardInsets)
                     }
 
                     Section {
