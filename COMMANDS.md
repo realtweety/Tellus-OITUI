@@ -2500,3 +2500,13 @@ ssh -p 2222 root@127.0.0.1 'grep ISLANDTOUCH /tmp/OITIDebug.log | tail -n 80'
 
 Send me the output and your results. `double tap accepted` and `double tap rejected: <reason>` lines show every decision; an unexpected reason (for example `the touch did not land in the idle Island view` when the Island was idle) tells me which check to change. Afterwards set Log Detail back to Normal.
 
+### 39b. Build `-f`: why `-e` logged no touches (log only)
+
+Install as in section 38 step 1 (`-f` changes Insula only), Tellus > Diagnostics > **Log Detail: Detailed**, respring. On the phone, in this order, with the phone unlocked on the Home Screen (no app open) and about two seconds between steps: double tap the Island; single tap it; double tap the middle of the screen. Then open any app (Safari) and double tap the Island once more. Then:
+
+```
+sed -n '/START build=OITI-exp-0.4.1-f/,$p' /tmp/OITIDebug.log | grep ISLANDTOUCH | tail -n 60
+```
+
+Send me the whole output and say which of the four steps you did and in what order. Lines named `SpringBoard received a touch ... window=<class>` show who got the touch; `hitTest` and `recognizer offered` lines follow if the Island window got it.
+

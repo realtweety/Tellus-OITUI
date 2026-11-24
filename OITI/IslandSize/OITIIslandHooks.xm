@@ -318,6 +318,26 @@ static void OITIAttachDoubleTapProbe(UIView *window) {
 
 %end
 
+// IDEAS #13 diagnosis (build -f, log only): which window SpringBoard hands a touch that begins near the top centre of the screen.
+// Logs only at Log Detail 1, only for touches that begin in the same band the double-tap recognizer watches, rate limited, and
+// then calls the original unchanged. Compare with the hitTest lines of SBSystemApertureWindow: a line here without a matching
+// hitTest line means another window took the touch; no line here means SpringBoard never received it (an app took it).
+%hook UIApplication
+- (void)sendEvent:(UIEvent *)event {
+    if (sLog.level >= 1 && event.type == UIEventTypeTouches) {
+        for (UITouch *touch in event.allTouches) {
+            if (touch.phase != UITouchPhaseBegan) continue;
+            CGPoint screenPoint = [touch locationInView:nil];
+            if (!OITIProbeInBand(screenPoint)) continue;
+            OITLOGGER_LOG_RATED(sLog, 1, @"ISLANDTOUCH", @"island.touch.event", 5,
+                                @"SpringBoard received a touch at %@ window=%@ view=%@ (taps %lu)", NSStringFromCGPoint(screenPoint),
+                                NSStringFromClass([touch.window class]), NSStringFromClass([touch.view class]), (unsigned long)touch.tapCount);
+        }
+    }
+    %orig(event);
+}
+%end
+
 %hook _SBSystemApertureMagiciansCurtainView
 
 - (void)didMoveToWindow {
