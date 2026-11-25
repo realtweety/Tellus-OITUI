@@ -25,6 +25,12 @@ Treat this file as project guidance, not a substitute for inspecting the current
 - **The root helper's checks are a security boundary.** Do not widen its package allowlist, its folder rules or its checksum and package-name checks, and do not add a mode that touches arbitrary paths, without discussing it with the owner first. After any change to `tellus-helper.c`, run `sh tools/tellus_helper_test.sh` (as root; it needs `dpkg-deb`) and report the result.
 - OITG is not active scope unless the user explicitly asks to work on it. Do not introduce or revive it as part of unrelated work.
 
+## Plans and ideas
+
+- `PLANS.md` holds only work the owner has explicitly accepted, without version numbers or dates. `IDEAS.md` is a pool of unapproved possibilities, not commitments.
+- Claude may recommend, rank and flag risks, but never moves an idea into `PLANS.md` (or starts building one) without the owner's explicit decision. Do not assign release numbers or dates to either file.
+- When work ships, remove it from both files (the history lives in `OVERVIEW.md`, `LEARNINGS.md` and the Git history) instead of leaving it looking like future work.
+
 ## Implementation Standards
 
 - Prefer the smallest correct change that fits the existing architecture. Avoid broad refactors, unrelated cleanup, and speculative rewrites.

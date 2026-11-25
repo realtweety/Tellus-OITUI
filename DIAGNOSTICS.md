@@ -312,4 +312,4 @@ ls -l /var/mobile/Library/Caches/TellusUpdates /var/jb/var/tmp/tellus-install
 dpkg -s com.wilburt.tellus | grep -E 'Status|Version'
 ```
 
-The helper should be `-rwxr-xr-x` owned by root (no `s` bit). `--probe` run as root prints `uid=0 euid=0`; run as `mobile` it prints `uid=501`. A verified download waits in `TellusUpdates` until it is installed or Tellus is removed; the helper's private copy in `tellus-install` should not outlive an install. Off the phone, `sh tools/tellus_helper_test.sh` (as root, needs `dpkg-deb`) checks every refusal path of the helper.
+The helper should be `-rwxr-xr-x` owned by root (no `s` bit). `--probe` run as root prints `uid=0 euid=0`; run as `mobile` it prints `uid=501`. A signing-capable helper also prints `trusted signing keys: 2`. A verified download waits in `TellusUpdates` until it is installed or Tellus is removed; the helper's private copy in `tellus-install` should not outlive an install. Off the phone, `sh tools/tellus_helper_test.sh` (as root, needs `dpkg`, `dpkg-deb` and OpenSSL 3) checks every refusal path of the helper.

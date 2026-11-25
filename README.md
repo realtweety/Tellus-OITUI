@@ -87,4 +87,4 @@ Older releases: [v0.3.7](https://github.com/realtweety/Tellus-OITUI/releases/tag
 
 # Documentation
 
-`OVERVIEW.md` (the modules and plans), `COMMANDS.md` (commands and test steps), `DIAGNOSTICS.md` (logging), `LEARNINGS.md` (technical lessons), `WORKFLOW.md` (branches and releases), `IDEAS.md` (the backlog), `OITUI_HISTORY.md` (how the project got here), `TellusApp/Documentation/` (the app's architecture and feature inventory), `Third Party Licenses/`.
+`OVERVIEW.md` (the modules and plans), `COMMANDS.md` (commands and test steps), `DIAGNOSTICS.md` (logging), `LEARNINGS.md` (technical lessons), `WORKFLOW.md` (branches and releases), `PLANS.md` (accepted forward work), `IDEAS.md` (unapproved ideas), `OITUI_HISTORY.md` (how the project got here), `TellusApp/Documentation/` (the app's architecture and feature inventory), `Third Party Licenses/`.

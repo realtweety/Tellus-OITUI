@@ -74,7 +74,7 @@ example the banner size of a custom banner, or the migration for a device that i
 **Adding a row** (only after a *measured* or explicitly *estimated* record exists): append one row to `kOITIDeviceProfiles`,
 `verified = YES` only for *measured*. A sibling identifier (for example `iPhone10,2` when only `iPhone10,5` was measured) gets no
 row until it is measured itself, because it is a different machine identifier; if you decide to copy values across, mark that row
-`verified = NO` and say why in this file. Update the "Device table" lines in `OVERVIEW.md` and `IDEAS.md` in the same change.
+`verified = NO` and say why in this file. Update the "Device table" lines in `OVERVIEW.md` in the same change.
 
 ## 5. Measurement records
 

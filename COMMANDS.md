@@ -2694,3 +2694,23 @@ git ls-remote --tags origin
 
 Expected: the release list shows `v0.4.1` as the latest (not a pre-release) and `v0.4.1-rc.2`; `git branch -D` prints `Deleted branch experiments (was ff96567)` (or says there is no such branch); the three hashes in the `rev-parse` line are the same; the tag list has `v0.4.1` and older tags, no `rc` tag. Then on the phone, in Tellus: About > Check for Updates with **Include Pre-releases** off: Insula, Tellus and OITCore all `Up to date`.
 
+## 43. Signing a release (design agreed 25 Nov 2026; the app side is not finished, so no release has used this yet)
+
+The private keys live in `~/oitui-signing` on the owner's PC, outside the repository, encrypted with a passphrase: `oitui-release-primary.key` (day-to-day) and `oitui-release-backup.key` (kept offline). Their public halves are the two constants `TELLUS_TRUSTED_KEY_1` and `TELLUS_TRUSTED_KEY_2` in `TellusApp/Helper/tellus-helper.c`. Never copy a `.key` file into the repository, and never put either key into CI.
+
+**Signing step of a release (Arch PC, fish), after the exact release files have been tested.** The files must be in one folder, with the `.deb` file names exactly as they will be attached to the GitHub Release (no `~` in a version: GitHub rewrites it, and a signed manifest cannot be edited afterwards):
+
+```
+cd ~/Downloads/oiti-release
+sha256sum *.deb > SHA256SUMS
+cat SHA256SUMS
+openssl pkeyutl -sign -rawin -inkey ~/oitui-signing/oitui-release-primary.key -in SHA256SUMS -out SHA256SUMS.sig
+openssl pkeyutl -verify -rawin -pubin -inkey ~/oitui-signing/oitui-release-primary.pub.pem -in SHA256SUMS -sigfile SHA256SUMS.sig
+ls -l SHA256SUMS SHA256SUMS.sig
+```
+
+Expected: `cat` lists exactly the three `.deb` files with 64-character hashes; the signing step asks for the key passphrase; the verify line prints `Signature Verified Successfully`; `SHA256SUMS.sig` is exactly 64 bytes. Attach `SHA256SUMS` and `SHA256SUMS.sig` next to the `.deb` files. If a file changes after signing, sign again.
+
+**Off-phone helper tests (a container or Linux, as root; needs `dpkg`, `dpkg-deb` and OpenSSL 3):** `sh tools/tellus_helper_test.sh` must end in `45 passed, 0 failed` (the number grows when checks are added; any `FAIL` line blocks a release).
+
+**Checking the vendored Ed25519 code:** the SHA-256 of each Monocypher file is in `Third Party Licenses/MONOCYPHER-LICENSE.txt`; `sha256sum TellusApp/Helper/monocypher*` must print those values.
