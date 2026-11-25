@@ -2694,7 +2694,7 @@ git ls-remote --tags origin
 
 Expected: the release list shows `v0.4.1` as the latest (not a pre-release) and `v0.4.1-rc.2`; `git branch -D` prints `Deleted branch experiments (was ff96567)` (or says there is no such branch); the three hashes in the `rev-parse` line are the same; the tag list has `v0.4.1` and older tags, no `rc` tag. Then on the phone, in Tellus: About > Check for Updates with **Include Pre-releases** off: Insula, Tellus and OITCore all `Up to date`.
 
-## 43. Signing a release (design agreed 25 Nov 2026; the app side is not finished, so no release has used this yet)
+## 43. Signing a release (design agreed 25 Nov 2026; first used by the Tellus 0.1.2 release candidate, section 44)
 
 The private keys live in `~/oitui-signing` on the owner's PC, outside the repository, encrypted with a passphrase: `oitui-release-primary.key` (day-to-day) and `oitui-release-backup.key` (kept offline). Their public halves are the two constants `TELLUS_TRUSTED_KEY_1` and `TELLUS_TRUSTED_KEY_2` in `TellusApp/Helper/tellus-helper.c`. Never copy a `.key` file into the repository, and never put either key into CI.
 
@@ -2711,6 +2711,145 @@ ls -l SHA256SUMS SHA256SUMS.sig
 
 Expected: `cat` lists exactly the three `.deb` files with 64-character hashes; the signing step asks for the key passphrase; the verify line prints `Signature Verified Successfully`; `SHA256SUMS.sig` is exactly 64 bytes. Attach `SHA256SUMS` and `SHA256SUMS.sig` next to the `.deb` files. If a file changes after signing, sign again.
 
-**Off-phone helper tests (a container or Linux, as root; needs `dpkg`, `dpkg-deb` and OpenSSL 3):** `sh tools/tellus_helper_test.sh` must end in `45 passed, 0 failed` (the number grows when checks are added; any `FAIL` line blocks a release).
+**Off-phone helper tests (a container or Linux, as root; needs `dpkg`, `dpkg-deb` and OpenSSL 3):** `sh tools/tellus_helper_test.sh` must end in `46 passed, 0 failed` (the number grows when checks are added; any `FAIL` line blocks a release). The real helper on the phone is checked with `tools/tellus_helper_device_test.sh` (section 44, step 7).
 
 **Checking the vendored Ed25519 code:** the SHA-256 of each Monocypher file is in `Third Party Licenses/MONOCYPHER-LICENSE.txt`; `sha256sum TellusApp/Helper/monocypher*` must print those values.
+
+## 44. Tellus 0.1.2 release candidate 1: the first signed release candidate
+
+Versions: Tellus `0.1.2` (needs Insula 0.4.1), Insula stays `0.4.1`, OITCore stays `0.1.0`. The candidate carries the final version numbers, so the files you test are the files that would be released. The Insula and OITCore files are the byte-identical ones from the released `v0.4.1` (`WORKFLOW.md`, "Signed releases"); only the Tellus package is new. Arch PC, fish; `gh` logged in; `iproxy 2222 22` running in another terminal for steps 5 to 7; OpenSSL 3 and the keys in `~/oitui-signing`. The pre-release tag `v0.4.2-rc.1` is a working name for the candidate; the tag of the final release is decided at release time.
+
+What this proves, and what it does not: step 5 is the one-time move from the old Tellus 0.1.1 (old helper, no signature check) to the new one; steps 6 and 7 are the first runs of the arm64 helper with your real public keys. The refusal of a package older than the installed one (exit 24) is tested off the phone only (`tools/tellus_helper_test.sh`); on the phone only the version-check plumbing is exercised by the valid install.
+
+**0. Check the starting state.**
+
+```
+cd ~/OITUI
+gh auth status
+openssl version
+ls -l ~/oitui-signing/oitui-release-primary.key ~/oitui-signing/oitui-release-primary.pub.pem
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -s com.wilburt.tellus com.wilburt.oiti com.wilburt.oitcore | grep -E "^(Package|Version)"'
+```
+
+Expected: `OpenSSL 3.x`; both key files exist; the phone shows Tellus `0.1.1`, Insula `0.4.1`, OITCore `0.1.0` (no `+debug`). If it shows something else, put the phone back on the released 0.4.1 first: `gh release download v0.4.1 -D ~/Downloads/oiti-v041`, check `sha256sum -c SHA256SUMS` in that folder, `scp -P 2222` the three `.deb` files to `/var/mobile/oiti-041/` on the phone and run `dpkg -i /var/mobile/oiti-041/*.deb; sbreload` over ssh as in section 41, step 3.
+
+**1. Apply the archive, commit, push.**
+
+```
+tar -xzf ~/Downloads/oitui-tellus-0_1_2-rc1.tar.gz -C ~/OITUI
+cd ~/OITUI
+git status --short
+```
+
+Expected: these files modified and nothing else: `COMMANDS.md`, `OVERVIEW.md`, `WORKFLOW.md`, `TellusApp/TellusApp.xcodeproj/project.pbxproj`, `TellusApp/layout/DEBIAN/control`, `tools/tellus_helper_test.sh`, plus the new `tools/tellus_helper_device_test.sh`.
+
+```
+git add -A
+git commit -m "Tellus 0.1.2: signed-release verification; helper device test script; release docs"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+The last command must print the same hash twice.
+
+**2. CI, the release workflow, the artifact.** Wait about 10 s after the push.
+
+```
+gh run watch (gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+gh workflow run release-oiti.yml --ref experiments
+```
+
+Wait about 10 s, then:
+
+```
+gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId,headSha,status
+git rev-parse HEAD
+```
+
+The `headSha` must equal the second line. Then:
+
+```
+gh run watch (gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+rm -rf ~/Downloads/oiti-tellus-012-ci
+gh run download (gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') -D ~/Downloads/oiti-tellus-012-ci
+find ~/Downloads/oiti-tellus-012-ci -type f
+```
+
+Expected: both runs end green; the `find` lists four files: the OITCore, OITI and Tellus `.deb` files and `SHA256SUMS`, with the Tellus file named `com.wilburt.tellus_0.1.2_iphoneos-arm64.deb` (no `+debug`). If the release run fails, its guard message says why (a `+debug` dependency, an Insula version below Tellus's requirement, or Tellus's two versions differing).
+
+**3. Put the candidate together and sign it.** Only the Tellus package comes from this build.
+
+```
+rm -rf ~/Downloads/oiti-v041 ~/Downloads/oiti-tellus-012-rc
+gh release download v0.4.1 -D ~/Downloads/oiti-v041
+cd ~/Downloads/oiti-v041; and sha256sum -c SHA256SUMS; cd ~/OITUI
+mkdir ~/Downloads/oiti-tellus-012-rc
+cp ~/Downloads/oiti-v041/com.wilburt.oitcore_0.1.0_iphoneos-arm64.deb ~/Downloads/oiti-v041/com.wilburt.oiti_0.4.1_iphoneos-arm64.deb ~/Downloads/oiti-tellus-012-rc/
+cp (find ~/Downloads/oiti-tellus-012-ci -name 'com.wilburt.tellus_0.1.2_iphoneos-arm64.deb') ~/Downloads/oiti-tellus-012-rc/
+cd ~/Downloads/oiti-tellus-012-rc
+sha256sum *.deb > SHA256SUMS
+cat SHA256SUMS
+grep -c -F -x -f ~/Downloads/oiti-v041/SHA256SUMS SHA256SUMS
+```
+
+Expected: the check of the old release prints three `OK` lines; `cat` lists exactly three lines (oitcore `0.1.0`, oiti `0.4.1`, tellus `0.1.2`); the `grep -c` prints `2` (the two unchanged packages have exactly the hashes of the released ones). If it prints `0`, the old list uses another line format: compare those two hashes by eye. Then sign, and check the key that signed is the key built into the helper:
+
+```
+openssl pkeyutl -sign -rawin -inkey ~/oitui-signing/oitui-release-primary.key -in SHA256SUMS -out SHA256SUMS.sig
+openssl pkeyutl -verify -rawin -pubin -inkey ~/oitui-signing/oitui-release-primary.pub.pem -in SHA256SUMS -sigfile SHA256SUMS.sig
+ls -l SHA256SUMS SHA256SUMS.sig
+set pub (openssl pkey -pubin -in ~/oitui-signing/oitui-release-primary.pub.pem -outform DER | tail -c 32 | od -An -tx1 | tr -d ' \n')
+grep -c $pub ~/OITUI/TellusApp/Helper/tellus-helper.c
+cd ~/OITUI
+```
+
+Expected: the signing step asks for the key passphrase; `Signature Verified Successfully`; `SHA256SUMS.sig` is exactly 64 bytes; the `grep -c` prints `1`. If it prints `0`, stop: the key you signed with is not the one the helper trusts.
+
+**4. Publish the candidate as a pre-release (the signed files only).** Pushing a `v*` tag also starts a release workflow run; ignore that run's artifact.
+
+```
+cd ~/OITUI
+git tag -a v0.4.2-rc.1 -m "Tellus 0.1.2 release candidate 1" (git rev-parse HEAD)
+git push origin v0.4.2-rc.1
+gh release create v0.4.2-rc.1 --verify-tag --prerelease --title "Tellus 0.1.2 release candidate 1" --notes "Test build for Tellus 0.1.2 (signed releases). Not for general use. Install it from Tellus (About > Check for Updates > menu > Include Pre-releases)." (find ~/Downloads/oiti-tellus-012-rc -type f)
+gh release view v0.4.2-rc.1 --json isPrerelease,tagName,assets --jq '{isPrerelease, tagName, assets: [.assets[].name]}'
+```
+
+Expected: `isPrerelease` is `true` and there are exactly five assets: the three `.deb` files, `SHA256SUMS` and `SHA256SUMS.sig`, with no `~` in any name.
+
+**5. Update All from the old Tellus (the one-time bootstrap).** On the phone, in Tellus 0.1.1: About > Check for Updates > menu (top right) > **Include Pre-releases** on. It must say `Tellus 0.1.2 release candidate 1 (pre-release)`; Tellus shows an update `0.1.1` to `0.1.2`, OITCore and Insula `Up to date`. Tap **Update All**. Expected: `Tellus was updated. Close and reopen Tellus to use the new version.` (Tellus may close). Reopen it: About shows Tellus `0.1.2`. Then:
+
+```
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -s com.wilburt.tellus | grep Version; /var/jb/usr/libexec/tellus-helper --probe | tail -1'
+```
+
+Expected: `Version: 0.1.2` and `trusted signing keys: 2`.
+
+**6. A signed install through the new Tellus.** In Tellus 0.1.2: About > Check for Updates > menu > **Include Pre-releases** on and **Allow Reinstall** on. All three rows say `Up to date`.
+- OITCore row: **Download to Reinstall**. Expected `Downloaded and verified`; then **Reinstall**, confirm. Expected `OITCore was installed.`, and **Details** contains `STEP: signature verified`, `STEP: checksum verified`, `STEP: version checked` and `RESULT: installed com.wilburt.oitcore`.
+- Tellus row: **Download to Reinstall**, then **Reinstall**, confirm. Tellus replaces itself and closes; reopen it. Expected: About still shows Tellus `0.1.2`.
+
+**7. The real helper, tampered files (on the phone, over ssh).**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/tellus-rc-test; mkdir /var/mobile/tellus-rc-test'
+scp -P 2222 ~/OITUI/tools/tellus_helper_device_test.sh ~/Downloads/oiti-tellus-012-rc/com.wilburt.oitcore_0.1.0_iphoneos-arm64.deb ~/Downloads/oiti-tellus-012-rc/SHA256SUMS ~/Downloads/oiti-tellus-012-rc/SHA256SUMS.sig root@127.0.0.1:/var/mobile/tellus-rc-test/
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/tellus-rc-test/tellus_helper_device_test.sh /var/mobile/tellus-rc-test'
+```
+
+Expected: nine `ok` lines (two trusted keys reported; the signed release accepted, which reinstalls OITCore; a changed `SHA256SUMS` refused with 22; a changed signature byte 22; a missing signature 21; a changed package 18; a package the signed list does not mention 23; a package outside the update folder 14; a package ID that is not allowed 11) and `9 passed, 0 failed`. Any `FAIL` line shows the exit code it got instead: paste it.
+
+**8. An unsigned release is refused.** In Tellus: menu > **Include Pre-releases** off, **Allow Reinstall** on. The stable release is the unsigned `0.4.1`: OITCore and Insula say `Up to date`, Tellus says `Newer than release` with no buttons. On the OITCore row tap **Download to Reinstall**. Expected: an orange message, `This release is not signed, so Tellus will not install it. You can still install its .deb yourself with Sileo, Zebra or dpkg.` Nothing is downloaded or installed.
+
+**9. Answer these yes/no (and paste anything that was not as expected).** I give the readiness verdict from your answers, as for every release.
+1. CI and the release run green, and the five release assets as listed in step 4.
+2. Step 3: the unchanged packages matched the released hashes (`2`), the signature verified, and the key check printed `1`.
+3. Step 5: Update All from 0.1.1 installed Tellus 0.1.2, and `--probe` said two trusted keys.
+4. Step 6: the OITCore reinstall succeeded with the four `STEP` lines in Details.
+5. Step 6: the Tellus reinstall succeeded and About shows `0.1.2`.
+6. Step 7: `9 passed, 0 failed`.
+7. Step 8: the unsigned release was refused with the "not signed" message.
+8. Afterwards the phone works normally (Tellus opens, Insula settings load, the Island behaves as before).
+
+The candidate is deleted or promoted afterwards as in section 42 (`gh release delete v0.4.2-rc.1 --cleanup-tag --yes` and `git tag -d v0.4.2-rc.1` if it is deleted).
+

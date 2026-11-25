@@ -202,5 +202,17 @@ else
     echo "skip not running as root (no setpriv)"
 fi
 
+# ---- the on-phone test script, run here against this test build (test keys, fake dpkg)
+mkdir -p "$W/devsrc"
+cp "$W/core.orig" "$W/devsrc/$CORE"
+( cd "$W/devsrc" && sha256sum "$CORE" > SHA256SUMS )
+openssl pkeyutl -sign -rawin -inkey "$W/keyA.pem" -in "$W/devsrc/SHA256SUMS" -out "$W/devsrc/SHA256SUMS.sig"
+rm -f "$W/installed/"*
+if HELPER="$W/helper" STAGE="$W/stage" sh "$HERE/tools/tellus_helper_device_test.sh" "$W/devsrc" > "$W/devtest.log" 2>&1; then
+    ok "tools/tellus_helper_device_test.sh passes against this test build ($(grep -c '^ok' "$W/devtest.log") checks)"
+else
+    bad "tools/tellus_helper_device_test.sh fails against this test build"; sed 's/^/     /' "$W/devtest.log"
+fi
+
 echo; echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
