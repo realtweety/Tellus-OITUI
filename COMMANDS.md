@@ -2241,8 +2241,433 @@ In Tellus: About > Check for Updates > menu > **Include Pre-releases** on. It mu
 10. Optional (not run in earlier releases): remove Insula, which runs the `prerm` MobileGestalt restore, then reinstall all three from the candidate and respring.
 11. Set the phone back to a normal state (level 0, no research files) and delete the pre-release when the release is out (`gh release delete v0.4.0-rc.1 --cleanup-tag --yes`).
 
-**6. Update All (optional, recommended before the release).** Update All needs a release that is newer than what is installed, so the candidate itself cannot show it. If you want to see it run, tell me and I will prepare a throwaway change (Insula `0.4.1`, Tellus `0.1.1` and a matching `Depends`) for a second pre-release; the real release does not include it.
+**6. Update All (0.4.0 shipped without this test; do it with the first release newer than 0.4.0).** Update All needs a release that is newer than what is installed, so the 0.4.0 candidate itself could not show it. Next time: install the current release (all three packages), publish the next candidate as a pre-release with higher versions, switch Include Pre-releases on, and Update All must appear and install OITCore, Insula and Tellus in that order. If you want to see it run, tell me and I will prepare a throwaway change (Insula `0.4.1`, Tellus `0.1.1` and a matching `Depends`) for a second pre-release; the real release does not include it.
 
 **7. The verdict.** I give you my honest readiness verdict from your answers, and the release happens only if we both agree.
 
 **8. Release (only after we both agree).** I will give the PR, merge, tree check, tag and `gh release create --verify-tag` block with the tested hashes and the release text then (tag first; the text of the GitHub Release is the only release note: `--notes`, never `--notes-file`; attach the three `.deb` files and `SHA256SUMS` of the tested run; the pattern is section 32).
+
+## 35. 0.4.1 batch 1: Island position after lock and unlock (build tag `OITI-exp-0.4.1-b`)
+
+Implemented and checked off the phone (`tools/offline_check.sh`); build `-a` was device-tested on the 8 Plus (checks 1, 2, 4, 5 passed, check 3 failed), build `-b` is not. You cannot reproduce the bug on the iPhone 8 Plus, so this check is a regression check, and the reporter's phone is the real test.
+
+**1. Build and install (Arch PC, fish).** OITCore is unchanged, so only OITI is built. The USB tunnel from section 3 must be running (`iproxy 2222 22` in another terminal); the phone asks for the root password twice.
+
+```
+cd ~/OITUI/OITI
+THEOS_DEVICE_IP=localhost THEOS_DEVICE_PORT=2222 make package install
+```
+
+Expected: the build finishes without errors (the known arm64e ABI linker warnings can be ignored), the package installs and the phone resprings.
+
+**2. Boot summary (phone).**
+
+```
+grep -e SESSION /tmp/OITIDebug.log
+```
+
+Expected: a `SESSION` line with the build tag `OITI-exp-0.4.1-b`.
+
+**3. Regression checks (phone screen).**
+
+1. Settings > Insula > main page, turn on **Use Custom Position** and move the X and Y sliders: the Island moves live, as before.
+2. Lock and unlock the phone twice: the Island stays at the custom position (on your phone it did before the change; this must stay so).
+3. Turn **Use Custom Position** off: the Island returns to the stock place with no respring (build `-a` failed this check: the gap is older than the hook and build `-b` fixes it). Also try it with **Use Custom Scale** on and then off, and turn the position on again afterwards: it must move back to your custom place.
+4. Start a timer (Clock) and lock and unlock: the Island still shows it at the right place.
+5. Respring-loop guard: `COMMANDS.md`, section 7, unchanged.
+
+**4. Log check (optional, shows whether the hook ever corrects a frame).**
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 1
+killall -9 SpringBoard
+```
+
+Then lock and unlock the phone a few times and run:
+
+```
+grep ISLANDFRAME /tmp/OITIDebug.log
+```
+
+On your phone no line (or only lines at the first layout) is the normal result, since you never see the bug. Set the level back afterwards:
+
+```
+defaults write com.wilburt.oiti.prefs DiagnosticsLevel -int 0
+killall -9 SpringBoard
+```
+
+**5. For the Reddit reporter** (iPhone 14 Plus, iOS 16.6): after you publish a pre-release with the package, ask him to turn Diagnostics Level to 1, lock and unlock, and send `/tmp/OITIDebug.log` (the `ISLANDFRAME` lines are the evidence). I will write his exact message when the package exists.
+
+## 36. 0.4.1 release candidate 1 (pre-release for the Reddit reporter): build, test, publish
+
+Insula `0.4.1~rc.1` (build tags `OITI-0.4.1-rc.1`, `OITIPrefs-0.4.1-rc.1`); OITCore `0.1.0` and Tellus `0.1.0` unchanged. Run it after section 35 passed on your phone (it did, build `-b`). Arch PC, fish only (the blocks use fish syntax, and `$(...)` needs fish 3.4 or newer). `gh` must be logged in there: check with `gh auth status`; if it is not, tell me and I will give the Mac (zsh) version instead. `iproxy 2222 22` must run in another terminal for step 3.
+
+**Lesson from this release candidate (23 Nov 2026):** GitHub rewrote `~` to `.` in the Insula asset name, which made Tellus refuse the download until `SHA256SUMS` was re-uploaded with the dotted name (`WORKFLOW.md`, "No `~` in a version that Tellus has to download"). For the next pre-release give the version no `~`.
+
+**1. Apply the archive and commit.**
+
+```
+tar -xzf ~/Downloads/oitui-v041-rc1.tar.gz -C ~/OITUI
+cd ~/OITUI
+git status --short
+```
+
+Expected: the files of the archive (the position fix of `-a` and `-b` plus this batch) and nothing else. Then:
+
+```
+git add -A
+git commit -m "0.4.1 rc.1: Island position after lock/unlock and when switched off, ISLANDFRAME in Copy Report"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+The last command must print the same hash twice.
+
+**2. CI, then the release workflow, then the artifact.** Wait about 10 s after the push so the run exists.
+
+```
+gh run watch $(gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+```
+
+Expected: ends green. Then:
+
+```
+gh workflow run release-oiti.yml --ref experiments
+```
+
+Wait about 10 s, then:
+
+```
+gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId,headSha,status
+git rev-parse HEAD
+```
+
+The `headSha` must equal the hash printed second. Then:
+
+```
+gh run watch $(gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+rm -rf ~/Downloads/oiti-rc2
+gh run download $(gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') -D ~/Downloads/oiti-rc2
+find ~/Downloads/oiti-rc2 -type f
+```
+
+Expected: the `find` lists exactly four files: `com.wilburt.oitcore_0.1.0...deb`, `com.wilburt.oiti_0.4.1~rc.1...deb` (or `0.4.1-rc.1`, depending on how the file name is written), `com.wilburt.tellus_0.1.0...deb` (no `debug` in any name) and `SHA256SUMS`. Then the sums:
+
+```
+cd (dirname (find ~/Downloads/oiti-rc2 -name SHA256SUMS | head -n 1)); and sha256sum -c SHA256SUMS; cd ~/OITUI
+```
+
+Expected: three `OK` lines.
+
+**3. Install those exact files on your phone.**
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-rc2; mkdir /var/mobile/oiti-rc2'
+scp -P 2222 (find ~/Downloads/oiti-rc2 -name '*.deb') root@127.0.0.1:/var/mobile/oiti-rc2/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-rc2/*.deb; sbreload'
+```
+
+(dpkg may print a downgrade note for OITCore or Tellus if your phone had a `+debug` build: that is fine.) Wait about 20 s, then on the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.tellus | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+```
+
+Expected: `Version: 0.4.1~rc.1`, `Version: 0.1.0` (no `+debug`) and `build=OITI-0.4.1-rc.1`. Repeat the checks of section 35 step 3 (position on, lock and unlock, position off and on) and section 34 step 5 checks 1 to 4 on this release package. Open Tellus > About: Insula must say `0.4.1~rc.1` (if it shows something else, tell me what).
+
+**4. Publish the tested files as a pre-release.** Pushing a `v*` tag also starts a release workflow run; ignore that run's artifact and attach the files you tested.
+
+```
+git tag -a v0.4.1-rc.1 -m "0.4.1 release candidate 1" (git rev-parse HEAD)
+git push origin v0.4.1-rc.1
+gh release create v0.4.1-rc.1 --verify-tag --prerelease --title "0.4.1 release candidate 1" --notes "Test build for a bug where the Island goes back behind the notch after a lock and unlock. Not for general use. Install it from Tellus (About > Check for Updates > menu > Include Pre-releases), or install the Insula .deb by hand." (find ~/Downloads/oiti-rc2 -type f \( -name '*.deb' -o -name SHA256SUMS \))
+```
+
+Then check it through Tellus on your own phone: About > Check for Updates > menu > **Include Pre-releases** on. If your phone already has `0.4.1~rc.1` it says `Up to date`; with **Allow Reinstall and Downgrade** on you can reinstall Insula from it.
+
+**5. Message for the Reddit reporter** (reply to his comment):
+
+> Thanks for the report! I think I found a likely cause and made a test build (I can't reproduce it on my own phone, so you are the test). Please try it: in Tellus go to About > Check for Updates, open the menu (top right) and switch on "Include Pre-releases", then tap Update (or Update All) and respring. If you don't have Tellus, download the Insula .deb from the 0.4.1 release candidate 1 page on GitHub and install it with Sileo or Filza.
+> To tell me whether it worked: lock and unlock your phone a few times. If the Island still goes back behind the notch, open Tellus > Diagnostics, set Log Detail to Detailed, respring, lock and unlock again until it happens, then tap "Copy Report to Clipboard" and send me the text (a paste or a DM is fine). If it works now, just tell me, no log needed.
+
+**6. After his answer.** If it works: tell me and we release `0.4.1` (a normal release: section 32's pattern, with the rc deleted by `gh release delete v0.4.1-rc.1 --cleanup-tag --yes`). If it does not: the report's `ISLANDFRAME` lines (or their absence) tell us whether the window frame is reset through `setFrame:` at all.
+
+## 37. 0.4.1 batch 2: Insula Status page (Tellus > Diagnostics > Insula Status; build tag `OITI-exp-0.4.1-c`)
+
+Implemented; the OITI side passes `tools/offline_check.sh`, the Swift side has not been compiled anywhere yet (CI is the first compile) and nothing is device-tested. Insula and Tellus both change, so push to `experiments` first and let CI build the packages (section 36 step 2 shows how to watch the run), or build Tellus on the Mac (`cd TellusApp && make package`). Install both, respring, then:
+
+**1. Self-check file (phone, after a respring and about 10 s).**
+
+```
+cat /var/mobile/Library/Preferences/OITISelfCheck.plist
+```
+
+Expected: a plist with `result` = `ok`, an empty `issues` array and `build` = `OITI-exp-0.4.1-c`.
+
+**2. The page (phone screen).** Open Tellus > Diagnostics > Insula Status. Checks (yes or no each):
+1. **Healthy state:** the summary says "Nothing is switched off", and Now shows Insula switch On, Apple Mode Off, Safe mode Off, Hooks installed Yes, Island elements On and the running build.
+2. **Respring-loop guard:** it says On and `0 of 5 in 120 s` (or a small count if you just resprang).
+3. **Startup Check:** Result OK with a time, no issue lines.
+4. **Insula switch:** in Tellus > Island turn **Enable Dynamic Island** off (it asks for a respring as before). Open Tellus > Diagnostics > Insula Status: the summary lists "The Insula switch is off." and Now shows Insula switch Off. Turn **Enable Dynamic Island** on again and respring.
+5. **Apple Mode:** turn it on: the summary lists Apple Mode. Turn it off again.
+6. **Safe mode.** On the phone (SSH, zsh) fake four recent launches, so the next respring is the fifth and trips the guard:
+
+```
+NOW=$(date +%s)
+cat > /var/mobile/Library/Preferences/OITIBootLog.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>launches</key><array>
+<real>$((NOW-30))</real><real>$((NOW-20))</real><real>$((NOW-15))</real><real>$((NOW-10))</real>
+</array></dict></plist>
+EOF
+chown mobile:mobile /var/mobile/Library/Preferences/OITIBootLog.plist
+sbreload
+```
+
+   After about 10 seconds open Tellus > Diagnostics > Insula Status: the summary says safe mode is on, Hooks installed says No, the reason ("5 SpringBoard launches within 120 s") is under Now, and the guard section shows the launches counted. Then tap **Clear Safe Mode & Respring** in the banner at the top of the page: the Island comes back after the respring and the page says "Nothing is switched off" again.
+7. **Old file test:** `rm /var/mobile/Library/Preferences/OITISelfCheck.plist`, then open the page: Startup Check says "Not run yet" (no crash, no empty page).
+
+**3. Insula switched off in a tweak manager (optional).** If your tweak manager can disable Insula for SpringBoard, do it and respring: the page shows "No answer from SpringBoard" with the explanation under it, and enabling Insula again brings the page back after a respring.
+
+**4. Tellus 0.1.0 with the new Insula (optional but worth one look).** The released Tellus 0.1.0 must still show its Recovery banners correctly with the new Insula (it ignores the new keys).
+
+> **Superseded by section 40.** The window-recognizer approach of builds `-d` and `-e` does not work for an idle Island (see `LEARNINGS.md`).
+
+## 38. 0.4.1 batch 3: double-tap research probe (build `OITI-exp-0.4.1-d`, IDEAS #13)
+
+Log only: the build opens no app and changes no touch. It answers two questions: does the idle Island window receive a touch near the top centre at all, and does a double-tap recognizer on it coexist with Apple's own handling. Not device-tested.
+
+**1. Install the CI build** (after you push to `experiments` and the run is green; Arch PC, fish; `iproxy 2222 22` running):
+
+```
+cd ~/OITUI
+gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json headSha,conclusion,status
+git rev-parse HEAD
+```
+
+The `headSha` must equal the second line and `conclusion` must be `success`. Then:
+
+```
+rm -rf ~/Downloads/oiti-ci
+gh run download (gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') -D ~/Downloads/oiti-ci
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-ci; mkdir /var/mobile/oiti-ci'
+scp -P 2222 (find ~/Downloads/oiti-ci -name '*.deb') root@127.0.0.1:/var/mobile/oiti-ci/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-ci/*.deb; sbreload'
+```
+
+**2. Turn the probe on.** Tellus > Diagnostics > **Log Detail: Detailed**, then respring.
+
+**3. Do these, in this order, without touching anything else in between** (the Island idle: no timer, download or notification):
+1. Double tap three times on the spot where the Island is (top centre), about a second apart.
+2. Single tap three times on the same spot.
+3. Double tap once near the top left corner, and once in the middle of the screen.
+4. Start a timer in Clock so the Island shows it, double tap the Island twice, then cancel the timer.
+
+**4. Read the result.**
+
+```
+ssh -p 2222 root@127.0.0.1 'grep ISLANDTOUCH /tmp/OITIDebug.log | tail -n 70'
+```
+
+Send me the output and what you saw. How to read it: `hit=nil (passes through)` on the idle Island means the window does not take touches there; a view class means it does; `DOUBLE TAP recognized` lines mean the recognizer works in that state.
+
+**5. Regression (must all pass).** With the probe attached: tapping the status bar still scrolls an app to the top; a notification Island still opens its app when tapped; nothing near the top of the screen feels delayed on a single tap. Turn Log Detail back to Normal afterwards (the probe is inactive there).
+
+## 39. 0.4.1 batch 3: Double Tap Opens Tellus (build `OITI-exp-0.4.1-e`, Tellus > Insula > Extras)
+
+Implemented; the OITI side passes `tools/offline_check.sh`, the Swift side and the project file edit have not been compiled yet (CI is the first compile), nothing is device-tested. **1. Install:** use the install block of section 38, step 1 (push, wait for a green run, download and install the CI packages; this time both Insula and Tellus change). Respring.
+
+**2. Turn it on.** Tellus > Insula > **Extras** > **Double Tap Opens Tellus** on. Tellus > Diagnostics > **Log Detail: Detailed** (so the decisions are logged).
+
+**3. Checks (yes or no each, and what you saw):**
+1. On the Home Screen with the Island idle, double tap the Island: Tellus opens.
+2. Inside another app (Safari, for example), double tap the Island: Tellus opens.
+3. A single tap, and two taps with a pause between them, do not open Tellus.
+4. Two quick double taps in a row: Tellus opens once (a second goes by before it can open again).
+5. Lock the phone, wake it, double tap the Island on the Lock Screen: nothing happens.
+6. Start a timer in Clock (Apple's own Island shows it) and double tap the Island. Tell me what happened: I expect nothing, but this is the check I am least sure of.
+7. With an Insula notification or download element showing, double tap it: Tellus does not open and the notification still behaves as before.
+8. Apple Mode on: nothing happens. Apple Mode off again.
+9. Switch **Double Tap Opens Tellus** off: nothing happens, immediately, without a respring.
+10. Regression (must still pass): the status bar tap scrolls an app to the top; a notification Island opens its app when tapped; single taps near the top do not feel delayed.
+
+**4. Read the log.**
+
+```
+ssh -p 2222 root@127.0.0.1 'grep ISLANDTOUCH /tmp/OITIDebug.log | tail -n 80'
+```
+
+Send me the output and your results. `double tap accepted` and `double tap rejected: <reason>` lines show every decision; an unexpected reason (for example `the touch did not land in the idle Island view` when the Island was idle) tells me which check to change. Afterwards set Log Detail back to Normal.
+
+### 39b. Build `-f`: why `-e` logged no touches (log only)
+
+Install as in section 38 step 1 (`-f` changes Insula only), Tellus > Diagnostics > **Log Detail: Detailed**, respring. On the phone, in this order, with the phone unlocked on the Home Screen (no app open) and about two seconds between steps: double tap the Island; single tap it; double tap the middle of the screen. Then open any app (Safari) and double tap the Island once more. Then:
+
+```
+sed -n '/START build=OITI-exp-0.4.1-f/,$p' /tmp/OITIDebug.log | grep ISLANDTOUCH | tail -n 60
+```
+
+Send me the whole output and say which of the four steps you did and in what order. Lines named `SpringBoard received a touch ... window=<class>` show who got the touch; `hitTest` and `recognizer offered` lines follow if the Island window got it.
+
+## 40. 0.4.1 batch 3: Double Tap Opens Tellus, status bar approach (build `OITI-exp-0.4.1-g`)
+
+Replaces sections 38 to 39b. Implemented, `tools/offline_check.sh` passes, nothing device-tested. Install as in section 38 step 1 (Insula changes only; push to `experiments`, wait for a green run, install the CI packages), respring. Tellus > Insula > **Extras** > **Double Tap Opens Tellus** on, Tellus > Diagnostics > **Log Detail: Detailed**.
+
+**Checks (yes or no each, and what you saw).** The Island must be really idle for 1 to 4: no timer, music, call or Insula element.
+1. On the Home Screen, double tap the Island: Tellus opens.
+2. Inside another app (Safari), double tap the Island: Tellus opens.
+3. A single tap does not open Tellus; neither do two taps with a pause of a second or more.
+4. Two quick double taps in a row: Tellus opens once.
+5. Lock the phone, wake it, double tap the Island: nothing happens.
+6. Start a timer in Clock and double tap the Island: I expect nothing from Insula (the Island takes the touch); tell me what happened.
+7. Apple Mode on: nothing happens. Apple Mode off again.
+8. Switch **Double Tap Opens Tellus** off: nothing happens, with no respring.
+9. Regression: the status bar tap still scrolls an app to the top; a notification Island still opens its app when tapped; nothing near the top feels delayed.
+
+**Read the log** (right after the checks):
+
+```
+sed -n '/START build=OITI-exp-0.4.1-g/,$p' /tmp/OITIDebug.log | grep ISLANDTOUCH | tail -n 60
+```
+
+Send me the output with your results. `double tap accepted` / `double tap rejected: <reason>` lines show every decision. If the Island is not where the code looks for it, the `touch began at ...` lines show where your taps land (the code watches y under 60 pt and within 90 pt of the middle of the screen). Afterwards set Log Detail back to Normal.
+
+## 41. 0.4.1 release candidate 2: build, put the phone back on 0.4.0, test Update All, then the checks
+
+Versions: Insula `0.4.1`, Tellus `0.1.1` (needs Insula 0.4.1), OITCore stays `0.1.0` (nothing changed in it; `WORKFLOW.md`). The candidate carries the final version numbers, so the files you test are the files that would be released. Arch PC, fish only (fish 3.4 or newer); `gh` logged in (`gh auth status`); `iproxy 2222 22` running in another terminal for steps 3 and 4. This is the first time Update All runs for real.
+
+**0. Remove the stale `v0.4.1-rc.1` pre-release** (its Insula asset is named `0.4.1.rc.1`, which sorts above `0.4.1`, so Tellus could offer it as newer than the release):
+
+```
+gh release delete v0.4.1-rc.1 --cleanup-tag --yes
+git tag -d v0.4.1-rc.1
+git ls-remote --tags origin
+```
+
+Expected: the last command lists no `v0.4.1-rc.1` (only `v0.4.0` and older tags). If `git tag -d` says the tag does not exist, that is fine.
+
+**1. Apply the archive, commit, push.**
+
+```
+tar -xzf ~/Downloads/oitui-v041-rc2.tar.gz -C ~/OITUI
+cd ~/OITUI
+git status --short
+```
+
+Expected: thirteen modified files and nothing else: `COMMANDS.md`, `DIAGNOSTICS.md`, `IDEAS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `README.md`, `WORKFLOW.md`, `OITI/IslandSize/OITIIslandHooks.xm`, `OITI/OITIPrefs/OITIRootListController.m`, `OITI/Tweak.xm`, `OITI/control`, `TellusApp/TellusApp.xcodeproj/project.pbxproj` and `TellusApp/layout/DEBIAN/control`. (If build `-g` is still uncommitted on your PC it is included in these files; that is fine.) Then:
+
+```
+git add -A
+git commit -m "0.4.1 rc.2: Insula 0.4.1, Tellus 0.1.1, double tap from the status bar touch, docs"
+git push origin experiments
+git rev-parse HEAD origin/experiments
+```
+
+The last line must print the same hash twice.
+
+**2. CI, the release workflow, the artifact.** Wait about 10 s after the push.
+
+```
+gh run watch (gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+gh workflow run release-oiti.yml --ref experiments
+```
+
+Expected: the first command ends green; the second prints that the workflow run was created. Wait about 10 s, then:
+
+```
+gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId,headSha,status
+git rev-parse HEAD
+```
+
+The `headSha` must equal the second line. Then:
+
+```
+gh run watch (gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+rm -rf ~/Downloads/oiti-041
+gh run download (gh run list --workflow=release-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') -D ~/Downloads/oiti-041
+find ~/Downloads/oiti-041 -type f
+cd (dirname (find ~/Downloads/oiti-041 -name SHA256SUMS | head -n 1)); and sha256sum -c SHA256SUMS; cd ~/OITUI
+```
+
+Expected: the watch ends green (if the release run fails, its guard message says why: a `+debug` dependency, an Insula version below Tellus's requirement, or Tellus's two versions differing). The `find` lists exactly four files: `com.wilburt.oitcore_0.1.0_iphoneos-arm64.deb`, `com.wilburt.oiti_0.4.1_iphoneos-arm64.deb`, `com.wilburt.tellus_0.1.1_iphoneos-arm64.deb` and `SHA256SUMS`; the sums print three `OK` lines.
+
+**3. Put the phone on the released 0.4.0 state** (OITCore `0.1.0`, Insula `0.4.0`, Tellus `0.1.0`), so that 0.4.1 is a real update. This temporarily removes the 0.4.1 features from the phone.
+
+```
+rm -rf ~/Downloads/oiti-040
+gh release download v0.4.0 -D ~/Downloads/oiti-040
+cd ~/Downloads/oiti-040; and sha256sum -c SHA256SUMS; cd ~/OITUI
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-040; mkdir /var/mobile/oiti-040'
+scp -P 2222 (find ~/Downloads/oiti-040 -name '*.deb') root@127.0.0.1:/var/mobile/oiti-040/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-040/*.deb; sbreload'
+```
+
+Expected: three `OK` lines, then dpkg unpacks and sets up all three (downgrade notes are fine), and the phone resprings. After about 20 s, on the phone (`ssh -p 2222 root@127.0.0.1`):
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.oitcore | grep Version
+dpkg -s com.wilburt.tellus | grep Version
+```
+
+Expected: `Version: 0.4.0`, `Version: 0.1.0`, `Version: 0.1.0` (no `+debug`). Open Tellus once: About shows Tellus `0.1.0` and Insula `0.4.0`.
+
+**4. Publish the candidate as a pre-release (the tested files only) and run Update All from it.** Pushing a `v*` tag also starts a release workflow run; ignore that run's artifact.
+
+```
+cd ~/OITUI
+git tag -a v0.4.1-rc.2 -m "0.4.1 release candidate 2" (git rev-parse HEAD)
+git push origin v0.4.1-rc.2
+gh release create v0.4.1-rc.2 --verify-tag --prerelease --title "0.4.1 release candidate 2" --notes "Test build for 0.4.1. Not for general use. Install it from Tellus (About > Check for Updates > menu > Include Pre-releases)." (find ~/Downloads/oiti-041 -type f \( -name '*.deb' -o -name SHA256SUMS \))
+gh release view v0.4.1-rc.2 --json isPrerelease,tagName,assets --jq '{isPrerelease, tagName, assets: [.assets[].name]}'
+```
+
+Expected: `isPrerelease` true and four assets with the exact names from step 2 (no `~` in any name, so GitHub renames nothing). On the phone, in Tellus: About > Check for Updates > menu > **Include Pre-releases** on. Expected: `0.4.1 release candidate 2 (pre-release)`; OITCore `Up to date`; Insula `0.4.0` to `0.4.1`; Tellus `0.1.0` to `0.1.1`; **Update All** is visible. Tap **Update All**. Expected: Insula installs first, then Tellus (last; the app may close and need opening again), with success messages. Tell me what each screen said, the order, how long it took and anything odd; if it stops with an error, copy the text exactly. Then on the phone:
+
+```
+dpkg -s com.wilburt.oiti | grep Version
+dpkg -s com.wilburt.oitcore | grep Version
+dpkg -s com.wilburt.tellus | grep Version
+grep "START build" /tmp/OITIDebug.log | tail -n 1
+ls -l /var/jb/usr/libexec/
+ls /var/mobile/Library/Caches/TellusUpdates
+```
+
+Expected: `0.4.1`, `0.1.0`, `0.1.1` (no `+debug`); after a respring `build=OITI-0.4.1`; the helper `-rwxr-xr-x` owned by root; the last command prints nothing. Respring if Tellus asks, then open Tellus > About > Check for Updates: every component `Up to date`. If Update All fails half way, reinstall the candidate by hand (the pattern of step 3 with `~/Downloads/oiti-041`) and tell me what it said.
+
+**5. The checks on the release files** (yes or no each; tell me what you saw when it is not a plain yes):
+1. Settings > Insula (the old pane) shows `0.4.1` at the bottom and every page opens; Tellus opens and every page opens; About shows Tellus `0.1.1` and Insula `0.4.1`.
+2. Stock look: with every Island setting at its default the Island and a real notification look stock.
+3. Position (section 35, step 3): Use Custom Position on and moved live; lock and unlock twice, the Island stays; off returns it to the stock place without a respring; on again returns it to your place; the same with Use Custom Scale on and then off.
+4. Insula Status (section 37, step 2, checks 1 to 7): healthy summary, guard line, Startup Check OK, Insula switch off and on, Apple Mode, the safe-mode trip with its pasteable commands and **Clear Safe Mode & Respring**, and the missing-file check.
+5. Double Tap Opens Tellus (section 40, checks 1 to 9) on these files; with Log Detail on Detailed the lines are `double tap accepted` and `double tap rejected: <reason>`, and a second `rejected` line per touch (the system gesture copy) no longer appears.
+6. Tellus: a slider applies live; **Respring** asks first and works; **Enable Dynamic Island** off and on again works (respring each time).
+7. Settings > Insula > Diagnostics > Copy Report: the session line says `OITI-0.4.1`.
+8. Set the phone back to a normal state: Log Detail Normal, **Include Pre-releases** off, no research files.
+
+**6. The verdict.** I give you my honest readiness verdict from your answers; the release only happens if we both agree. Things the verdict will say plainly: the position fix is unconfirmed on the reporter's phone; the double-tap zone is fixed to the Island at the default position and scale; the packages are not signed; only the iPhone 8 Plus on iOS 16.7.16 and Dopamine has been tried.
+
+**7. Release text** (for step 8 of the release, after the verdict; the text of the GitHub Release is the only release note, `--notes`, never `--notes-file`):
+
+```
+## Insula 0.4.1 and Tellus 0.1.1
+
+**New**
+- Tellus > Diagnostics > Insula Status: one page that says why Insula might be off (safe mode, the Insula switch, Apple Mode, Island elements switched off, the respring-loop guard count and the last startup check). It also works while Insula is in safe mode.
+- Tellus > Insula > Extras: a new page for playful extras, all off by default. First one: Double Tap Opens Tellus. Double tap the idle Island (the area at the top centre of the screen) to open Tellus. It does nothing while the Island shows something, while the phone is locked, in Apple Mode or in safe mode. Its zone is fixed to where the Island sits at the default position and scale, so it may miss other positions.
+
+**Fixed**
+- The Island going back behind the notch after a lock and unlock until a respring (reported on an iPhone 14 Plus, iOS 16.6). The fix is in, but the reporter could not confirm it; it was only checked on an iPhone 8 Plus that never had the bug.
+- Turning Use Custom Position off now puts the Island back at its normal place right away (it used to stay until a respring).
+
+**Updates**
+- Tellus 0.1.1 needs Insula 0.4.1. Update All installs Insula, then Tellus.
+- OITCore stays at 0.1.0 (nothing changed in it).
+
+**Known limits**
+- Packages are not signed (signing is planned). Tested only on an iPhone 8 Plus, iOS 16.7.16, Dopamine (rootless).
+```
+

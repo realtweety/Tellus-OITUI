@@ -142,6 +142,7 @@
 //                (or notification com.wilburt.oiti/ClearSafeMode), then respring
 // Prefs keys (domain com.wilburt.oiti.prefs, set with `defaults write`, no UI yet):
 //   DiagnosticsEnabled (bool, default YES)      DiagnosticsLevel (0-2, default 0)
+//   ExtrasDoubleTapOpensTellus (bool, default NO)   Tellus > Extras: a double tap on the idle Island opens Tellus (0.4.1)
 //   SafeModeGuardEnabled (bool, default YES)    SafeModeMaxLaunches (int, default 5)
 //   SafeModeWindowSeconds (int, default 120)    SafeModeStableSeconds (int, default 45)
 //   SafeModeRestoreGestalt (bool, default NO)   -- on a trip, also run the OITIRestoreGestalt helper
@@ -194,7 +195,7 @@
 #import "Shared/OITIMobileGestalt.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-0.4.0";
+extern NSString * const kOITIBuildTag = @"OITI-0.4.1";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITIRespringNotification = @"com.wilburt.oiti/Respring";
@@ -241,13 +242,7 @@ static void OITIHandleTellusDiagnosticsRequest(void) {
             OITIReportClearLogs();
             payload = @"cleared";
         } else if ([action isEqualToString:@"recoveryState"]) {
-            NSDictionary *safeFlag = [NSDictionary dictionaryWithContentsOfFile:kOITISafeModePath];
-            if (![safeFlag[@"tripped"] boolValue]) safeFlag = nil;
-            NSDictionary *elementsFlag = [NSDictionary dictionaryWithContentsOfFile:kOITIElementsOffPath];
-            NSDictionary *state = @{
-                @"safeMode": safeFlag ?: (id)[NSNull null],
-                @"elementsOff": elementsFlag ?: (id)[NSNull null]
-            };
+            NSDictionary *state = OITIBuildStatusSnapshot();   // 0.4.1: the same keys as before plus the Insula Status page data
             NSData *json = [NSJSONSerialization dataWithJSONObject:state options:0 error:nil];
             payload = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : @"{}";
         } else if ([action isEqualToString:@"insulaVersion"]) {

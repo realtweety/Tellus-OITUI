@@ -19,6 +19,7 @@ int main(void) {
     CHECK(OITIReportLineTag(longTag, strlen(longTag), tag, sizeof tag) == 0, "a tag longer than the buffer is not a tag");
     CHECK(OITIReportLineTag("", 0, tag, sizeof tag) == 0, "empty line");
     CHECK(OITIReportTagIsKey("STATUSBAR") && OITIReportTagIsKey("SAFE") && !OITIReportTagIsKey("ELEMENT") && !OITIReportTagIsKey(""), "key tags");
+    CHECK(OITIReportTagIsKey("ISLANDFRAME") && !OITIReportTagIsKey("ISLAND"), "the 0.4.1 position-correction tag is a key tag");
     CHECK(OITIReportTagIsExcluded("INSTALL") && OITIReportTagIsExcluded("DUMP") && OITIReportTagIsExcluded("CLASSQ") && !OITIReportTagIsExcluded("NOTIF"), "excluded tags");
 
     // notification content is removed

@@ -93,6 +93,9 @@ All listed preference controls use `com.wilburt.oiti.prefs` and post `com.wilbur
 
 ### Diagnostics, recovery and global actions
 
+- **Extras** (Insula > Extras, 0.4.1 batch 3; not device-tested yet, Swift not compiled yet): a page for the playful switches, all off by default. First entry: **Double Tap Opens Tellus** (`ExtrasDoubleTapOpensTellus`): a double tap on the idle Island opens Tellus. It does nothing while Insula shows something, while the phone is locked, in Apple Mode or in safe mode. Takes effect immediately; needs Insula 0.4.1 or later.
+- **Insula Status** (Diagnostics > Insula Status, 0.4.1 batch 2; not device-tested yet): a read-only page fed by the `recoveryState` bridge request. A summary of why Insula is off (safe mode, Insula switch off, Apple Mode, Island elements off, a problem found by the startup check), then Now (switches, safe mode, hooks installed, Island elements, running build), the respring-loop guard count, and the last startup check with its short issue lines. With Insula older than 0.4.1 only safe mode and Island elements are shown, with a note. If SpringBoard does not answer, the page says Insula may not be loaded. It changes nothing; the existing banners above it offer Clear Safe Mode and Turn Off Apple Mode.
+
 - Tellus has a confirmed Respring action on the Home page. It writes `OITRespringIntent.plist` through the SpringBoard listener so the Safe Mode loop guard does not count the requested restart, then calls OITCore’s respring helper.
 - A Safe Mode banner appears on the Home page and each settings page after repeated short SpringBoard launches. **Clear Safe Mode & Respring** removes `OITISafeMode.plist` and `OITIBootLog.plist`, marks the intentional restart, then resprings.
 - An “Island elements are switched off” banner appears after the promotion guard records failures. Island notifications, startup animation and Detailed download style remain disabled until respring.

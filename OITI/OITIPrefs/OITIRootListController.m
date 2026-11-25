@@ -4,7 +4,7 @@
 #import <OITCore/OITCore.h>
 #import <UIKit/UIKit.h>
 
-static NSString * const kOITIPrefsBuildTag = @"OITIPrefs-0.4.0";
+static NSString * const kOITIPrefsBuildTag = @"OITIPrefs-0.4.1";
 static NSString * const kOITIPrefsLogPath = @"/tmp/OITIPrefsDebug.log";
 
 // Prefs-side log, separate from the tweak's /tmp/OITIDebug.log because this code runs in the Settings process.

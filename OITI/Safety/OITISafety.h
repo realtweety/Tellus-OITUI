@@ -9,6 +9,7 @@
 extern NSString * const kOITIBootLogPath;
 extern NSString * const kOITISafeModePath;
 extern NSString * const kOITIElementsOffPath;
+extern NSString * const kOITISelfCheckPath;     // 0.4.1: the result of the last startup self-check (Tellus shows it)
 
 // Guard settings (prefs keys listed in the header comment of Tweak.xm); the preferences reload writes them.
 extern BOOL sGuardEnabled;
@@ -22,3 +23,6 @@ BOOL OITIEvaluateLoopGuard(void);        // step 2: YES = safe mode (hooks are n
 void OITIMarkElementsOff(int failures, NSString *reason);   // the promotion guard switched element creation off until a respring
 void OITIClearElementsOffFlag(void);     // a new launch turns it back on
 void OITIRunStartupSelfCheck(void);
+// 0.4.1: everything Tellus' Insula Status page shows, as one JSON-safe dictionary (answers the "recoveryState" bridge request,
+// also in safe mode). Keys: safeMode, elementsOff (dictionary or NSNull), islandEnabled, appleMode, hooksInstalled, build, guard, selfCheck.
+NSDictionary *OITIBuildStatusSnapshot(void);

@@ -42,6 +42,7 @@ extern CGSize sRawSensorRegionSize;
 extern BOOL sAppleMode;
 extern BOOL sNotificationHapticEnabled;
 extern BOOL sIslandNotificationTapDismisses;
+extern BOOL sExtrasDoubleTapOpensTellus;   // 0.4.1: Tellus > Extras > Double Tap Opens Tellus (off by default)
 extern CGFloat scaleX;
 extern CGFloat scaleY;
 extern NSHashTable<UIView *> *sLiveApertureWindows;
@@ -88,6 +89,7 @@ void OITIRemoveNoticeItem(NSDictionary *item, NSString *reason);
 BOOL OITIPresentNoticeElement(NSDictionary<NSString *, NSString *> *info, NSString *reason);
 
 // Shared/OITIRuntimeHelpers.xm: exception-safe readers for private runtime objects.
+void OITIOpenApp(NSString *bundleID);   // asks SpringBoard to launch an app (OITINoticeActions.xm)
 id OITISafeObject(id object, NSString *selectorName);
 NSString *OITISafeString(id object, NSString *selectorName);
 id OITIKVCObject(id object, NSString *key);

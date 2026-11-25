@@ -40,7 +40,7 @@ static inline size_t OITIReportLineTag(const char *line, size_t length, char *ta
 }
 
 static inline bool OITIReportTagIsKey(const char *tag) {
-    static const char *const keys[] = {"SESSION", "SAFE", "GUARD", "STATUSBAR", "GESTALT"};
+    static const char *const keys[] = {"SESSION", "SAFE", "GUARD", "STATUSBAR", "GESTALT", "ISLANDFRAME"};
     for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) if (strcmp(tag, keys[i]) == 0) return true;
     return false;
 }

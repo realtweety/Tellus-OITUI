@@ -52,6 +52,7 @@ BOOL islandNotificationsHideBanner;    // also fade the stock banner window out 
 BOOL sIslandNotificationStackEnabled = YES; // Experimental multi-notification stack (default YES for existing behavior)
 BOOL sAppleMode;                        // appleMode: every customization below is forced off while YES
 BOOL sNotificationHapticEnabled;        // OITI > Notifications > Notification Haptic (default NO); forced off by Apple Mode
+BOOL sExtrasDoubleTapOpensTellus;      // Tellus > Extras > Double Tap Opens Tellus, key ExtrasDoubleTapOpensTellus (default NO); forced off by Apple Mode (0.4.1, IDEAS #13)
 BOOL sIslandNotificationTapDismisses;   // OITI > Notifications > Dismiss When Tapped, key NotificationTapDismisses (default NO); forced off by Apple Mode
 BOOL islandStartupHelloEnabled;        // OITI > Startup Animation (default NO)
 CGFloat sIslandNoticeDuration = 4.0;   // seconds, key IslandNotificationsDuration, clamped 1 - 15
@@ -112,6 +113,7 @@ NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
         @"IslandNotificationsStyle": @([sOITIPreferences floatForKey:@"IslandNotificationsStyle" default:2]),
         @"NotificationHaptic": @(sNotificationHapticEnabled),   // the effective value (Apple Mode forces it off)
         @"NotificationTapDismisses": @(sIslandNotificationTapDismisses),   // the effective value (Apple Mode forces it off)
+        @"ExtrasDoubleTapOpensTellus": @(sExtrasDoubleTapOpensTellus),   // the effective value (Apple Mode forces it off)
         @"IslandNotificationsMessageLines": @([sOITIPreferences floatForKey:@"IslandNotificationsMessageLines" default:2]),
     };
 }
