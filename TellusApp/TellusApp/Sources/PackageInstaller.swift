@@ -1,8 +1,9 @@
 import Foundation
 
-// Installs a package that PackageDownloader has already verified, by asking the
-// root helper to do it. The helper repeats every check itself and only accepts
-// Tellus's own packages, so this file is deliberately thin.
+// Installs a package that PackageDownloader has already checked, by asking the root helper to do it. The helper does not trust
+// this app: it verifies the Ed25519 signature of SHA256SUMS itself, takes the expected hash from that signed list, and repeats
+// every other check, and it only accepts Tellus's own packages. This file only puts the release's SHA256SUMS and SHA256SUMS.sig
+// next to the package (under exactly those names) and starts the helper, so it is deliberately thin.
 
 struct InstallOutcome {
     let succeeded: Bool
@@ -15,6 +16,10 @@ struct InstallOutcome {
 struct PackageInstaller {
     static let helperPath = "/var/jb/usr/libexec/tellus-helper"
 
+    /// The helper only accepts these exact file names, in the same folder as the package.
+    static let manifestFileName = "SHA256SUMS"
+    static let signatureFileName = "SHA256SUMS.sig"
+
     /// Components Tellus may install. Litus is not hooked up yet.
     static let installableComponents: Set<UpdateComponent> = [.insula, .oitCore, .tellus]
 
@@ -26,14 +31,34 @@ struct PackageInstaller {
                                   log: "")
         }
 
+        // The manifest and signature go into the same folder as the package, right before the helper runs, so a different
+        // download in between can never change them.
+        let folder = verified.fileURL.deletingLastPathComponent()
+        let manifestURL = folder.appendingPathComponent(Self.manifestFileName)
+        let signatureURL = folder.appendingPathComponent(Self.signatureFileName)
+        do {
+            try verified.manifest.write(to: manifestURL, options: .atomic)
+            try verified.signature.write(to: signatureURL, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: manifestURL)
+            try? FileManager.default.removeItem(at: signatureURL)
+            return InstallOutcome(succeeded: false,
+                                  summary: "\(component.displayName) was not installed: the signed checksum list could not be saved (\(error.localizedDescription)).",
+                                  log: "")
+        }
+
         let path = verified.fileURL.path
-        let hash = verified.sha256
+        let manifestPath = manifestURL.path
+        let signaturePath = signatureURL.path
         let packageID = component.packageID
 
         let outcome = await Task.detached(priority: .userInitiated) {
-            Self.runHelper(path: path, hash: hash, packageID: packageID, displayName: component.displayName)
+            Self.runHelper(path: path, manifestPath: manifestPath, signaturePath: signaturePath,
+                           packageID: packageID, displayName: component.displayName)
         }.value
 
+        try? FileManager.default.removeItem(at: manifestURL)
+        try? FileManager.default.removeItem(at: signatureURL)
         if outcome.succeeded {
             // The verified file is no longer needed.
             try? FileManager.default.removeItem(at: verified.fileURL)
@@ -42,12 +67,13 @@ struct PackageInstaller {
     }
 
     /// Blocking: runs on a background task.
-    private static func runHelper(path: String, hash: String, packageID: String, displayName: String) -> InstallOutcome {
+    private static func runHelper(path: String, manifestPath: String, signaturePath: String,
+                                  packageID: String, displayName: String) -> InstallOutcome {
         var buffer = [CChar](repeating: 0, count: 16384)
         var status: Int32 = -1
 
         // Up to five minutes. If that runs out the install is NOT killed: it keeps running without Tellus.
-        let result = tellus_spawn_capture_ex(helperPath, "--install", path, hash, packageID,
+        let result = tellus_spawn_capture_ex(helperPath, "--install", path, manifestPath, signaturePath, packageID,
                                              1, 300_000, 0, &buffer, buffer.count, &status)
         let log = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
 
