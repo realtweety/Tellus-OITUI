@@ -217,6 +217,12 @@ struct GitHubRelease: Decodable {
             .browserDownloadURL.flatMap { URL(string: $0) }
     }
 
+    /// The `SHA256SUMS.sig` asset: a raw 64-byte Ed25519 signature of `SHA256SUMS`, made by the owner after the release files were tested.
+    var signatureURL: URL? {
+        assets.first(where: { $0.name == "SHA256SUMS.sig" })?
+            .browserDownloadURL.flatMap { URL(string: $0) }
+    }
+
     /// GitHub reports asset digests as `sha256:<64 hex digits>`.
     private static func sha256Hex(fromDigest digest: String?) -> String? {
         guard let digest = digest?.lowercased(), digest.hasPrefix("sha256:") else { return nil }
@@ -398,6 +404,7 @@ struct UpdateReport {
     let releaseURL: URL?
     let notes: String?
     let checksumsURL: URL?
+    let signatureURL: URL?
     let components: [ComponentUpdate]
 
     var updatesAvailable: [ComponentUpdate] {
@@ -436,6 +443,7 @@ enum UpdateReportBuilder {
             releaseURL: release.htmlURL.flatMap { URL(string: $0) },
             notes: (notes?.isEmpty ?? true) ? nil : notes,
             checksumsURL: release.checksumsURL,
+            signatureURL: release.signatureURL,
             components: components
         )
     }

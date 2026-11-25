@@ -24,8 +24,9 @@ final class UpdateCheckViewModel: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var downloads: [UpdateComponent: DownloadState] = [:]
     @Published private(set) var installs: [UpdateComponent: InstallState] = [:]
-    /// Off by default: Tellus only offers real updates. Turning it on also offers reinstalling and downgrading.
-    @Published var allowAnyVersion = false
+    /// Off by default: Tellus only offers real updates. Turning it on also offers reinstalling the version that is already installed.
+    /// Tellus never downgrades: the root helper refuses a version lower than the installed one.
+    @Published var allowReinstall = false
     /// Off by default: pre-releases are for testing a release candidate before it is published for everyone.
     @Published var includePrereleases = false
 
@@ -74,13 +75,13 @@ final class UpdateCheckViewModel: ObservableObject {
     }
 
     /// Downloads and verifies one package. It is only stored, never installed.
-    func download(_ item: ComponentUpdate, checksumsURL: URL?) async {
+    func download(_ item: ComponentUpdate, checksumsURL: URL?, signatureURL: URL?) async {
         guard let package = item.package else { return }
         if case .downloading? = downloads[item.component] { return }
         downloads[item.component] = .downloading
 
         do {
-            let verified = try await downloader.downloadAndVerify(package, checksumsURL: checksumsURL)
+            let verified = try await downloader.downloadAndVerify(package, checksumsURL: checksumsURL, signatureURL: signatureURL)
             downloads[item.component] = .verified(verified)
         } catch is CancellationError {
             downloads[item.component] = nil
@@ -124,7 +125,7 @@ final class UpdateCheckViewModel: ObservableObject {
             if case .verified? = downloads[item.component] {
                 // Already downloaded and verified earlier.
             } else {
-                await download(item, checksumsURL: report.checksumsURL)
+                await download(item, checksumsURL: report.checksumsURL, signatureURL: report.signatureURL)
             }
             guard case .verified? = downloads[item.component] else {
                 updateAllProgress = nil
@@ -202,7 +203,7 @@ struct UpdateCheckView: View {
                     }
                     .disabled(model.isLoading || model.isBusy)
 
-                    Toggle("Allow Reinstall and Downgrade", isOn: $model.allowAnyVersion)
+                    Toggle("Allow Reinstall", isOn: $model.allowReinstall)
                     Toggle("Include Pre-releases", isOn: $model.includePrereleases)
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -290,8 +291,8 @@ struct UpdateCheckView: View {
                     download: model.downloads[item.component],
                     install: model.installs[item.component],
                     installingElsewhere: model.isBusy,
-                    allowAnyVersion: model.allowAnyVersion,
-                    onDownload: { Task { await model.download(item, checksumsURL: report.checksumsURL) } },
+                    allowReinstall: model.allowReinstall,
+                    onDownload: { Task { await model.download(item, checksumsURL: report.checksumsURL, signatureURL: report.signatureURL) } },
                     onInstall: { Task { await model.install(item) } }
                 )
             }
@@ -319,7 +320,7 @@ private struct ComponentUpdateRow: View {
     let download: UpdateCheckViewModel.DownloadState?
     let install: UpdateCheckViewModel.InstallState?
     let installingElsewhere: Bool
-    let allowAnyVersion: Bool
+    let allowReinstall: Bool
     let onDownload: () -> Void
     let onInstall: () -> Void
 
@@ -337,7 +338,7 @@ private struct ComponentUpdateRow: View {
             }
             LabeledContent("Installed", value: installedText)
             LabeledContent("Available", value: item.availableVersion ?? "Not in this release")
-            if item.package?.downloadURL != nil && (item.status == .updateAvailable || allowAnyVersion || download != nil) {
+            if item.package?.downloadURL != nil && (item.status == .updateAvailable || (allowReinstall && item.status == .upToDate) || download != nil) {
                 downloadControls
             }
         }
@@ -348,7 +349,7 @@ private struct ComponentUpdateRow: View {
     private var downloadControls: some View {
         switch download {
         case nil:
-            Button(item.status == .updateAvailable ? "Download" : "Download Anyway", action: onDownload)
+            Button(item.status == .updateAvailable ? "Download" : "Download to Reinstall", action: onDownload)
                 .font(.footnote.weight(.semibold))
                 .buttonStyle(.borderless)
 
@@ -392,7 +393,6 @@ private struct ComponentUpdateRow: View {
     private var installButtonTitle: String {
         switch item.status {
         case .updateAvailable: return "Install Update"
-        case .installedIsNewer: return "Downgrade\u{2026}"
         default: return "Reinstall"
         }
     }
@@ -400,8 +400,6 @@ private struct ComponentUpdateRow: View {
     private var confirmationMessage: String {
         var message = ""
         switch item.status {
-        case .installedIsNewer:
-            message = "The installed version is newer than this release, so this would downgrade it. "
         case .upToDate:
             message = "This is the version that is already installed, so it will be reinstalled. "
         default:
@@ -430,7 +428,7 @@ private struct ComponentUpdateRow: View {
                         isPresented: $confirmingInstall,
                         titleVisibility: .visible
                     ) {
-                        Button("Install", role: item.status == .installedIsNewer ? .destructive : nil, action: onInstall)
+                        Button("Install", action: onInstall)
                         Button("Cancel", role: .cancel) {}
                     } message: {
                         Text(confirmationMessage)
@@ -477,7 +475,7 @@ private struct ComponentUpdateRow: View {
                             isPresented: $confirmingInstall,
                             titleVisibility: .visible
                         ) {
-                            Button("Install", role: item.status == .installedIsNewer ? .destructive : nil, action: onInstall)
+                            Button("Install", action: onInstall)
                             Button("Cancel", role: .cancel) {}
                         } message: {
                             Text(confirmationMessage)

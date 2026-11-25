@@ -73,6 +73,19 @@ struct PackageInstaller {
             return InstallOutcome(succeeded: true, summary: summary, log: log)
         }
 
+        // The helper's refusals about the signed checksum list and the version get a plain explanation.
+        let reasons: [Int32: String] = [
+            18: "the package does not match the signed checksum list",
+            21: "the signed checksum list or its signature is missing or not usable",
+            22: "the release is not signed by a key that Tellus trusts",
+            23: "the signed checksum list does not list this package",
+            24: "that version is older than the installed one, and Tellus does not downgrade",
+            25: "the installed version could not be compared with the new one"
+        ]
+        if let reason = reasons[status] {
+            return InstallOutcome(succeeded: false, summary: "\(displayName) was not installed: \(reason).", log: log)
+        }
+
         let lastError = log.split(separator: "\n").last(where: { $0.hasPrefix("ERROR:") })
             .map { String($0.dropFirst("ERROR:".count)).trimmingCharacters(in: .whitespaces) }
         return InstallOutcome(
