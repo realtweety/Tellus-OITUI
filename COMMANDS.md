@@ -2853,3 +2853,39 @@ Expected: nine `ok` lines (two trusted keys reported; the signed release accepte
 
 The candidate is deleted or promoted afterwards as in section 42 (`gh release delete v0.4.2-rc.1 --cleanup-tag --yes` and `git tag -d v0.4.2-rc.1` if it is deleted).
 
+## 45. The release tool: `oitui-release`
+
+`tools/oitui-release` does steps 2 to 4 of section 44 in one command (check the repository and CI, use or start the release build, assemble the packages, show them, sign after your yes, check the signature against the keys built into the helper, publish the pre-release, and download it again to verify what GitHub serves) plus two read-only commands. It does **not** do the phone tests (section 44, steps 5 to 8), and promoting a candidate to a release is still the manual procedure of section 30, step 6, until a `release` command exists. Python 3, standard library only; needs `git`, `gh` (logged in) and OpenSSL 3.
+
+**Install (Arch PC, fish).** A fish function, like your `update` alias:
+
+```
+chmod +x ~/OITUI/tools/oitui-release
+mkdir -p ~/.config/fish/functions
+printf 'function oitui-release\n    python3 ~/OITUI/tools/oitui-release $argv\nend\n' > ~/.config/fish/functions/oitui-release.fish
+source ~/.config/fish/functions/oitui-release.fish
+oitui-release status
+```
+
+Expected from `status`: the repository path, the branch with the HEAD hash and `clean`, whether `origin/experiments` matches HEAD, the CI result of HEAD, `latest stable release: v0.4.1`, the three package versions each marked `unchanged`, `CHANGED from ...` or `new`, and the candidate tags. It changes nothing.
+
+**First real check (read-only).** Verify the candidate that was made by hand and the old unsigned release:
+
+```
+oitui-release verify v0.4.2-rc.1
+oitui-release verify v0.4.1
+```
+
+Expected for `v0.4.2-rc.1`: an `ok ... matches SHA256SUMS` line for each of the three `.deb` files, `ok   SHA256SUMS.sig is a valid signature by the primary key`, and `verdict: signed, complete and consistent` (exit 0). Expected for `v0.4.1`: the three `ok` lines, `NOTE this release has no SHA256SUMS.sig: Tellus will not install it` and `verdict: consistent, but UNSIGNED` (exit 1; that is correct, the release is unsigned). `verify` also accepts a folder, for example `oitui-release verify ~/Downloads/oiti-tellus-012-rc`.
+
+**Making a candidate.** Always rehearse first:
+
+```
+oitui-release candidate 0.4.2 --dry-run
+oitui-release candidate 0.4.2
+```
+
+`0.4.2` is the OITUI release number the candidate is for; the tag is `v0.4.2-rc.<n>` with the next free number. The command refuses to go on unless: you are on `experiments` with a clean tree; HEAD is what `origin/experiments` has; CI built HEAD successfully; the release number is higher than the latest stable release; each package's version is not lower than the released one and at least one changed; the control file and Xcode project versions of Tellus agree and Tellus's Insula requirement is met; the downloaded build matches its own `SHA256SUMS`; the unchanged packages from the previous release match that release's `SHA256SUMS` (they are attached byte-identical, never rebuilt); no name has `+debug` or `~`. It uses an existing hand-started release build of HEAD if there is one (or the one named with `--run <id>`), otherwise it starts one and waits. Then it prints the files and their hashes and asks `Sign this SHA256SUMS ...? [y/N]` (answer `y`; `openssl` then asks for the key passphrase), refuses to go on unless one of the helper's built-in keys accepts the new signature, asks `Tag ... and publish the pre-release? [y/N]`, tags the commit, pushes the tag, creates the pre-release with the five files, and verifies the published release. The files are kept in `~/Downloads/oiti-release-<tag>` (change with `--out`). Pushing a tag also starts a release build of the same sources: ignore its artifact. With `--dry-run` nothing is signed, tagged, pushed or published: every such command is only printed. Each run writes a log (the commands and their exit codes, no secrets) to `~/.local/state/oitui-release/`.
+
+**Tests.** `python3 tools/oitui_release_test.py` must end in `Ran 28 tests ... OK`. They use a fake `gh` and a throw-away repository, so they prove the tool's logic and refusals, not GitHub's real answers: the first real run is the dry run above.
+
