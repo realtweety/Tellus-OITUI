@@ -67,6 +67,10 @@ Status, 21 Nov 2026: the **Tellus app** was built for 0.4.0 (OVERVIEW.md, "Curre
 29. A tester-report parser on the PC that builds a compatibility table from pasted reports.
 30. Remove the legacy position migration, but only in 0.5.0 or later, so people upgrading from before 0.3.0 still get migrated.
 31. Icons for Tellus, Insula, Litus and OITCore (see the decision above).
+32. Tellus: delete a stale staged package when it starts. A Tellus self-update leaves its own `.deb` in `/var/mobile/Library/Caches/TellusUpdates` (the app is ended by dpkg before it can clean up; seen on 24 Nov 2026, one 277 KB file).
+33. Double Tap Opens Tellus: let the touch zone follow the Island (position, size, scale) instead of the fixed area (60 pt from the top, 90 pt either side of the middle); today it works for the owner's custom settings only because his Island stays inside that area.
+34. Tellus: take the version of a package from the package or from the release data, not from the asset name, so a `~` version works (GitHub rewrites `~` in asset names; `WORKFLOW.md`).
+35. Test Update All's OITCore-first order the next time OITCore really changes (0.4.1 changed Insula and Tellus only).
 
 Claude's top picks after 0.4.0 (a proposal): 6 (presets plus export), 17 and 18 (self-service diagnostics, which pair with the report button) and 2. Items 4 and 5 are research projects, not releases. The volume slider and the OITUI companion app stay skipped (Crescendo already covers the slider; the app is a separate project).
 

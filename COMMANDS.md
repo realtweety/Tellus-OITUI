@@ -2671,3 +2671,26 @@ Expected: `0.4.1`, `0.1.0`, `0.1.1` (no `+debug`); after a respring `build=OITI-
 - Packages are not signed (signing is planned). Tested only on an iPhone 8 Plus, iOS 16.7.16, Dopamine (rootless).
 ```
 
+## 42. After the 0.4.1 release (24 Nov 2026): what was run, and the cleanup
+
+The release itself followed section 30, step 6, with these hashes: tested commit `ff96567a4139b8b0749dcae03c6aa4ddd3fed158` (tree `acf306ff6dbd9364ff814b5b61e74bf10196ba24`), PR #17, squash commit `a52bd1b04ef5b23487c2d8df1abd24c6b3929b63`; the merged tree equalled the tested tree; tag `v0.4.1` on `a52bd1b`; the tested files from the release workflow run were attached. If `git fetch` fails with `couldn't find remote ref refs/heads/experiments` after a merge, run `git remote set-branches origin '*'` first (`LEARNINGS.md`); do not tag from a tree check whose fetch failed.
+
+**Cleanup after the release (Arch PC, fish):**
+
+```
+cd ~/OITUI
+gh release list --limit 5
+gh release delete v0.4.1-rc.2 --cleanup-tag --yes
+git tag -d v0.4.1-rc.2
+git fetch --prune origin
+git switch main
+git pull --ff-only
+git branch -D experiments
+git switch -c experiments
+git push -u origin experiments
+git rev-parse main experiments origin/experiments
+git ls-remote --tags origin
+```
+
+Expected: the release list shows `v0.4.1` as the latest (not a pre-release) and `v0.4.1-rc.2`; `git branch -D` prints `Deleted branch experiments (was ff96567)` (or says there is no such branch); the three hashes in the `rev-parse` line are the same; the tag list has `v0.4.1` and older tags, no `rc` tag. Then on the phone, in Tellus: About > Check for Updates with **Include Pre-releases** off: Insula, Tellus and OITCore all `Up to date`.
+
