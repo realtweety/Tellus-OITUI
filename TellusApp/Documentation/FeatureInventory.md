@@ -182,11 +182,11 @@ Tellus `0.1.0-23+debug` and Insula `0.3.7-7+debug` are installed. The standalone
 | Control | Behavior |
 | --- | --- |
 | About > Check for Updates | Fetches the latest GitHub release (not pre-releases) and lists OITCore, Insula, Tellus and, if installed or published, Litus with installed and available versions and a status (Update, Up to date, Newer than release, Not installed, Not published, Unknown). Shows the release title, date and notes and a link to the release. |
-| Download | Only for a component with an update (or any, with the reinstall switch on). Downloads in memory and verifies size, `.deb` header and SHA-256 (GitHub's digest and `SHA256SUMS`), then stores the file in `/var/mobile/Library/Caches/TellusUpdates`. |
-| Install / Reinstall / Downgrade | After a verified download, for OITCore, Insula and Tellus. Asks first (a downgrade is marked destructive). Runs through the root helper; Details shows the helper's output. Insula needs a respring afterwards; Tellus replaces itself and may close. |
+| Download | Only for a component with an update (or, with the reinstall switch on, the version that is already installed). Needs a release with `SHA256SUMS` and `SHA256SUMS.sig`. Downloads in memory and verifies size, `.deb` header and SHA-256 (the `SHA256SUMS` entry and GitHub's digest must agree), then stores the file in `/var/mobile/Library/Caches/TellusUpdates`. |
+| Install / Reinstall | After a verified download, for OITCore, Insula and Tellus. Asks first. Puts the release's `SHA256SUMS` and `SHA256SUMS.sig` next to the package, then runs through the root helper, which verifies the signature and refuses a version lower than the installed one (there is no Downgrade); Details shows the helper's output. Insula needs a respring afterwards; Tellus replaces itself and may close. |
 | Update All | Shown when at least one installable component has an update. Installs them in the order OITCore, Insula, Tellus; stops at the first failure. |
 | Menu: Check Again | Re-runs the check (not while something is installing). |
-| Menu: Allow Reinstall and Downgrade | Off each time the screen opens. Offers download and install for components that are not updates. |
+| Menu: Allow Reinstall | Off each time the screen opens. Offers download and install again for a component whose installed version equals the release's. |
 | Menu: Include Pre-releases | Off each time the screen opens. Uses the release list so a pre-release (a release candidate) is considered; the summary says `(pre-release)`. |
 
 ## Insula settings: Reset This Page (0.4.0, in the Settings bundle `OITIPrefs`)

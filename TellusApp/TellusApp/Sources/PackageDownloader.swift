@@ -1,13 +1,17 @@
 import Foundation
 import CryptoKit
 
-// Downloads a release package and verifies it. This file never installs
-// anything: a verified .deb is only stored in the app's cache directory.
+// Downloads a release package and checks it against the release's SHA256SUMS list. This file never installs anything: a
+// checked .deb is only stored in the app's cache directory. A release must also carry SHA256SUMS.sig, the owner's Ed25519
+// signature of SHA256SUMS. The app does NOT verify that signature (the public keys live only in the root helper, which is the
+// authority and checks it again at install time); it only makes sure the signature is there and has the right size, and keeps the
+// exact bytes of both files so the installer can hand them to the helper.
 
 enum PackageDownloadError: LocalizedError {
     case invalidFileName
     case invalidDownloadURL
-    case noChecksumAvailable
+    case releaseNotSigned
+    case signatureUnreadable
     case checksumListUnreadable
     case checksumListMissingPackage
     case checksumSourcesDisagree
@@ -27,8 +31,10 @@ enum PackageDownloadError: LocalizedError {
             return "The release lists a package file name that is not safe to use."
         case .invalidDownloadURL:
             return "The release lists a download address that is not the official repository."
-        case .noChecksumAvailable:
-            return "This release has no checksum for the package, so it cannot be verified."
+        case .releaseNotSigned:
+            return "This release is not signed, so Tellus will not install it. You can still install its .deb yourself with Sileo, Zebra or dpkg."
+        case .signatureUnreadable:
+            return "The release's signature file is not a valid signature (it must be exactly 64 bytes)."
         case .checksumListUnreadable:
             return "The release's checksum list could not be read."
         case .checksumListMissingPackage:
@@ -61,6 +67,10 @@ struct VerifiedPackage {
     let package: AvailablePackage
     let fileURL: URL
     let sha256: String
+    /// The exact bytes of the release's `SHA256SUMS` and `SHA256SUMS.sig`. The installer puts them next to the package right before
+    /// it calls the root helper, which verifies the signature and takes the expected hash from the manifest.
+    let manifest: Data
+    let signature: Data
 }
 
 struct PackageDownloader {
@@ -96,13 +106,21 @@ struct PackageDownloader {
         throw PackageDownloadError.fileSystem("no writable folder (" + failures.joined(separator: "; ") + ")")
     }
 
-    func downloadAndVerify(_ package: AvailablePackage, checksumsURL: URL?) async throws -> VerifiedPackage {
+    func downloadAndVerify(_ package: AvailablePackage, checksumsURL: URL?, signatureURL: URL?) async throws -> VerifiedPackage {
         let fileName = try Self.validatedFileName(package.fileName)
         guard let downloadURL = package.downloadURL else { throw PackageDownloadError.invalidDownloadURL }
         try Self.validateReleaseAssetURL(downloadURL)
 
+        // A release without both files cannot be installed by Tellus.
+        guard let checksumsURL = checksumsURL, let signatureURL = signatureURL else { throw PackageDownloadError.releaseNotSigned }
+        try Self.validateReleaseAssetURL(checksumsURL)
+        try Self.validateReleaseAssetURL(signatureURL)
+
         // Decide what the file must hash to before downloading it.
-        let expected = try await expectedSHA256(for: package, fileName: fileName, checksumsURL: checksumsURL)
+        let manifest = try await fetchSmallFile(checksumsURL, maximumBytes: 64 * 1024)
+        let signature = try await fetchSmallFile(signatureURL, maximumBytes: 1024)
+        guard signature.count == 64 else { throw PackageDownloadError.signatureUnreadable }
+        let expected = try Self.expectedSHA256(for: package, fileName: fileName, manifest: manifest)
 
         // Packages are small, so the bytes are held in memory, checked, and only then written to disk.
         // (URLSession's download mode writes its own temporary file, which Tellus is not always allowed to do.)
@@ -122,51 +140,20 @@ struct PackageDownloader {
         guard actual == expected else { throw PackageDownloadError.hashMismatch }
 
         let destination = try Self.store(data, named: fileName)
-        return VerifiedPackage(package: package, fileURL: destination, sha256: actual)
+        return VerifiedPackage(package: package, fileURL: destination, sha256: actual, manifest: manifest, signature: signature)
     }
 
     // MARK: Checksums
 
-    /// GitHub's API digest and, when the release has one, the `SHA256SUMS` list.
-    /// If both exist they must agree. If neither exists the package is refused.
-    private func expectedSHA256(for package: AvailablePackage, fileName: String, checksumsURL: URL?) async throws -> String {
-        var listed: String?
-
-        if let checksumsURL = checksumsURL {
-            try Self.validateReleaseAssetURL(checksumsURL)
-            let list = try await fetchChecksumList(checksumsURL)
-            guard let value = list[fileName] else { throw PackageDownloadError.checksumListMissingPackage }
-            listed = value
-        }
-
-        switch (listed, package.apiDigest) {
-        case let (listed?, digest?):
-            guard listed == digest else { throw PackageDownloadError.checksumSourcesDisagree }
-            return listed
-        case let (listed?, nil):
-            return listed
-        case let (nil, digest?):
-            return digest
-        case (nil, nil):
-            throw PackageDownloadError.noChecksumAvailable
-        }
+    /// The package's hash from the release's `SHA256SUMS` bytes. GitHub's own API digest, when it has one, must agree.
+    private static func expectedSHA256(for package: AvailablePackage, fileName: String, manifest: Data) throws -> String {
+        let list = try parseChecksumList(manifest)
+        guard let listed = list[fileName] else { throw PackageDownloadError.checksumListMissingPackage }
+        if let digest = package.apiDigest, digest != listed { throw PackageDownloadError.checksumSourcesDisagree }
+        return listed
     }
 
-    private func fetchChecksumList(_ url: URL) async throws -> [String: String] {
-        let request = Self.request(for: url, timeout: 15)
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch let error as URLError {
-            throw Self.map(error)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw PackageDownloadError.network(error.localizedDescription)
-        }
-        try Self.checkResponse(response)
-
+    private static func parseChecksumList(_ data: Data) throws -> [String: String] {
         // The list is a few hundred bytes; anything large is not a checksum list.
         guard data.count <= 64 * 1024, let text = String(data: data, encoding: .utf8) else {
             throw PackageDownloadError.checksumListUnreadable
@@ -188,6 +175,25 @@ struct PackageDownloader {
     }
 
     // MARK: Fetching
+
+    /// A small release asset (the checksum list or the signature), exactly as GitHub serves it.
+    private func fetchSmallFile(_ url: URL, maximumBytes: Int) async throws -> Data {
+        let request = Self.request(for: url, timeout: 15)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            throw Self.map(error)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw PackageDownloadError.network(error.localizedDescription)
+        }
+        try Self.checkResponse(response)
+        guard data.count <= maximumBytes else { throw PackageDownloadError.checksumListUnreadable }
+        return data
+    }
 
     private func fetchData(_ url: URL, maximumBytes: Int) async throws -> Data {
         let request = Self.request(for: url, timeout: 60)

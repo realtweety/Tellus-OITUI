@@ -132,6 +132,7 @@ int tellus_spawn_capture_ex(const char *path,
                             const char *argument2,
                             const char *argument3,
                             const char *argument4,
+                            const char *argument5,
                             int use_persona,
                             int timeout_milliseconds,
                             int kill_on_timeout,
@@ -139,13 +140,14 @@ int tellus_spawn_capture_ex(const char *path,
                             size_t out_length,
                             int *exit_status)
 {
-    char *argv[7];
+    char *argv[8];
     int count = 0;
     argv[count++] = (char *)path;
     if (argument1 != NULL) argv[count++] = (char *)argument1;
     if (argument2 != NULL) argv[count++] = (char *)argument2;
     if (argument3 != NULL) argv[count++] = (char *)argument3;
     if (argument4 != NULL) argv[count++] = (char *)argument4;
+    if (argument5 != NULL) argv[count++] = (char *)argument5;
     argv[count] = NULL;
     return spawnCapture(path, argv, use_persona, timeout_milliseconds, kill_on_timeout, out, out_length, exit_status);
 }

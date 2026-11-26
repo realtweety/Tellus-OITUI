@@ -1,0 +1,808 @@
+#!/usr/bin/env python3
+"""OITUI Release: the release steps of COMMANDS.md sections 43 and 44 as one command.
+
+  oitui-release status                      read-only overview of the repository and the releases
+  oitui-release verify <tag | folder>       check a release's files against its signed SHA256SUMS
+  oitui-release candidate <version>         build, assemble, sign and publish a release candidate (a pre-release)
+  oitui-release release <candidate-tag>     release a tested candidate: PR and squash merge, tag, GitHub Release, cleanup
+
+<version> is the number of the OITUI release (for example 0.4.2); the candidate is tagged v<version>-rc.<n>.
+
+Safety rules the tool keeps, whatever the options:
+  - It never sees your key passphrase: openssl asks you for it on the terminal.
+  - It signs only after it has shown you the files and the hashes and you have said yes, and it checks the new signature
+    against the public keys built into TellusApp/Helper/tellus-helper.c before it goes on.
+  - Every command that changes something (workflow run, tag, push, release) is logged, and with --dry-run it is only printed.
+  - It never force-pushes. `release` merges to main only through a pull request, only after you typed the release number, and only
+    when no product file differs from the commit that was tested.
+
+Needs: python3, git, gh (logged in), openssl 3. Standard library only. Logs go to ~/.local/state/oitui-release/.
+"""
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+REPO_DIR = Path(os.environ.get("OITUI_REPO_DIR") or Path(__file__).resolve().parent.parent)
+WORK_BRANCH = "experiments"
+BUILD_WORKFLOW = "build-oiti.yml"
+RELEASE_WORKFLOW = "release-oiti.yml"
+ARCH = "iphoneos-arm64"
+HELPER_SOURCE = "TellusApp/Helper/tellus-helper.c"
+PBXPROJ = "TellusApp/TellusApp.xcodeproj/project.pbxproj"
+# (short name, package id, control file); the order is the install order of Update All.
+PACKAGES = [
+    ("oitcore", "com.wilburt.oitcore", "OITCore/control"),
+    ("oiti", "com.wilburt.oiti", "OITI/control"),
+    ("tellus", "com.wilburt.tellus", "TellusApp/layout/DEBIAN/control"),
+]
+KEY_LABELS = {"1": "primary", "2": "backup"}
+SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")   # DER wrapper of a raw 32-byte Ed25519 public key
+POLL_SECONDS = float(os.environ.get("OITUI_POLL_SECONDS", "3"))
+# A candidate was tested at one commit. Later commits may only change documentation and tooling, never the product.
+ALLOWED_PREFIXES = ("tools/", "TellusApp/Documentation/", "Third Party Licenses/")
+
+DRY_RUN = False
+LOG_FILE = None
+
+
+class Abort(Exception):
+    """A reason to stop. Nothing has been changed that the message does not say."""
+
+
+# ---------------------------------------------------------------- output, logging, commands
+
+def say(message=""):
+    print(message, flush=True)
+
+
+def log(message):
+    if LOG_FILE is not None:
+        with open(LOG_FILE, "a") as handle:
+            handle.write(message.rstrip("\n") + "\n")
+
+
+def start_log(name):
+    global LOG_FILE
+    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "oitui-release"
+    base.mkdir(parents=True, exist_ok=True)
+    LOG_FILE = base / (datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + name + ".log")
+    log("oitui-release " + name + " in " + str(REPO_DIR))
+
+
+def run(command, check=True, mutating=False, interactive=False, cwd=None):
+    """Runs a command in the repository. `mutating` commands only print under --dry-run."""
+    text = shlex.join(command)
+    if mutating and DRY_RUN:
+        say("[dry-run] would run: " + text)
+        log("DRY-RUN " + text)
+        return subprocess.CompletedProcess(command, 0, "", "")
+    log("$ " + text)
+    try:
+        result = subprocess.run(command, cwd=cwd or REPO_DIR, text=True,
+                                capture_output=not interactive)
+    except FileNotFoundError:
+        raise Abort("`" + command[0] + "` is not installed or not on the PATH")
+    log("  exit " + str(result.returncode))
+    if check and result.returncode != 0:
+        detail = ((result.stderr or "") + (result.stdout or "")).strip()
+        raise Abort("`" + text + "` failed (exit " + str(result.returncode) + ")" + (": " + detail if detail else ""))
+    return result
+
+
+def gh_json(arguments):
+    return json.loads(run(["gh"] + arguments).stdout or "null")
+
+
+def confirm(question):
+    try:
+        answer = input(question + " [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer != "y":
+        raise Abort("stopped: you did not answer y")
+
+
+# ---------------------------------------------------------------- versions and names
+
+def parse_version(text):
+    if not re.fullmatch(r"\d+(\.\d+)*", text):
+        raise Abort("version '" + text + "' is not a plain dotted number; this tool does not handle `~`, `+` or letters")
+    return tuple(int(part) for part in text.split("."))
+
+
+def read_control(path):
+    fields = {}
+    for line in Path(path).read_text().splitlines():
+        if ":" in line and not line.startswith((" ", "\t")):
+            key, value = line.split(":", 1)
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+def deb_name(package_id, version):
+    return package_id + "_" + version + "_" + ARCH + ".deb"
+
+
+def parse_deb_name(name):
+    match = re.fullmatch(r"(com\.wilburt\.[a-z]+)_([^_]+)_" + re.escape(ARCH) + r"\.deb", name)
+    return (match.group(1), match.group(2)) if match else None
+
+
+def local_versions():
+    """The package versions in the working tree, with the consistency checks the release workflow also makes."""
+    versions = {}
+    for key, package_id, path in PACKAGES:
+        fields = read_control(REPO_DIR / path)
+        if fields.get("Package") != package_id:
+            raise Abort(path + " is not the control file of " + package_id)
+        versions[key] = fields["Version"]
+        parse_version(fields["Version"])
+    marketing = set(re.findall(r"MARKETING_VERSION = ([^;]+);", (REPO_DIR / PBXPROJ).read_text()))
+    if marketing != {versions["tellus"]}:
+        raise Abort("Tellus: control says " + versions["tellus"] + " but the Xcode project says " + ", ".join(sorted(marketing)))
+    depends = read_control(REPO_DIR / PACKAGES[2][2]).get("Depends", "")
+    needed = re.search(r"com\.wilburt\.oiti \(>= ([0-9.]+)\)", depends)
+    if needed and parse_version(versions["oiti"]) < parse_version(needed.group(1)):
+        raise Abort("Tellus needs Insula >= " + needed.group(1) + " but Insula is " + versions["oiti"])
+    return versions
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def parse_manifest(data):
+    """{file name: hash} from SHA256SUMS bytes ('<64 hex>  name' or '<64 hex> *name'); a name listed twice with two hashes is an error."""
+    entries = {}
+    for line in data.decode("utf-8").splitlines():
+        match = re.fullmatch(r"([0-9a-f]{64}) [ *](.+)", line)
+        if not match:
+            continue
+        if entries.get(match.group(2), match.group(1)) != match.group(1):
+            raise Abort("SHA256SUMS lists " + match.group(2) + " twice with different hashes")
+        entries[match.group(2)] = match.group(1)
+    return entries
+
+
+# ---------------------------------------------------------------- signature checks
+
+def trusted_keys():
+    """{label: 32-byte key} from the TELLUS_TRUSTED_KEY_n constants of the helper source: the keys Tellus really trusts."""
+    source = (REPO_DIR / HELPER_SOURCE).read_text()
+    found = {}
+    for number, hexkey in re.findall(r'#define TELLUS_TRUSTED_KEY_(\d)\s+"([0-9a-f]{64})"', source):
+        found[KEY_LABELS.get(number, "key " + number)] = bytes.fromhex(hexkey)
+    if not found:
+        raise Abort("no TELLUS_TRUSTED_KEY constants found in " + HELPER_SOURCE)
+    return found
+
+
+def matching_trusted_key(manifest_path, signature_path):
+    """The label of the built-in key whose signature this is, or None."""
+    for label, key in trusted_keys().items():
+        with tempfile.TemporaryDirectory() as scratch:
+            der = Path(scratch) / "key.der"
+            der.write_bytes(SPKI_PREFIX + key)
+            result = run(["openssl", "pkeyutl", "-verify", "-rawin", "-pubin", "-keyform", "DER", "-inkey", str(der),
+                          "-in", str(manifest_path), "-sigfile", str(signature_path)], check=False)
+            if result.returncode == 0:
+                return label
+    return None
+
+
+def check_release_folder(folder):
+    """Checks the files of one release in `folder`. Returns (problems, signed)."""
+    folder = Path(folder)
+    problems = []
+    manifest_path = folder / "SHA256SUMS"
+    signature_path = folder / "SHA256SUMS.sig"
+    debs = sorted(path.name for path in folder.glob("*.deb"))
+    if not debs:
+        problems.append("no .deb files in the release")
+    if not manifest_path.exists():
+        return problems + ["SHA256SUMS is missing"], False
+    entries = parse_manifest(manifest_path.read_bytes())
+    for name in debs:
+        if "~" in name:
+            problems.append(name + ": a `~` in the name (GitHub rewrites it)")
+        if name not in entries:
+            problems.append(name + ": not listed in SHA256SUMS")
+        elif entries[name] != sha256_file(folder / name):
+            problems.append(name + ": does not match its SHA256SUMS entry")
+        else:
+            say("ok   " + name + " matches SHA256SUMS")
+    for name in entries:
+        if name not in debs:
+            problems.append("SHA256SUMS lists " + name + ", which is not in the release")
+    if not signature_path.exists():
+        say("NOTE this release has no SHA256SUMS.sig: Tellus will not install it")
+        return problems, False
+    if signature_path.stat().st_size != 64:
+        problems.append("SHA256SUMS.sig is " + str(signature_path.stat().st_size) + " bytes, not 64")
+        return problems, True
+    label = matching_trusted_key(manifest_path, signature_path)
+    if label is None:
+        problems.append("SHA256SUMS.sig is not a valid signature by a key built into the helper")
+    else:
+        say("ok   SHA256SUMS.sig is a valid signature by the " + label + " key")
+    return problems, True
+
+
+# ---------------------------------------------------------------- repository and CI checks
+
+def git(*arguments, check=True, mutating=False):
+    return run(["git"] + list(arguments), check=check, mutating=mutating)
+
+
+def preflight():
+    """The state the repository must be in before a candidate is built. Returns the full HEAD hash."""
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if branch != WORK_BRANCH:
+        raise Abort("you are on '" + branch + "', not '" + WORK_BRANCH + "' (git switch " + WORK_BRANCH + ")")
+    if git("status", "--porcelain").stdout.strip():
+        raise Abort("the working tree has uncommitted changes (git status --short)")
+    git("fetch", "--quiet", "--tags", "origin")
+    head = git("rev-parse", "HEAD").stdout.strip()
+    remote = git("rev-parse", "origin/" + WORK_BRANCH, check=False).stdout.strip()
+    if head != remote:
+        raise Abort("HEAD (" + head[:7] + ") is not what origin/" + WORK_BRANCH + " has (" + (remote[:7] or "nothing") + "): push or pull first")
+    require_green_ci(head)
+    say("ok   on " + WORK_BRANCH + ", clean, pushed, and CI is green for " + head[:7])
+    return head
+
+
+def require_green_ci(sha):
+    runs = gh_json(["run", "list", "--workflow", BUILD_WORKFLOW, "--branch", WORK_BRANCH, "--limit", "20",
+                    "--json", "databaseId,headSha,status,conclusion"])
+    mine = [item for item in runs if item["headSha"] == sha]
+    if not mine:
+        raise Abort("no CI build of " + sha[:7] + " yet (push it and wait for " + BUILD_WORKFLOW + ")")
+    if not any(item["status"] == "completed" and item["conclusion"] == "success" for item in mine):
+        raise Abort("the CI build of " + sha[:7] + " has not succeeded (status " + mine[0]["status"] + ", " + str(mine[0]["conclusion"]) + ")")
+
+
+def latest_stable_tag():
+    releases = gh_json(["release", "list", "--exclude-pre-releases", "--limit", "1", "--json", "tagName"])
+    return releases[0]["tagName"] if releases else None
+
+
+def release_versions(tag):
+    """{package id: version} of the .deb files attached to a release."""
+    assets = gh_json(["release", "view", tag, "--json", "assets"])["assets"]
+    found = {}
+    for asset in assets:
+        parsed = parse_deb_name(asset["name"])
+        if parsed:
+            found[parsed[0]] = parsed[1]
+    return found
+
+
+# ---------------------------------------------------------------- status
+
+def command_status(arguments):
+    start_log("status")
+    say("OITUI repository: " + str(REPO_DIR))
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    dirty = bool(git("status", "--porcelain").stdout.strip())
+    head = git("rev-parse", "HEAD").stdout.strip()
+    say("branch " + branch + ", HEAD " + head[:7] + (", UNCOMMITTED CHANGES" if dirty else ", clean"))
+    git("fetch", "--quiet", "--tags", "origin", check=False)
+    remote = git("rev-parse", "origin/" + WORK_BRANCH, check=False).stdout.strip()
+    say("origin/" + WORK_BRANCH + (" matches HEAD" if remote == head else " is " + (remote[:7] or "missing") + " (HEAD is not pushed or is behind)"))
+    runs = gh_json(["run", "list", "--workflow", BUILD_WORKFLOW, "--branch", WORK_BRANCH, "--limit", "20",
+                    "--json", "headSha,status,conclusion"]) or []
+    mine = [item for item in runs if item["headSha"] == head]
+    say("CI build of HEAD: " + ((mine[0]["status"] + ", " + str(mine[0]["conclusion"])) if mine else "none found"))
+    stable = latest_stable_tag()
+    say("latest stable release: " + str(stable))
+    local = local_versions()
+    released = release_versions(stable) if stable else {}
+    for key, package_id, _ in PACKAGES:
+        old = released.get(package_id)
+        state = "new" if old is None else ("unchanged" if old == local[key] else "CHANGED from " + old)
+        say("  " + package_id + " " + local[key] + "  (" + state + ")")
+    tags = git("tag", "-l", "v*-rc.*").stdout.split()
+    say("candidate tags: " + (", ".join(sorted(tags)) if tags else "none"))
+    return 0
+
+
+# ---------------------------------------------------------------- verify
+
+def command_verify(arguments):
+    start_log("verify")
+    target = arguments.target
+    if Path(target).is_dir():
+        folder = Path(target)
+        problems, signed = check_release_folder(folder)
+    else:
+        with tempfile.TemporaryDirectory() as scratch:
+            run(["gh", "release", "download", target, "-D", scratch])
+            problems, signed = check_release_folder(scratch)
+    for problem in problems:
+        say("FAIL " + problem)
+    if not problems and signed:
+        say("verdict: signed, complete and consistent")
+        return 0
+    if not problems:
+        say("verdict: consistent, but UNSIGNED")
+    return 1
+
+
+# ---------------------------------------------------------------- candidate
+
+def find_release_run(head, run_id):
+    """A successful release-workflow run for HEAD that was started by hand (or the one named with --run)."""
+    fields = "databaseId,headSha,status,conclusion,event,createdAt"
+    runs = gh_json(["run", "list", "--workflow", RELEASE_WORKFLOW, "--branch", WORK_BRANCH, "--limit", "20", "--json", fields]) or []
+    if run_id:
+        chosen = [item for item in runs if str(item["databaseId"]) == str(run_id)]
+        if not chosen:
+            raise Abort("run " + str(run_id) + " is not a recent " + RELEASE_WORKFLOW + " run on " + WORK_BRANCH)
+        if chosen[0]["headSha"] != head:
+            raise Abort("run " + str(run_id) + " built " + chosen[0]["headSha"][:7] + ", not HEAD " + head[:7])
+        return chosen[0]
+    for item in runs:
+        if item["headSha"] == head and item["event"] == "workflow_dispatch" and item["status"] == "completed" and item["conclusion"] == "success":
+            say("ok   using the existing release build of " + head[:7] + " (run " + str(item["databaseId"]) + ")")
+            return item
+    return None
+
+
+def trigger_release_run(head):
+    started = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=10)
+    run(["gh", "workflow", "run", RELEASE_WORKFLOW, "--ref", WORK_BRANCH], mutating=True)
+    if DRY_RUN:
+        return None
+    fields = "databaseId,headSha,status,conclusion,event,createdAt"
+    for _ in range(40):
+        time.sleep(POLL_SECONDS)
+        for item in gh_json(["run", "list", "--workflow", RELEASE_WORKFLOW, "--branch", WORK_BRANCH, "--limit", "10", "--json", fields]) or []:
+            created = datetime.datetime.fromisoformat(item["createdAt"].replace("Z", "+00:00"))
+            if item["event"] == "workflow_dispatch" and item["headSha"] == head and created >= started:
+                say("started release build, run " + str(item["databaseId"]))
+                run(["gh", "run", "watch", str(item["databaseId"]), "--exit-status"], check=False, interactive=True)
+                done = [x for x in gh_json(["run", "list", "--workflow", RELEASE_WORKFLOW, "--branch", WORK_BRANCH, "--limit", "10", "--json", fields])
+                        if x["databaseId"] == item["databaseId"]][0]
+                if done["conclusion"] != "success":
+                    raise Abort("the release build did not succeed (" + str(done["conclusion"]) + "); see the run in GitHub Actions")
+                return done
+    raise Abort("the release build did not show up; check GitHub Actions")
+
+
+def next_candidate_tag(version):
+    numbers = [int(match.group(1)) for tag in git("tag", "-l", "v" + version + "-rc.*").stdout.split()
+               for match in [re.fullmatch(r"v" + re.escape(version) + r"-rc\.(\d+)", tag)] if match]
+    return "v" + version + "-rc." + str(max(numbers, default=0) + 1)
+
+
+def command_candidate(arguments):
+    global DRY_RUN
+    DRY_RUN = arguments.dry_run
+    start_log("candidate")
+    version = arguments.version
+    parse_version(version)
+    head = preflight()
+    local = local_versions()
+    stable = latest_stable_tag()
+    if stable and parse_version(version) <= parse_version(stable.lstrip("v")):
+        raise Abort("release number " + version + " is not higher than the latest release " + stable)
+    tag = next_candidate_tag(version)
+    if git("rev-parse", "-q", "--verify", "refs/tags/" + tag, check=False).stdout.strip():
+        raise Abort("tag " + tag + " already exists")
+
+    # What changed since the last stable release decides where each package comes from.
+    released = release_versions(stable) if stable else {}
+    plan = {}
+    for key, package_id, _ in PACKAGES:
+        new, old = local[key], released.get(package_id)
+        if old is None:
+            plan[key] = "new"
+        elif parse_version(new) == parse_version(old):
+            plan[key] = "reuse"
+        elif parse_version(new) > parse_version(old):
+            plan[key] = "build"
+        else:
+            raise Abort(package_id + " " + new + " is lower than the released " + old)
+    if all(action == "reuse" for action in plan.values()):
+        raise Abort("no package changed since " + str(stable) + ": nothing to release")
+
+    run_info = find_release_run(head, arguments.run)
+    if run_info is None:
+        run_info = trigger_release_run(head)
+        if run_info is None:
+            say("dry run ends here: it would now wait for the release build and go on from its artifact")
+            return 0
+
+    out = Path(arguments.out or Path.home() / "Downloads" / ("oiti-release-" + tag))
+    if out.exists():
+        raise Abort(str(out) + " already exists: remove it or choose another folder with --out")
+    scratch = Path(tempfile.mkdtemp(prefix="oitui-release-"))
+    try:
+        ci = scratch / "ci"
+        run(["gh", "run", "download", str(run_info["databaseId"]), "-D", str(ci)])
+        built = {path.name: path for path in ci.rglob("*.deb")}
+        ci_manifests = list(ci.rglob("SHA256SUMS"))
+        if ci_manifests:
+            listed = parse_manifest(ci_manifests[0].read_bytes())
+            for name, path in built.items():
+                if listed.get(name) != sha256_file(path):
+                    raise Abort("the downloaded " + name + " does not match the build's own SHA256SUMS")
+
+        previous = scratch / "previous"
+        if "reuse" in plan.values():
+            run(["gh", "release", "download", stable, "-D", str(previous)])
+        previous_sums = parse_manifest((previous / "SHA256SUMS").read_bytes()) if (previous / "SHA256SUMS").exists() else {}
+
+        out.mkdir(parents=True)
+        lines = []
+        for key, package_id, _ in PACKAGES:
+            name = deb_name(package_id, local[key])
+            if plan[key] == "reuse":
+                source, where = previous / name, "unchanged, the byte-identical file of " + stable
+                if not source.exists():
+                    raise Abort(stable + " has no " + name)
+                if name in previous_sums and previous_sums[name] != sha256_file(source):
+                    raise Abort(name + " from " + stable + " does not match that release's SHA256SUMS")
+            else:
+                source, where = built.get(name), "new, built by run " + str(run_info["databaseId"])
+                if source is None:
+                    raise Abort("the build has no " + name + " (found: " + ", ".join(sorted(built)) + ")")
+            if "+debug" in name or "~" in name:
+                raise Abort(name + " has `+debug` or `~` in its name")
+            shutil.copy2(source, out / name)
+            lines.append((name, sha256_file(out / name), where))
+        manifest = "".join(digest + "  " + name + "\n" for name, digest, _ in sorted(lines))
+        (out / "SHA256SUMS").write_text(manifest)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+    say("")
+    say("Release candidate " + tag + " (OITUI " + version + "), commit " + head[:7])
+    for name, digest, where in lines:
+        say("  " + name + "\n      " + digest + "\n      " + where)
+    say("files are in " + str(out))
+    say("")
+    key = Path(os.environ.get("OITUI_SIGNING_KEY") or arguments.key or "~/oitui-signing/oitui-release-primary.key").expanduser()
+    if DRY_RUN:
+        say("[dry-run] would sign SHA256SUMS with " + str(key) + " and publish " + tag + " as a pre-release")
+        return 0
+    confirm("Sign this SHA256SUMS with " + str(key) + " (openssl will ask for the passphrase)?")
+    signature = out / "SHA256SUMS.sig"
+    run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(key), "-in", str(out / "SHA256SUMS"), "-out", str(signature)],
+        interactive=True)
+    if not signature.exists() or signature.stat().st_size != 64:
+        raise Abort("signing did not produce a 64-byte SHA256SUMS.sig")
+    label = matching_trusted_key(out / "SHA256SUMS", signature)
+    if label is None:
+        signature.unlink()
+        raise Abort("the signature is not valid for any key built into the helper: this is not the key Tellus trusts; nothing was published")
+    say("ok   signed; the " + label + " key built into the helper accepts it")
+
+    confirm("Tag " + tag + " at " + head[:7] + ", push the tag and publish the pre-release?")
+    notes = ("Test build for OITUI " + version + ". Not for general use. Install it from Tellus: About > Check for Updates > menu > "
+             "Include Pre-releases.\n\n" + "\n".join("- " + name + (" (unchanged: the file of " + stable + ")" if "unchanged" in where else "")
+                                                     for name, _, where in lines))
+    git("tag", "-a", tag, "-m", "OITUI " + version + " release candidate", mutating=True)
+    git("push", "origin", tag, mutating=True)
+    files = [str(out / name) for name in sorted(path.name for path in out.iterdir())]
+    run(["gh", "release", "create", tag, "--verify-tag", "--prerelease", "--title", "OITUI " + version + " release candidate " + tag.split("-rc.")[1],
+         "--notes", notes] + files, mutating=True)
+    say("published " + tag + ". Pushing a tag also starts a release build of the same sources; ignore its artifact (it is not the tested one).")
+    say("checking what GitHub now serves ...")
+    with tempfile.TemporaryDirectory() as check:
+        run(["gh", "release", "download", tag, "-D", check])
+        problems, _ = check_release_folder(check)
+    for problem in problems:
+        say("FAIL " + problem)
+    if problems:
+        return 1
+    say("")
+    say("Next: test " + tag + " on the phone (COMMANDS.md section 44, steps 5 to 8), then answer the readiness questions.")
+    return 0
+
+
+# ---------------------------------------------------------------- release
+
+def is_docs_or_tooling(path):
+    return path.startswith(ALLOWED_PREFIXES) or ("/" not in path and path.endswith(".md"))
+
+
+def changed_paths(first, second):
+    return [path for path in git("diff", "--name-only", first, second).stdout.splitlines() if path]
+
+
+def ref_exists(ref):
+    return git("rev-parse", "-q", "--verify", ref, check=False).returncode == 0
+
+
+def rev(ref):
+    return git("rev-parse", ref).stdout.strip()
+
+
+def tree_of(ref):
+    return rev(ref + "^{tree}")
+
+
+def control_version_at(commit, path):
+    text = git("show", commit + ":" + path).stdout
+    match = re.search(r"^Version:\s*(\S+)", text, re.M)
+    return match.group(1) if match else None
+
+
+def release_exists(tag):
+    return run(["gh", "release", "view", tag, "--json", "tagName"], check=False).returncode == 0
+
+
+def remote_tag_exists(tag):
+    return bool(git("ls-remote", "--tags", "origin", "refs/tags/" + tag, check=False).stdout.strip())
+
+
+def remote_branch_sha(branch):
+    output = git("ls-remote", "--heads", "origin", branch, check=False).stdout.split()
+    return output[0] if output else None
+
+
+def command_release(arguments):
+    global DRY_RUN
+    DRY_RUN = arguments.dry_run
+    start_log("release")
+    match = re.fullmatch(r"v(\d+\.\d+\.\d+)-rc\.\d+", arguments.candidate)
+    if not match:
+        raise Abort("<candidate-tag> must look like v0.4.2-rc.1")
+    candidate_tag = arguments.candidate
+    version = match.group(1)
+    final_tag = "v" + version
+
+    fetch_config = git("config", "--get-all", "remote.origin.fetch", check=False).stdout
+    if "+refs/heads/*:refs/remotes/origin/*" not in fetch_config:
+        raise Abort("this clone does not fetch all branches; run: git remote set-branches origin '*'")
+    if git("status", "--porcelain").stdout.strip():
+        raise Abort("the working tree has uncommitted changes (git status --short)")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if branch not in (WORK_BRANCH, "main"):
+        raise Abort("you are on '" + branch + "'; switch to " + WORK_BRANCH + " first")
+    git("fetch", "--quiet", "--tags", "--prune", "origin")
+
+    # Where did an earlier (interrupted) run get to?
+    if release_exists(final_tag):
+        stage = "cleanup"
+    elif remote_tag_exists(final_tag):
+        stage = "release"
+    else:
+        stage = "start"
+    work_tip = rev(WORK_BRANCH) if ref_exists("refs/heads/" + WORK_BRANCH) else None
+    if stage == "start" and work_tip and tree_of(WORK_BRANCH) == tree_of("origin/main"):
+        stage = "tag"   # main already has exactly the tree of the work branch: the pull request was merged
+    say("stage: " + {"start": "from the beginning", "tag": "the merge has already happened", "release": "the tag exists, the release does not",
+                     "cleanup": "the release exists, only the cleanup is left"}[stage])
+
+    tested = tip = None
+    notes = ""
+    rc_dir = Path(tempfile.mkdtemp(prefix="oitui-release-rc-"))
+    try:
+        if stage != "cleanup":
+            if not ref_exists("refs/tags/" + candidate_tag):
+                raise Abort("tag " + candidate_tag + " is not in this clone")
+            tested = rev(candidate_tag + "^{commit}")
+            run(["gh", "release", "download", candidate_tag, "-D", str(rc_dir)])
+            info = gh_json(["release", "view", candidate_tag, "--json", "isPrerelease"])
+            if not info.get("isPrerelease"):
+                raise Abort(candidate_tag + " is not a pre-release")
+            problems, signed = check_release_folder(rc_dir)
+            if problems or not signed:
+                for problem in problems:
+                    say("FAIL " + problem)
+                raise Abort("the candidate's files are not signed, complete and consistent (see above)")
+            # the packages in the candidate must be the versions that were tested
+            attached = {parse_deb_name(path.name)[0]: parse_deb_name(path.name)[1] for path in rc_dir.glob("*.deb") if parse_deb_name(path.name)}
+            for _, package_id, control in PACKAGES:
+                if attached.get(package_id) != control_version_at(tested, control):
+                    raise Abort(package_id + ": the candidate has " + str(attached.get(package_id)) + " but the tested commit says "
+                                + str(control_version_at(tested, control)))
+            if not work_tip:
+                raise Abort("no local " + WORK_BRANCH + " branch")
+            tip = work_tip
+            if git("merge-base", "--is-ancestor", tested, tip, check=False).returncode != 0:
+                raise Abort("the tested commit " + tested[:7] + " is not part of the local " + WORK_BRANCH + " branch")
+            differing = changed_paths(tested, tip)
+            product = [path for path in differing if not is_docs_or_tooling(path)]
+            if product:
+                for path in product:
+                    say("FAIL product file changed since the test: " + path)
+                raise Abort("files other than documentation and tooling changed after " + candidate_tag + " was tested: make a new candidate")
+            say("ok   the candidate is signed and consistent; since the tested commit " + tested[:7] + " only documentation and tooling changed ("
+                + str(len(differing)) + " files)")
+            if arguments.notes_file:
+                notes = Path(arguments.notes_file).expanduser().read_text().strip()
+            if not notes and stage in ("start", "tag", "release") and not DRY_RUN:
+                raise Abort("give the release notes with --notes-file <file> (the GitHub Release text is the only release note; keep the file outside the repository)")
+        if stage == "start":
+            if not ref_exists("refs/remotes/origin/" + WORK_BRANCH) or rev("origin/" + WORK_BRANCH) != tip:
+                raise Abort("the local " + WORK_BRANCH + " is not what origin/" + WORK_BRANCH + " has: push or pull first")
+            require_green_ci(tip)
+            say("ok   CI is green for " + tip[:7])
+            if git("merge-base", "--is-ancestor", "origin/main", "origin/" + WORK_BRANCH, check=False).returncode != 0:
+                raise Abort(WORK_BRANCH + " does not contain main: recreate it from main first")
+            if gh_json(["pr", "list", "--head", WORK_BRANCH, "--state", "open", "--json", "number"]):
+                raise Abort("a pull request from " + WORK_BRANCH + " is already open: close it or merge it by hand")
+            stable = latest_stable_tag()
+            if stable and parse_version(version) <= parse_version(stable.lstrip("v")):
+                raise Abort("release number " + version + " is not higher than the latest release " + str(stable))
+
+        say("")
+        say("Release OITUI " + version + " from " + candidate_tag + (" (tested commit " + tested[:7] + ")" if tested else ""))
+        if tested:
+            for path in sorted(rc_dir.iterdir()):
+                say("  " + path.name + ("  " + sha256_file(path) if path.suffix == ".deb" else ""))
+        plan = {
+            "start": ["open a pull request " + WORK_BRANCH + " -> main and squash-merge it", "check the merged tree", "tag " + final_tag + " and push the tag",
+                      "create the GitHub Release " + final_tag + " with the tested, signed files and your notes", "verify what GitHub serves",
+                      "delete the pre-release " + candidate_tag + " and its tag", "recreate " + WORK_BRANCH + " from main"],
+            "tag": ["tag " + final_tag + " and push the tag", "create the GitHub Release with the tested, signed files and your notes", "verify what GitHub serves",
+                    "delete the pre-release " + candidate_tag + " and its tag", "recreate " + WORK_BRANCH + " from main"],
+            "release": ["create the GitHub Release with the tested, signed files and your notes", "verify what GitHub serves",
+                        "delete the pre-release " + candidate_tag + " and its tag", "recreate " + WORK_BRANCH + " from main"],
+            "cleanup": ["verify what GitHub serves", "delete the pre-release " + candidate_tag + " and its tag (if still there)", "recreate " + WORK_BRANCH + " from main"],
+        }[stage]
+        say("This run will:")
+        for number, step in enumerate(plan, 1):
+            say("  " + str(number) + ". " + step)
+        if DRY_RUN:
+            say("[dry-run] nothing was changed")
+            return 0
+        if stage == "start":
+            confirm("The signing key is safe: the primary key's copies and the offline backup key have been checked?")
+            try:
+                typed = input("Type the release number (" + version + ") to merge to main and publish: ").strip()
+            except EOFError:
+                typed = ""
+            if typed != version:
+                raise Abort("stopped: that is not the release number")
+        else:
+            confirm("Go on with the rest of the release of " + final_tag + "?")
+
+        pre_merge_tip = tip
+        if stage == "start":
+            body = "Release OITUI " + version + " from the tested candidate " + candidate_tag + " (commit " + tested[:7] + "). The release notes are in the GitHub Release."
+            run(["gh", "pr", "create", "--base", "main", "--head", WORK_BRANCH, "--title", "OITUI " + version, "--body", body], mutating=True)
+            prs = gh_json(["pr", "list", "--head", WORK_BRANCH, "--state", "open", "--json", "number"])
+            if not prs:
+                raise Abort("the pull request was not created")
+            number = str(prs[0]["number"])
+            listed = sorted(path for path in run(["gh", "pr", "diff", number, "--name-only"]).stdout.splitlines() if path)
+            expected = sorted(changed_paths("origin/main", "origin/" + WORK_BRANCH))
+            if listed != expected:
+                raise Abort("pull request " + number + " lists different files than " + WORK_BRANCH + " has over main: check it on GitHub; it is still open")
+            run(["gh", "pr", "merge", number, "--squash", "--subject", "OITUI " + version + " (#" + number + ")", "--body", body], mutating=True)
+            state = gh_json(["pr", "view", number, "--json", "state,mergeCommit"])
+            if state.get("state") != "MERGED":
+                raise Abort("pull request " + number + " is not merged (" + str(state.get("state")) + "); nothing else was done")
+            merge_commit = (state.get("mergeCommit") or {}).get("oid")
+            say("ok   pull request " + number + " is merged")
+            stage = "tag"
+        else:
+            merge_commit = None
+
+        if stage == "tag":
+            git("fetch", "--quiet", "--prune", "origin")
+            git("switch", "main")
+            git("merge", "--ff-only", "--quiet", "origin/main")
+            if merge_commit and rev("HEAD") != merge_commit:
+                raise Abort("main is at " + rev("HEAD")[:7] + " but the merge commit is " + merge_commit[:7] + "; stopped before tagging")
+            if tree_of("HEAD") != tree_of(pre_merge_tip):
+                raise Abort("the merged tree differs from the tree of " + WORK_BRANCH + " that was reviewed: stopped before tagging")
+            leftover = [path for path in changed_paths(tested, "HEAD") if not is_docs_or_tooling(path)]
+            if leftover:
+                raise Abort("main differs from the tested commit in product files (" + ", ".join(leftover) + "): stopped before tagging")
+            say("ok   main has exactly the reviewed tree, and only documentation and tooling differ from the tested commit")
+            git("tag", "-a", final_tag, "-m", "OITUI " + version, mutating=True)
+            git("push", "origin", final_tag, mutating=True)
+            stage = "release"
+
+        if stage == "release":
+            if rev(final_tag + "^{commit}") != rev("origin/main"):
+                raise Abort("tag " + final_tag + " is not on the tip of main")
+            files = [str(path) for path in sorted(rc_dir.iterdir())]
+            run(["gh", "release", "create", final_tag, "--verify-tag", "--title", "OITUI " + version, "--notes", notes] + files, mutating=True)
+            stage = "cleanup"
+
+        # verification of what GitHub now serves
+        with tempfile.TemporaryDirectory() as check:
+            run(["gh", "release", "download", final_tag, "-D", check])
+            problems, signed = check_release_folder(check)
+            if problems or not signed:
+                for problem in problems:
+                    say("FAIL " + problem)
+                raise Abort("the published release " + final_tag + " did not verify; nothing was deleted")
+        info = gh_json(["release", "view", final_tag, "--json", "isPrerelease"])
+        if info.get("isPrerelease"):
+            raise Abort(final_tag + " is marked as a pre-release")
+        say("ok   " + final_tag + " is published and verifies")
+
+        # cleanup
+        if release_exists(candidate_tag):
+            run(["gh", "release", "delete", candidate_tag, "--cleanup-tag", "--yes"], mutating=True)
+        if ref_exists("refs/tags/" + candidate_tag):
+            git("tag", "-d", candidate_tag, mutating=True)
+        git("fetch", "--quiet", "--prune", "origin")
+        git("switch", "main", check=False)
+        git("merge", "--ff-only", "--quiet", "origin/main")
+        if ref_exists("refs/heads/" + WORK_BRANCH):
+            if rev(WORK_BRANCH) == rev("main"):
+                say("ok   " + WORK_BRANCH + " already equals main")
+            else:
+                if tree_of(WORK_BRANCH) != tree_of("main"):
+                    raise Abort("the local " + WORK_BRANCH + " is not what was merged (its tree differs from main's): NOT deleting it; the release itself is done")
+                remote = remote_branch_sha(WORK_BRANCH)
+                if remote is not None:
+                    if remote != rev(WORK_BRANCH):
+                        raise Abort("origin/" + WORK_BRANCH + " is at " + remote[:7] + ", not at your local branch: NOT deleting it; the release itself is done")
+                    git("push", "origin", "--delete", WORK_BRANCH, mutating=True)
+                git("branch", "-D", WORK_BRANCH, mutating=True)
+                git("switch", "-c", WORK_BRANCH, mutating=True)
+                git("push", "-u", "origin", WORK_BRANCH, mutating=True)
+        else:
+            git("switch", "-c", WORK_BRANCH, mutating=True)
+            git("push", "-u", "origin", WORK_BRANCH, mutating=True)
+        if remote_branch_sha(WORK_BRANCH) is None:
+            git("push", "-u", "origin", WORK_BRANCH, mutating=True)
+        hashes = [rev("main"), rev(WORK_BRANCH), rev("origin/" + WORK_BRANCH)]
+        if len(set(hashes)) != 1:
+            raise Abort("main, " + WORK_BRANCH + " and origin/" + WORK_BRANCH + " are not the same commit: " + " ".join(h[:7] for h in hashes))
+        say("ok   " + WORK_BRANCH + " was recreated from main (" + hashes[0][:7] + ")")
+        say("")
+        say("Released " + final_tag + ". On the phone, in Tellus with Include Pre-releases off: everything should say Up to date.")
+        return 0
+    finally:
+        shutil.rmtree(rc_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------- main
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="oitui-release", description="OITUI release helper")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("status", help="read-only overview")
+    verify = sub.add_parser("verify", help="check a release's files and signature")
+    verify.add_argument("target", help="a release tag, or a folder with the release files")
+    candidate = sub.add_parser("candidate", help="build, sign and publish a release candidate")
+    candidate.add_argument("version", help="the OITUI release number, e.g. 0.4.2")
+    candidate.add_argument("--dry-run", action="store_true", help="print what would change instead of changing it")
+    candidate.add_argument("--run", help="use this release-workflow run id instead of looking for or starting one")
+    candidate.add_argument("--out", help="folder for the release files (default ~/Downloads/oiti-release-<tag>)")
+    candidate.add_argument("--key", help="the encrypted signing key (default ~/oitui-signing/oitui-release-primary.key)")
+    release = sub.add_parser("release", help="release a tested candidate")
+    release.add_argument("candidate", help="the candidate's tag, e.g. v0.4.2-rc.1")
+    release.add_argument("--notes-file", help="a text file with the release notes (the GitHub Release text); keep it outside the repository")
+    release.add_argument("--dry-run", action="store_true", help="check everything and print the plan, change nothing")
+    arguments = parser.parse_args(argv)
+    try:
+        handler = {"status": command_status, "verify": command_verify, "candidate": command_candidate,
+                   "release": command_release}[arguments.command]
+        return handler(arguments)
+    except Abort as problem:
+        say("STOPPED: " + str(problem))
+        log("STOPPED: " + str(problem))
+        return 1
+    except KeyboardInterrupt:
+        say("\nStopped.")
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

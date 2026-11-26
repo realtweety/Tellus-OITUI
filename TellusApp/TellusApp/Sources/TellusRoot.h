@@ -10,7 +10,7 @@
 
 // Starts the Tellus root helper as root and captures its output. Nothing here installs or modifies packages by itself.
 
-/// Runs `path` with up to four arguments and captures its output (stdout and stderr), waiting for it for at most
+/// Runs `path` with up to five arguments and captures its output (stdout and stderr), waiting for it for at most
 /// `timeout_milliseconds`.
 ///
 /// `use_persona` != 0 asks the system to start the child as root through the persona API (needs the
@@ -27,6 +27,7 @@ int tellus_spawn_capture_ex(const char * _Nonnull path,
                             const char * _Nullable argument2,
                             const char * _Nullable argument3,
                             const char * _Nullable argument4,
+                            const char * _Nullable argument5,
                             int use_persona,
                             int timeout_milliseconds,
                             int kill_on_timeout,

@@ -4,13 +4,17 @@
 // of its own packages. The helper does not trust its caller: it re-checks the
 // package itself before running dpkg.
 //
-//   tellus-helper --install <file> <sha256> <package-id>
+//   tellus-helper --install <package> <manifest> <signature> <package-id>
 //   tellus-helper --probe
 //
 // --install refuses to run unless it is really root, only accepts the packages
-// in the allowlist below, only reads files from Tellus's update folder, hashes
-// the file itself, copies it into a root-only folder, confirms the package name
-// inside the .deb, and only then runs dpkg on the private copy.
+// in the allowlist below, only reads files from Tellus's update folder, checks
+// that the manifest (SHA256SUMS) carries a valid Ed25519 signature from one of
+// the built-in public keys, takes the package's expected SHA-256 from that
+// signed manifest (never from its caller), hashes the package itself, copies it
+// into a root-only folder, confirms the package name inside the .deb, refuses a
+// version lower than the installed one, and only then runs dpkg on the private
+// copy.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -26,12 +30,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "monocypher-ed25519.h"
+
 // Paths can be overridden at compile time for tests; the shipped build uses the defaults.
 #ifndef TELLUS_DPKG_PATH
 #define TELLUS_DPKG_PATH "/var/jb/usr/bin/dpkg"
 #endif
 #ifndef TELLUS_DPKG_DEB_PATH
 #define TELLUS_DPKG_DEB_PATH "/var/jb/usr/bin/dpkg-deb"
+#endif
+#ifndef TELLUS_DPKG_QUERY_PATH
+#define TELLUS_DPKG_QUERY_PATH "/var/jb/usr/bin/dpkg-query"
 #endif
 #ifndef TELLUS_PRIVATE_DIR
 #define TELLUS_PRIVATE_DIR "/var/jb/var/tmp/tellus-install"
@@ -44,6 +53,21 @@
 #endif
 
 #define MAX_PACKAGE_BYTES (50u * 1024u * 1024u)
+#define MAX_MANIFEST_BYTES (64u * 1024u)
+#define SIGNATURE_BYTES 64u
+
+// The Ed25519 public keys (32 bytes, as 64 lowercase hex characters) whose signatures the helper accepts. A signature
+// from either one is enough. KEY_1 is the primary release key and KEY_2 the backup key (kept offline). The private keys are
+// never in this repository. Tests override these at compile time with their own keys; the shipped build uses the defaults.
+#ifndef TELLUS_TRUSTED_KEY_1
+#define TELLUS_TRUSTED_KEY_1 "ee5637ae091ca8d079f8385a7b74186f80045bc0ed01aa254c95157a929442f9"
+#endif
+#ifndef TELLUS_TRUSTED_KEY_2
+#define TELLUS_TRUSTED_KEY_2 "7f6176d77eb31a9b56916e3507895e8cd6f094c8bca0a1c51fc89293f604afab"
+#endif
+
+#define MANIFEST_FILE_NAME "SHA256SUMS"
+#define SIGNATURE_FILE_NAME "SHA256SUMS.sig"
 
 extern char **environ;
 
@@ -167,16 +191,6 @@ static int isAllowedPackage(const char *packageID)
     return 0;
 }
 
-static int isLowercaseSha256(const char *text)
-{
-    if (strlen(text) != 64) return 0;
-    for (int i = 0; i < 64; i++) {
-        char c = text[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return 0;
-    }
-    return 1;
-}
-
 /// Is `resolvedDirectory` the real path of one of the allowed staging folders?
 static int isStagingDirectory(const char *resolvedDirectory)
 {
@@ -280,53 +294,56 @@ static void reportFile(const char *label, const char *path)
            (unsigned)(info.st_mode & 07777), (int)info.st_uid, fd >= 0 ? "yes" : strerror(openError));
 }
 
-// ---------------------------------------------------------------- install
+// ---------------------------------------------------------------- files, signature, manifest
 
-static int installPackage(const char *requestedPath, const char *expectedHash, const char *packageID)
+typedef struct {
+    uint8_t *data;
+    size_t length;
+    char directory[PATH_MAX];
+    char name[256];
+} StagedFile;
+
+static void releaseStagedFile(StagedFile *file)
 {
-    if (getuid() != 0 || geteuid() != 0) return fail(10, "the helper is not running as root");
-    if (!isAllowedPackage(packageID)) return fail(11, "that package is not allowed to be installed from Tellus");
-    if (!isLowercaseSha256(expectedHash)) return fail(12, "the expected checksum is not a SHA-256 value");
+    free(file->data);
+    file->data = NULL;
+    file->length = 0;
+}
 
-    printf("STEP: checking the package file\n");
-    fflush(stdout);
+/// Reads one regular file from an allowed staging folder completely into memory. Everything that is checked afterwards is
+/// checked on these bytes, so the file cannot be swapped between the check and the install. Returns 0, or the exit code to
+/// fail with (and sets *message).
+static int loadStagedFile(const char *requestedPath, size_t maximumBytes, StagedFile *file, const char **message)
+{
+    memset(file, 0, sizeof(*file));
 
     char resolved[PATH_MAX];
-    if (realpath(requestedPath, resolved) == NULL) return fail(13, "the package file does not exist");
+    if (realpath(requestedPath, resolved) == NULL) { *message = "the file does not exist"; return 13; }
 
     char *lastSlash = strrchr(resolved, '/');
-    if (lastSlash == NULL || lastSlash == resolved) return fail(14, "the package file path is not valid");
-    char directory[PATH_MAX];
+    if (lastSlash == NULL || lastSlash == resolved) { *message = "the file path is not valid"; return 14; }
     size_t directoryLength = (size_t)(lastSlash - resolved);
-    memcpy(directory, resolved, directoryLength);
-    directory[directoryLength] = '\0';
+    memcpy(file->directory, resolved, directoryLength);
+    file->directory[directoryLength] = '\0';
     const char *fileName = lastSlash + 1;
+    if (strlen(fileName) == 0 || strlen(fileName) >= sizeof(file->name)) { *message = "the file name is not valid"; return 14; }
+    strcpy(file->name, fileName);
 
-    if (!isStagingDirectory(directory)) return fail(14, "the package file is not in Tellus's update folder");
-
-    size_t prefixLength = strlen(packageID);
-    size_t nameLength = strlen(fileName);
-    if (nameLength <= prefixLength + 5 || strncmp(fileName, packageID, prefixLength) != 0 ||
-        fileName[prefixLength] != '_' || strcmp(fileName + nameLength - 4, ".deb") != 0) {
-        return fail(15, "the file name does not match the package");
-    }
+    if (!isStagingDirectory(file->directory)) { *message = "the file is not in Tellus's update folder"; return 14; }
 
     int input = open(resolved, O_RDONLY | O_NOFOLLOW);
-    if (input < 0) return fail(13, "the package file could not be opened");
+    if (input < 0) { *message = "the file could not be opened"; return 13; }
 
     struct stat info;
-    if (fstat(input, &info) != 0 || !S_ISREG(info.st_mode) || info.st_size <= 0 ||
-        (uint64_t)info.st_size > MAX_PACKAGE_BYTES) {
+    if (fstat(input, &info) != 0 || !S_ISREG(info.st_mode) || info.st_size <= 0 || (uint64_t)info.st_size > maximumBytes) {
         close(input);
-        return fail(16, "the package file is not a regular file of a sensible size");
+        *message = "the file is not a regular file of a sensible size";
+        return 16;
     }
 
     size_t length = (size_t)info.st_size;
     uint8_t *data = malloc(length);
-    if (data == NULL) {
-        close(input);
-        return fail(17, "out of memory");
-    }
+    if (data == NULL) { close(input); *message = "out of memory"; return 17; }
     size_t received = 0;
     while (received < length) {
         ssize_t count = read(input, data + received, length - received);
@@ -335,20 +352,196 @@ static int installPackage(const char *requestedPath, const char *expectedHash, c
         received += (size_t)count;
     }
     close(input);
-    if (received != length) {
-        free(data);
-        return fail(17, "the package file could not be read completely");
+    if (received != length) { free(data); *message = "the file could not be read completely"; return 17; }
+
+    file->data = data;
+    file->length = length;
+    return 0;
+}
+
+static int hexValue(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
+}
+
+/// Decodes 64 lowercase hex characters into 32 bytes. Returns 1 on success.
+static int decodePublicKey(const char *hex, uint8_t out[32])
+{
+    if (strlen(hex) != 64) return 0;
+    for (int i = 0; i < 32; i++) {
+        int high = hexValue(hex[2 * i]);
+        int low = hexValue(hex[2 * i + 1]);
+        if (high < 0 || low < 0) return 0;
+        out[i] = (uint8_t)((high << 4) | low);
+    }
+    return 1;
+}
+
+/// How many of the built-in keys are usable (a key that is not valid hex is ignored, never trusted).
+static int trustedKeyCount(void)
+{
+    const char *keys[] = { TELLUS_TRUSTED_KEY_1, TELLUS_TRUSTED_KEY_2 };
+    uint8_t key[32];
+    int count = 0;
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        if (decodePublicKey(keys[i], key)) count++;
+    }
+    return count;
+}
+
+/// Is `signature` a valid Ed25519 signature of exactly `manifest` by one of the built-in keys?
+static int manifestSignatureIsValid(const uint8_t *manifest, size_t manifestLength, const uint8_t signature[SIGNATURE_BYTES])
+{
+    const char *keys[] = { TELLUS_TRUSTED_KEY_1, TELLUS_TRUSTED_KEY_2 };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        uint8_t key[32];
+        if (!decodePublicKey(keys[i], key)) continue;
+        if (crypto_ed25519_check(signature, key, manifest, manifestLength) == 0) return 1;
+    }
+    return 0;
+}
+
+/// Finds `fileName` in the (already verified) manifest. Lines look like "<64 lowercase hex>  <name>" (sha256sum text mode) or
+/// "<64 hex> *<name>" (binary mode). Returns 1 and the hash if exactly one distinct hash is listed for that name; 0 if the
+/// name is missing or listed with different hashes.
+static int manifestHashFor(const uint8_t *manifest, size_t length, const char *fileName, char hash[65])
+{
+    size_t nameLength = strlen(fileName);
+    int found = 0;
+    size_t position = 0;
+    while (position < length) {
+        size_t end = position;
+        while (end < length && manifest[end] != '\n') end++;
+        size_t lineLength = end - position;
+        if (lineLength > 0 && manifest[position + lineLength - 1] == '\r') lineLength--;
+        const uint8_t *line = manifest + position;
+        position = end + 1;
+
+        if (lineLength != 64 + 2 + nameLength) continue;
+        if (line[64] != ' ' || (line[65] != ' ' && line[65] != '*')) continue;
+        if (memcmp(line + 66, fileName, nameLength) != 0) continue;
+
+        char candidate[65];
+        int valid = 1;
+        for (int i = 0; i < 64; i++) {
+            if (hexValue((char)line[i]) < 0) { valid = 0; break; }
+            candidate[i] = (char)line[i];
+        }
+        if (!valid) continue;
+        candidate[64] = '\0';
+
+        if (found && strcmp(candidate, hash) != 0) return 0;
+        memcpy(hash, candidate, 65);
+        found = 1;
+    }
+    return found;
+}
+
+static void trimLineEnd(char *text)
+{
+    size_t length = strlen(text);
+    while (length > 0 && (text[length - 1] == '\n' || text[length - 1] == '\r')) text[--length] = '\0';
+}
+
+/// Refuses a package whose version is lower than the installed one. Returns 0 to go on, or the exit code to fail with.
+/// An equal version is allowed (a release candidate carries the final version number). A package that is not installed yet is
+/// allowed. Anything that cannot be decided is refused.
+static int checkNotADowngrade(const char *privatePath, const char *packageID)
+{
+    char newVersion[256];
+    char *newArguments[] = { TELLUS_DPKG_DEB_PATH, "-f", (char *)privatePath, "Version", NULL };
+    int newResult = runProgram(TELLUS_DPKG_DEB_PATH, newArguments, newVersion, sizeof(newVersion));
+    trimLineEnd(newVersion);
+    if (newResult != 0 || newVersion[0] == '\0') return fail(25, "the version of the package could not be read");
+
+    char installedVersion[256];
+    char *queryArguments[] = { TELLUS_DPKG_QUERY_PATH, "-W", "--showformat=${Version}", (char *)packageID, NULL };
+    int queryResult = runProgram(TELLUS_DPKG_QUERY_PATH, queryArguments, installedVersion, sizeof(installedVersion));
+    trimLineEnd(installedVersion);
+    if (queryResult == 1 || (queryResult == 0 && installedVersion[0] == '\0')) return 0;   // not installed
+    if (queryResult != 0) return fail(25, "the installed version could not be read");
+
+    char *compareArguments[] = { TELLUS_DPKG_PATH, "--compare-versions", newVersion, "lt", installedVersion, NULL };
+    int compareResult = runProgram(TELLUS_DPKG_PATH, compareArguments, NULL, 0);
+    if (compareResult == 0) return fail(24, "that package is older than the installed version, and Tellus does not downgrade");
+    if (compareResult != 1) return fail(25, "the versions could not be compared");
+    return 0;
+}
+
+// ---------------------------------------------------------------- install
+
+static int installPackage(const char *packagePath, const char *manifestPath, const char *signaturePath, const char *packageID)
+{
+    if (getuid() != 0 || geteuid() != 0) return fail(10, "the helper is not running as root");
+    if (!isAllowedPackage(packageID)) return fail(11, "that package is not allowed to be installed from Tellus");
+
+    printf("STEP: checking the package file\n");
+    fflush(stdout);
+
+    StagedFile package, manifest, signature;
+    const char *message = NULL;
+    int code = loadStagedFile(packagePath, MAX_PACKAGE_BYTES, &package, &message);
+    if (code != 0) return fail(code, message);
+
+    const char *fileName = package.name;
+    size_t prefixLength = strlen(packageID);
+    size_t nameLength = strlen(fileName);
+    if (nameLength <= prefixLength + 5 || strncmp(fileName, packageID, prefixLength) != 0 ||
+        fileName[prefixLength] != '_' || strcmp(fileName + nameLength - 4, ".deb") != 0) {
+        releaseStagedFile(&package);
+        return fail(15, "the file name does not match the package");
+    }
+
+    // The manifest and its signature: same folder as the package, fixed names, nothing else.
+    code = loadStagedFile(manifestPath, MAX_MANIFEST_BYTES, &manifest, &message);
+    if (code == 0 && (strcmp(manifest.name, MANIFEST_FILE_NAME) != 0 || strcmp(manifest.directory, package.directory) != 0)) {
+        releaseStagedFile(&manifest);
+        code = 21;
+    }
+    if (code != 0) {
+        releaseStagedFile(&package);
+        return fail(21, "the signed checksum list is missing or not usable");
+    }
+    code = loadStagedFile(signaturePath, SIGNATURE_BYTES, &signature, &message);
+    if (code == 0 && (signature.length != SIGNATURE_BYTES || strcmp(signature.name, SIGNATURE_FILE_NAME) != 0 ||
+                      strcmp(signature.directory, package.directory) != 0)) {
+        releaseStagedFile(&signature);
+        code = 21;
+    }
+    if (code != 0) {
+        releaseStagedFile(&package);
+        releaseStagedFile(&manifest);
+        return fail(21, "the signature of the checksum list is missing or not usable");
+    }
+
+    if (trustedKeyCount() == 0 || !manifestSignatureIsValid(manifest.data, manifest.length, signature.data)) {
+        releaseStagedFile(&package);
+        releaseStagedFile(&manifest);
+        releaseStagedFile(&signature);
+        return fail(22, "the checksum list is not signed by a trusted key");
+    }
+    printf("STEP: signature verified\n");
+
+    char expectedHash[65];
+    int listed = manifestHashFor(manifest.data, manifest.length, fileName, expectedHash);
+    releaseStagedFile(&manifest);
+    releaseStagedFile(&signature);
+    if (!listed) {
+        releaseStagedFile(&package);
+        return fail(23, "the signed checksum list does not list this package exactly once");
     }
 
     // Hash what we actually read; this is the data that will be installed.
     Sha256 hasher;
     char actualHash[65];
     sha256Init(&hasher);
-    sha256Update(&hasher, data, length);
+    sha256Update(&hasher, package.data, package.length);
     sha256Hex(&hasher, actualHash);
     if (strcmp(actualHash, expectedHash) != 0) {
-        free(data);
-        return fail(18, "the package does not match its checksum");
+        releaseStagedFile(&package);
+        return fail(18, "the package does not match its signed checksum");
     }
     printf("STEP: checksum verified\n");
 
@@ -357,7 +550,7 @@ static int installPackage(const char *requestedPath, const char *expectedHash, c
     mkdir(privateDirectory, 0700);
     struct stat directoryInfo;
     if (lstat(privateDirectory, &directoryInfo) != 0 || !S_ISDIR(directoryInfo.st_mode) || directoryInfo.st_uid != 0) {
-        free(data);
+        releaseStagedFile(&package);
         return fail(19, "the private install folder is not usable");
     }
     chmod(privateDirectory, 0700);
@@ -367,13 +560,13 @@ static int installPackage(const char *requestedPath, const char *expectedHash, c
     unlink(privatePath);
     int output = open(privatePath, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
     if (output < 0) {
-        free(data);
+        releaseStagedFile(&package);
         return fail(19, "the private copy could not be created");
     }
-    int writeResult = writeAll(output, data, length);
+    int writeResult = writeAll(output, package.data, package.length);
     fsync(output);
     close(output);
-    free(data);
+    releaseStagedFile(&package);
     if (writeResult != 0) {
         unlink(privatePath);
         return fail(19, "the private copy could not be written");
@@ -383,15 +576,19 @@ static int installPackage(const char *requestedPath, const char *expectedHash, c
     char nameOutput[256];
     char *queryArguments[] = { TELLUS_DPKG_DEB_PATH, "-f", privatePath, "Package", NULL };
     int queryResult = runProgram(TELLUS_DPKG_DEB_PATH, queryArguments, nameOutput, sizeof(nameOutput));
-    size_t nameOutputLength = strlen(nameOutput);
-    while (nameOutputLength > 0 && (nameOutput[nameOutputLength - 1] == '\n' || nameOutput[nameOutputLength - 1] == '\r')) {
-        nameOutput[--nameOutputLength] = '\0';
-    }
+    trimLineEnd(nameOutput);
     if (queryResult != 0 || strcmp(nameOutput, packageID) != 0) {
         unlink(privatePath);
         return fail(20, "the package inside the file is not the expected one");
     }
     printf("STEP: package name confirmed (%s)\n", packageID);
+
+    int versionCode = checkNotADowngrade(privatePath, packageID);
+    if (versionCode != 0) {
+        unlink(privatePath);
+        return versionCode;
+    }
+    printf("STEP: version checked\n");
     printf("STEP: running dpkg\n");
     fflush(stdout);
 
@@ -415,8 +612,8 @@ static int installPackage(const char *requestedPath, const char *expectedHash, c
 
 int main(int argc, char **argv)
 {
-    if (argc == 5 && strcmp(argv[1], "--install") == 0) {
-        return installPackage(argv[2], argv[3], argv[4]);
+    if (argc == 6 && strcmp(argv[1], "--install") == 0) {
+        return installPackage(argv[2], argv[3], argv[4], argv[5]);
     }
 
     if (argc >= 2 && strcmp(argv[1], "--probe") == 0) {
@@ -424,9 +621,10 @@ int main(int argc, char **argv)
                (int)getgid(), (int)getegid(), (int)getpid());
         reportFile("dpkg status", "/var/jb/var/lib/dpkg/status");
         reportFile("dpkg binary", TELLUS_DPKG_PATH);
+        printf("trusted signing keys: %d\n", trustedKeyCount());
         return 0;
     }
 
-    fprintf(stderr, "usage: tellus-helper --install <file> <sha256> <package-id> | --probe\n");
+    fprintf(stderr, "usage: tellus-helper --install <package> <manifest> <signature> <package-id> | --probe\n");
     return 2;
 }

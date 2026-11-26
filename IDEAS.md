@@ -1,204 +1,162 @@
 # OITUI Ideas
 
+> **Purpose:** This file is the pool of things OITUI *could* do. Nothing here is promised, approved, scheduled, or assigned to a release unless the owner explicitly moves it into `PLANS.md`.
+>
+> Ideas may be researched, prototyped, changed, postponed, rejected, or removed. Claude may rank options and explain trade-offs, but must not treat this file as a list of commitments, and must not move an idea into `PLANS.md` or start building it without the owner's explicit decision.
 
+## How to read this file
 
-## 12 Nov 2026: roadmap decisions and a big list of ideas
+Every entry starts with one of these labels:
 
-Where this differs from the 0.4.0 wording in the roadmap bullet under "OITI: current state and next candidates", this section is newer. Plans after 0.4.0 are still open; the list below is a pool to pick from, not a commitment.
+- **Candidate**: potentially worthwhile; not approved for implementation.
+- **Research**: needs technical investigation or a prototype before its value or feasibility is clear.
+- **Dependency**: depends on another capability being designed or completed first.
+- **Parked**: deliberately postponed; do not restart without revisiting the owner's decision.
+- **Low fit**: possible in theory, but it seems outside Insula's purpose or offers too little value for its cost.
+- **Closed**: explicitly rejected or superseded; do not reintroduce without the owner's request.
 
-### Decisions for 0.4.0 (owner, 12 Nov 2026)
+Rules for this file:
 
-- **Landscape Island Notifications without Apple's Dynamic Island.** All views and rendering are done by OITI itself, in a window of its own (as the stack cards in `OITINoticeStackCards.xm` already are). Open questions for batch 1, none researched yet: where our window gets the interface orientation from (SpringBoard's own window does not rotate with the apps), how a landscape card is styled so it matches the portrait Island look, how it avoids or hides Apple's own landscape banner, and its own off-by-default switch (off in Apple Mode). Testable only on the iPhone 8 Plus; real Dynamic Island hardware in landscape cannot be verified.
-- **One-command tester report.** A script in `tools/` (for SSH use) and a button in Insula's settings (maybe a dedicated section or menu) that collects the report and copies it to the clipboard: build tag, device model, iOS version, every setting that differs from its default, safe-mode and self-check state, the log tail, Dopamine and package versions. Design points: the collection runs in the Settings bundle process with no change to the launch path; live SpringBoard state, if needed, is requested on demand through a notification (cheap observer at launch, the work only when the button is pressed). Before shipping: grep every log call site for notification titles or text, show a preview and list what the report contains, and say that Universal Clipboard can sync it to the user's other devices.
-- **Icons.** Make icons for Tellus, Insula, Litus and the rest of the family (the owner is tired of plain text names). Starting points are in "Icon concepts (not yet made, no urgency)" at the end of this file, which still uses the old module names (OITI is Insula, OITS is Litus, OITUI is Tellus).
+- Do not add release numbers or dates to ideas. If the owner decides an idea is coming, move it into `PLANS.md`.
+- When something ships, delete it from this file. Shipped work is documented in `OVERVIEW.md`, `LEARNINGS.md` and the Git history, and must not be left looking like future work.
+- Keep one authoritative entry per idea.
+- The numbered list that older documents and source comments cite (for example "IDEAS #13") is retired. Those numbers refer to the version of this file from 12 November 2026, which is in the Git history.
 
-Status, 14 Nov 2026: the one-command tester report and the Settings button (decision 2 above) were built for 0.3.6 as Settings > Insula > Diagnostics (idea 18 in part: the Log Detail picker; idea 29 is still open), with an issue template; see OVERVIEW.md, "0.3.6 batch 3". The "default logging stays off" decision is in the same entry.
+---
 
-Status, 16 Nov 2026: 0.3.6 is released. Safari's download source (see `OVERVIEW.md` "Next" and `LEARNINGS.md` "Safari's download calls, measured") is planned for 0.3.7, ahead of 0.4.0's landscape work. Icons (idea 31 and the icon concepts at the end of this file) are still not started.
+## 1. Insula ideas
 
-Status, 21 Nov 2026: the **Tellus app** was built for 0.4.0 (OVERVIEW.md, "Current state (21 Nov 2026"). The owner put the **landscape Island notifications on hold for a long while** (decision 1 above is parked, not cancelled). Idea 25 (Reset this page) is done in 0.4.0 on every page except the main one (whose switches turn the Island and Apple Mode on and off). Idea 24 (a Respring button at the top of Settings) already exists in the navigation bar. Idea 26 (the download source in the Detailed look) appears to exist already, as the `App Name - File Name` headline, and waits for a check on the phone. Plan chosen by the owner on 22 Nov 2026, after the 0.4.0 release: the Update All test with a pre-release (0.4.1), then signed releases, then the update check on launch; Litus is postponed. New ideas from the Tellus work, none started:
-- **Signed releases.** Sign `SHA256SUMS` with a key whose public half is built into `tellus-helper`, so the helper itself refuses a package that was not signed by the owner. Today the checksum and the package come from the same release, so the updater trusts that repository (see `LEARNINGS.md`, "The Tellus app"). The strongest next hardening.
-- **Check for updates on launch** (a switch, off by default) with a badge on About, plus a cached check (an `ETag`) so the 60 requests an hour per address are not used up.
-- **Litus in the updater and the app** when Litus work resumes: add its package ID to the allowlists in `tellus-helper.c` and `PackageInstaller.swift`, and its pages to the app.
-- **An Insula update note:** after Insula is installed, offer the respring in the same row instead of in the text.
-- **Install order for dependencies** if a future release needs OITCore first and Tellus changes the order rules.
+### Island content and Download Progress
 
-### Ideas for Insula (31 items; major, medium, small, infrastructure)
+- **Candidate: Download Progress round two.** Show bytes downloaded, transfer speed and ETA for browsers once a browser's download source exposes reliable data. The current browser integrations may not provide all of these fields.
+- **Candidate: Several simultaneous downloads.** Show multiple downloads together, potentially as a compact stack.
+- **Candidate: More download sources.** Add a browser or app only where a stable download source can be measured and tested on the device.
+- **Candidate: Browser pause/resume.** Expose pause or resume only for browsers that genuinely support it. Arc was measured as not supporting pause; never show a fake or ineffective control.
+- **Candidate: Download completion feedback.** Optional haptic or sound when a download finishes, off by default.
+- **Research: Richer App Store Installing/Updating state.** Distinguish installation and update activity more clearly than a percentage alone. An Installing state already exists, so first identify exactly what information is still missing.
+- **Research: Private/incognito browser download checks.** Safari Private Browsing downloads are hidden because the web view's data store is not persistent. Arc Search and Chrome behaviour has not been measured. Compare normal and private downloads in each browser, and verify whether the public `WKDownload` information can reliably identify the originating web view or tab, before changing anything.
+- **Dependency / Research: A real Island content queue.** Stop music, timers, downloads and other activities from constantly replacing one another. This needs a content-management mechanism and clear priority and interruption rules first.
+- **Dependency / Research: Context awareness.** Adapt Island content to the foreground app or activity (for example media controls in a music app). Needs the same content-management foundation and careful privacy and resource decisions.
+- **Research: Universal progress representation.** Let an activity provide progress information that Insula renders consistently. Download Progress is the natural first use. A public third-party API is a much later, separate decision.
+- **Dependency / Research: Internal content-provider mechanism.** A stable internal way for OITUI components to register content or progress with Insula. This is the prerequisite for a real queue, context-aware content and broader progress support. Start internal; a public SDK is not implied.
 
-**Major**
+### Notifications
 
-1. Landscape Island notifications with our own views (0.4.0).
-2. Download Progress round 2: bytes, speed and ETA for browsers, once the browser protocol carries them.
-3. Several downloads at once, as a small stack.
-4. A real Island queue, so music, timer and download do not fight over the space (needs a content mechanism first).
-5. Context awareness: the Island adapts to the foreground app (needs a content mechanism first).
-6. Presets (Minimal, Stock-like, Compact) in one tap, plus export and import of all settings as a file.
-7. A live preview inside the Settings page that draws the Island at the chosen size.
-8. A notification history or timeline you can scrub back through.
-9. Notification snoozing.
-10. Focus and Do Not Disturb awareness for Island notifications.
+- **Candidate: Notification stack validation and polish.** Before adding more notification behaviour, test the existing stack more broadly: Compact and Wide layouts, real delivery paths, timeouts over longer intervals, real Dynamic Island hardware and other iOS 16 builds, and the card size and position matrix.
+- **Low fit: Per-app notification exclusion list.** Keep selected apps (for example Phone or Timer) on Apple's stock presentation. The app picker and Settings-bundle behaviour are the hard part. The earlier decision was to defer it until someone asks; keep it low priority without real demand.
+- **Candidate: Per-app accent colors.** Consider only after the notification styling model is stable.
+- **Research: Notification history/timeline.** Browse earlier notifications. Raises storage, retention, privacy, clearing and capacity questions.
+- **Research: Notification snoozing.** Defer a notification and bring it back later. Needs research into what iOS notification delivery and scheduling allow reliably.
+- **Research: Focus and Do Not Disturb awareness.** Adapt Island notification behaviour to the current Focus state.
+- **Dependency: Progress display in notification cards.** A possible use of the content and progress mechanism; not a current priority.
 
-**Medium**
+### Appearance, configuration and interaction
 
-11. Per-app exclude list for Island Notifications (the list logic is easy, the app picker in the Settings bundle is the real work).
-12. Per-app accent colors for notifications.
-13. Tapping the download Island opens the app or its downloads list. **Changed by the owner (23 Nov 2026): opening the Tellus app should need a DOUBLE TAP on the Island while it is idle** (not a tap on the download Island). **Research and attempts (23 and 24 Nov 2026):** Tellus' bundle ID is `com.wilburt.tellus` and Insula already has `OITIOpenApp()` (`OITI/IslandNotifications/OITINoticeActions.xm`). Build `-d` (log-only probe) seemed to show that the idle Island window takes touches, and build `-e` put a double-tap recognizer on `SBSystemApertureWindow`; on the device it never fired. Build `-f` (log of every touch SpringBoard receives near the top centre) showed that a touch on the truly idle Island is not given to `SBSystemApertureWindow` at all: SpringBoard hands it to the status bar (`UIStatusBarWindow` on the Home Screen, `SBMainSwitcherWindow` inside an app). Build `-g` therefore observes touches in `UIApplication sendEvent:` instead (`COMMANDS.md`, section 40); **device-tested by the owner on 24 Nov 2026: it works, also with a custom scale and position; shipped in 0.4.1 (candidate)**. Known limit of the first version: the touch band is fixed to where the Island sits at the default position and scale. Tellus > Insula > Extras > Double Tap Opens Tellus (off by default).
-14. Pause and resume where a browser supports it (Arc has no pause, per the 0.3.5 measurements).
-15. A finish haptic or sound for downloads, off by default.
-16. An Installing/Updating state for the App Store beyond percentage (the Installing state already exists, so this would be small).
-17. A "why is Insula off?" page showing safe-mode state, the last self-check and the respring-loop guard counter. **Built in 0.4.1 batch 2 as Tellus > Diagnostics > Insula Status; the owner has seen it on his phone and likes it; its remaining device checks (`COMMANDS.md`, section 37) are run on the release candidate.**
-18. A Diagnostics page in Settings with a level toggle, so users do not need SSH.
-19. Hello animation variants or a customizable clip.
-20. Reduce Motion, VoiceOver labels and Dynamic Type support for the custom cards (accessibility has not been looked at yet).
-21. Low Power Mode behavior: fewer animations.
+- **Candidate: Presets.** One-tap configurations such as Minimal, Stock-like and Compact.
+- **Candidate: Export/import all settings.** Back up or transfer a configuration as a file. The format needs a schema version, value validation, defaults for missing keys, and rejection of malformed input.
+- **Research: Live Settings preview.** Preview the Island at the selected size and appearance. It must match real behaviour closely enough not to mislead; a decorative approximation is not useful.
+- **Candidate: Hello animation variants or a custom clip.** Keep accessibility, animation cost and failure handling in mind.
+- **Research: Accessibility for custom cards.** Investigate VoiceOver labels, Dynamic Type and Reduce Motion. The custom cards have not had a complete accessibility review.
+- **Candidate: Low Power Mode behaviour.** Simplify or reduce animations when Low Power Mode is on.
+- **Research: Banner positioning at extreme Island sizes.** Test the full size and position matrix before changing any geometry.
+- **Research: Lower minimum for the Island Height slider.** A value around 0.6 was suggested, but the 22 pt artwork may stop fitting. Measure first.
+- **Candidate: Notification timeout slider review.** Confirm ranges, units, labels and actual timing.
+- **Candidate: Sileo/Zebra package depiction improvements.** A concise changelog and an accurate supported-device note.
 
-**Small and tiny**
+### Diagnostics and developer tools
 
-22. Banner position at extreme Island sizes (known polish item).
-23. A lower Island Height slider minimum (about 0.6 is where 22 pt artwork stops fitting, untested).
-24. A Respring button at the top of the Settings page, if there is not one already.
-25. A "Reset this page" action on every settings page.
-26. Show the download source in the Detailed look, such as the app or browser name.
-27. Review the timeout slider ranges and units for the notifications.
-28. A Sileo/Zebra depiction with a short changelog and the supported-devices note.
+- **Candidate: PC-side tester-report parser.** Turn pasted tester reports into a compatibility table (device model, iOS version, package versions, settings, reported results). Keep privacy-sensitive content out of the report and the table.
+- **Candidate: Developer/debug overlay.** Optionally show measured FPS, render time, active Island state and similar values. Developer-focused; show only what can genuinely be measured.
+- **Low fit: More diagnostic controls.** Revisit only if the existing Insula diagnostics in Settings and Tellus's Insula Status page leave a concrete support problem unsolved. Do not build duplicate diagnostics surfaces.
 
-**Infrastructure and branding**
+---
 
-29. A tester-report parser on the PC that builds a compatibility table from pasted reports.
-30. Remove the legacy position migration, but only in 0.5.0 or later, so people upgrading from before 0.3.0 still get migrated.
-31. Icons for Tellus, Insula, Litus and OITCore (see the decision above).
+## 2. Tellus and updater ideas
 
-Claude's top picks after 0.4.0 (a proposal): 6 (presets plus export), 17 and 18 (self-service diagnostics, which pair with the report button) and 2. Items 4 and 5 are research projects, not releases. The volume slider and the OITUI companion app stay skipped (Crescendo already covers the slider; the app is a separate project).
+These are not part of the accepted updater plan unless they appear in `PLANS.md`.
 
-## OITI: current state and next candidates
+- **Candidate: Dynamic Double Tap Opens Tellus hit zone.** Make the touch zone follow the Island's actual position, size and scale. The shipped zone is a fixed band near the default Island location (60 pt from the top, 90 pt either side of the middle); more extreme custom layouts may fall outside it.
+- **Candidate: Package version from reliable metadata.** Read a package's version from its metadata or the release data rather than from the asset filename. GitHub can rewrite characters such as `~` in asset names, which can break prerelease handling. See `WORKFLOW.md`.
+- **Candidate: Clean stale staged packages.** Remove obsolete staged `.deb` files left in `/var/mobile/Library/Caches/TellusUpdates`. A Tellus self-update leaves its own staged package, and the staged `SHA256SUMS` and `SHA256SUMS.sig`, because dpkg ends the app before it can clean up.
+- **Candidate: Insula update note with an inline respring action.** After Insula is installed, offer the respring action in the same row instead of only explaining it in text.
+- **Research: Verify download source in the Detailed view.** The `App Name - File Name` headline may already show the source. Check on the device before changing anything, and do not duplicate existing UI.
+- **Parked: Litus in Tellus and the updater.** When Litus work resumes and the owner brings it back into scope, add its package ID to the allowlists in `tellus-helper.c` and `PackageInstaller.swift`, and add its app pages. No partial integration before that decision.
 
-- **Island Notifications (0.2.0; stack tested on-device).** The owner tested bursts of four on an iPhone 8 Plus running iOS 16.7.16. The newest notice is the Island notification in the chosen Style; the older ones are small OITI-drawn cards below the Island (since build `OITI-exp-2026-11-03-d`; before that they were compact cards inside the newest notice's card). Capacity is four; new notices evict the oldest. Timeout restarts on demotion to compact and promotion, and items can be dismissed individually. Lock-screen-only deliveries still bypass the banner path. The stack is usable but explicitly experimental and not polished.
-- **Preset device positions (done in batch 8, build `OITI-exp-2026-11-07-a`).** Fix Island Position and Fix Notification Positioning were removed on the owner's decision (measuring every phone would take forever and people change the position anyway); a one-time migration turns an enabled Fix switch into a custom position. `OITIDeviceProfiles.h` stays for the migration, Status Bar Layout Automatic and the custom banner's size; delete the migration (and the offsets) in a later release. The measurement protocol in `DEVICES.md` is now only needed if a new per-device value is ever wanted.
-- **Roadmap (owner's decisions, 9 and 12 Nov 2026).** Released: `0.3.1` (blink fix), `0.3.5` (Arc Search downloads in Download Progress, percentage only). `0.3.6`: the file name of a browser download in the Island (a second channel from the browser; where Arc exposes the name is unknown, research first) plus Safari and Chrome (ship what is device-tested, the rest moves to 0.3.7; Chrome is `com.google.chrome.ios`, Safari research is pending on the owner's phone); one switch for all browsers, labelled "Show Browser Downloads" (a per-browser menu only if someone asks). `0.4.0`: Landscape Island Notifications (measure the Island and the cards in landscape first; cards are portrait only today) plus a few smaller items chosen from this file (proposals: the per-app exclude list for Island Notifications, the banner position at extreme Island sizes). **Lock screen cards: scrapped completely, do not suggest them again.** Later, not decided: iPhone 8 / 8 Plus device-table entries, testers for notched phones and real Dynamic Island hardware, what to do with OITS, the OITUI companion app.
-- **Release process decisions (8 Nov 2026).** No beta for 0.3.0. Release notes live only in the GitHub Release body. Before the release both the owner and Claude must agree it is ready; Claude gives an honest, unbiased verdict from the test results. Landscape and lock screen cards are deferred to a later release (for example 0.5.0). Cleanup of code and docs is part of the release-candidate batch, not done before the polish was finished (done in the batch of 8 Nov 2026: dead `fixEnabled` and `notificationFix` globals, the device-warning code in the Settings bundle and the unused item keys `secondaryStack` and `secondaryBody` are gone; the migration and every stored key stay; the migration is deleted in a later release).
-- **Settings controls (device-tested).** The owner reports the controls feel more responsive after reducing slider preference-write frequency, saving text fields on editing end, updating picker labels in place, making switch labels tappable, and refreshing custom controls after reset actions.
-- **Dedicated toggles:** `islandNotificationsEnabled` controls custom Island notifications (default off); `islandNotificationStackEnabled` controls multi-notice stacking (default on to preserve existing behavior). Settings labels and warning text call out that stacking is experimental and usable but unpolished.
-- **Remaining notification work:** Verify Compact/Wide and real notification paths broadly, confirm timeout behavior over longer intervals, test on real Dynamic Island hardware and other iOS 16 builds. Keep the current card layout unless owner asks to revisit it. Progress bars are a possible later addition. Tap behavior: a tap opens the notification and leaves the notice until timeout or swipe; the optional Dismiss When Tapped switch (`NotificationTapDismisses`, default off, build `OITI-exp-2026-11-03-a`) removes it after the tap. A tap on the Hello opens Insula's page in Settings (`prefs:root=Insula`, build `OITI-exp-2026-11-03-b`). **Stack rework (batch 5, done):** the older notices are OITI-drawn compact cards below the Island (icon, message, how long ago) with their own tap and swipe; the in-card look and its Stack Look setting were removed in build `OITI-exp-2026-11-03-d` after the owner tested the cards. Later: opening the exact older notification (needs a dump of what the stored request offers), animation polish (done in batch 6, build `OITI-exp-2026-11-05-a`, untested on the phone: persistent card views, slide and fade in, glide, slide and fade out, Reduce Motion), the Island size and position matrix for the cards, a card for a running download (done in batch 7, build `OITI-exp-2026-11-05-b`, untested on the phone), landscape (deferred to a later release, for example 0.5.0).
-- **Hello Startup Animation (0.2.0).** The off-by-default toggle waits until the device is unlocked and SpringBoard is active on the Home Screen, checks a persistent five-minute cooldown, and shows an expanded Island element. The owner confirmed the Home Screen gate, video sizing, cooldown, uninstall, toggle and interruption behavior on-device. The AVPlayer-backed view plays the supplied SVG-derived clip once without audio and removes the Island element when playback ends or fails. While it plays, charging activity is kept registered but placed behind the startup animation; calls and other Island activity take priority. The bundled H.264 clip is 1280×720, six seconds, white on black; its last frame is black and is held for 0.5 s before the element is removed (`kOITIStartupHelloEndHold`).
-- **Volume slider:** deferred after an initial implementation was removed because it did not work and did not seem broadly useful.
-- **Polish list** (owner chose to defer): live color, opacity and banner offset (done on `experiments`, build `OITI-exp-2026-10-21-a`, tested on-device); banner position at extreme Island sizes; make the X/Y scale relative to Apple's own size (done on `experiments`, build `OITI-exp-2026-10-21-b`: new keys `RelativeScaleX` / `RelativeScaleY`, no migration, tested on-device); maybe lower the Island Height slider minimum (around 0.6 is where 22 pt artwork stops fitting, untested).
-- **Per-app exclude list for Island Notifications.** Deferred until someone asks for it (keep Phone or Timer on the stock banner, for example).
-- **OITS** is parked: revert or adapt to the `_UIStatusBarProvider_DynamicSplit` layout class, rebuild the lost diagnostic fixes, restore the scoping guard.
+---
 
-## Things I Think Would Be Nice
+## 3. Infrastructure, maintenance and branding ideas
 
-- **Modular architecture**: split `Tweak.xm` into modules (`Modules/Music`, `Modules/Phone`, etc.)
-  instead of one growing file. **Status:** done (see "Split `Tweak.xm` into module folders" below): `OITI/Diagnostics/`, `OITI/DownloadProgress/`, `OITI/IslandSize/`, `OITI/IslandNotifications/`, `OITI/Startup/`, `OITI/StatusBar/`, `OITI/Safety/` and `OITI/Shared/`. Step 1 added a shared device table
-  (`OITIDeviceProfiles.h`).
-- **Device awareness**: done as a table in `OITIDeviceProfiles.h` (17 models, each marked verified or estimated).
-  Remaining: entries for iPhone 8 / 8 Plus (needs on-device measurement; protocol and identifier check in `DEVICES.md`, batch 1 of the 0.3.0 polish) and more devices. The identifiers for iPhone 14 Plus, SE 2 and SE 3 are confirmed (`DEVICES.md`) but none has an entry: no offsets have been measured for them.
-- **Apple Mode vs Enhanced Mode**: done on `experiments` (build `OITI-exp-2026-10-21-b`, tested on-device) as a single `appleMode` switch that forces every Island customization off and keeps Enable Dynamic Island, the built-in position and notification fixes, the Status Bar Layout setting and safe mode.
-- **Developer/debug overlay**: FPS, render time, active Island state, and other useful runtime diagnostics. Keep it focused on information that can actually be measured on-device.
-- **Crash recovery for an expanded Island state**: done on `experiments` (build `OITI-exp-2026-10-21-c`, tested on-device) as a live-element breadcrumb file plus a 120 s window at the next launch in which Island notifications and the startup animation stay off. Nothing about the expanded Island is persisted across a SpringBoard restart, so the real risk was a re-delivered notification rebuilding the element that crashed.
-- **Island Stacks / queue**: multiple things (music, timer, download) don't fight for the
-  same space -- swipeable or queued instead of clobbering each other. Needs a content mechanism first (Step 3 research).
-- **Context awareness**: Island content adapts to foreground app (Maps -> nav controls,
-  Spotify -> media controls). Needs a content mechanism first.
-- **Universal progress bars**: any app/tweak can expose a progress value the Island renders
-  generically. Precursor to a real plugin API. First use: **download progress** (stage 1 appearance finished and working on the owner's phone; stage 2, the App Store source with a
-  percentage-only tracker input, is implemented on `experiments`, build `OITI-exp-2026-10-25-a`, tested on the owner's phone; browsers are stage 3, a separate project; later ideas: the return-to-idle limit by percentage is done (`DownloadIdleAfterPercent`, build `OITI-exp-2026-11-03-b`, untested on the phone); the Face ID-style completion check is done for the Minimal look in build `OITI-exp-2026-10-26-a`, tested on the owner's phone, and for the Detailed look as a small badge in the trailing slot in build `OITI-exp-2026-11-03-b`, untested on the phone). Owner's decisions: downloads first; App Store and Safari
-  as the first real targets, Chrome and Arc later (they need hooks inside each app); return to idle by MB downloaded and/or
-  seconds on screen, user-chosen; off by default; a fake download for testing. Timers and other sources can use the same
-  tracker later.
-- **OITUI App**: Make a whole new app specifically for customizing OITUI tweaks like OITI and OITS. I would probably add in some sort of live preview to show the user what their settings would look like before they apply everything. It would essentially just move OITUI tweak customization from Settings to a dedicated app
-- **Volume Slider**: It might be a cool idea to try and move the volume slider into the dynamic island somehow, maybe do the same thing with other sliders and indicators and whatnot.
-  **Note:** the tweak Crescendo (github.com/Yves000/Crescendo, GPL-3.0) already does this for the expanded media player by
-  building a slider from Apple's own `MRU*` parts inside MediaRemoteUI. Worth studying (and checking for conflicts with OITI) before building our own.
+- **Candidate: Remove the legacy position migration.** Only after verifying that users upgrading from versions before the migration keep their intended settings. Do not tie its removal to a version number.
+- **Research: Clean-uninstall audit.** Check that every package removes the files, preferences, caches and system values it creates. The MobileGestalt value cleanup through `prerm` is known; that alone does not prove a complete path for every package.
+- **Candidate: Conditional device-table additions.** Add or revise a device entry when a real compatibility need exists and measurements can be obtained (`DEVICES.md`). Measuring every iPhone is not a project of its own.
+- **Candidate: Icons for the OITUI family.** A consistent identity for Insula, Tellus, Litus and OITCore. The concepts below are starting points, not requirements.
+- **Low fit: A `CONTRIBUTING.md`.** Issue templates exist. Add a concise contributing guide only if outside contributions become relevant.
+- **Parked / Research: Shared architecture with Litus.** A shared status and event engine could let status-bar information flow into the Island. Apple has `SBSystemApertureStatusBarPillElementProvider` and `SBSystemApertureStatusBarPillElement`, which may matter if that connection is researched. Premature while Litus is parked and Insula's content architecture is still evolving.
 
-## Decent Ideas
+### Icon concepts
 
-- **Clipboard history/pinning/OCR**
-- **Quick calculator / unit / currency conversion**
-- **Translation popup**
-- **Universal timer stack, stopwatch controls**
-- **Volume mixer, brightness slider, flashlight controls in-Island**
-- **Detailed battery stats** (current draw, watts, temp, estimate)
-- **Bluetooth/WiFi/VPN quick switches**
-- **Live CPU/RAM/FPS/network monitors**
-- **Package installer, respring menu in-Island**
-- **Notification snoozing**
-- **Command palette / Island search**
-- **Macros** ("Good Night" -> multiple actions at once)
-- **Pin/favorite specific Island cards**
-- **Smart/predictive suggestions** (AirPods connect -> show ANC controls)
-- **Automation rules** ("if X then Y")
-- **Themes / material profiles / per-app accent colors**
-- **Notification timeline / scrub-back history**
+- **Insula:** a capsule silhouette based on the Island, with a subtle detail or activity inside. Dark background, one restrained accent colour.
+- **Litus:** a thin status-bar-inspired shape divided left and right with a small centre gap, for example a clock on one side and signal and battery on the other.
+- **OITCore:** a simple geometric mark such as a hexagon or gear. It is infrastructure rather than a user-facing app and needs no conventional icon.
+- **OITUI as a family:** decide after the individual identities are settled.
 
-## Entirely Different Things and Projects
+---
 
-- **Plugin marketplace / public SDK for other tweak devs**: assumes external adoption that
-  doesn't exist yet. Build after OITI itself is solid, not before.
-- **Anything needing live third-party network calls** (translation APIs, currency, "AI
-  quick actions"): different risk/complexity class than anything built so far -- API keys,
-  rate limits, offline failure modes. Not until the core system is proven.
-- **"Island Studio" companion app**: a second, separate piece of software with its own
-  toolchain. Not a feature -- a different project.
-- **Merging OITS and OITI into one unified status/event engine**: genuinely interesting
-  long-term direction (shared module system, status bar flowing into the Island), but
-  premature to design before either one individually works.
+## 4. Low-fit brainstorm
 
-## Notes on hype language
+These have been mentioned but are not recommendations for Insula. They are a record, not a feature queue.
 
-Ignore any "120fps guaranteed / zero dropped frames / immeasurable battery impact" framing
-from brainstorm sessions -- that's marketing language, not an engineering target. Any renderer
-that does real rendering or compositing work should have honest performance budgets set only after
-on-device measurement, not before.
+- Clipboard history, pinning or OCR.
+- Quick calculator, unit conversion or currency conversion.
+- Translation popup.
+- Universal timer stack or stopwatch controls (overlaps with the content queue above).
+- A volume slider, brightness slider, flashlight or volume mixer in the Island. Crescendo already provides the expanded-media-player slider using Apple's `MRU*` components in MediaRemoteUI, and an earlier Insula attempt was removed. Revisit only for a concrete compatibility gap.
+- Detailed battery statistics such as draw, watts, temperature and remaining-time estimates.
+- Bluetooth, Wi-Fi or VPN quick switches.
+- Live CPU, RAM, FPS or network monitors for ordinary users.
+- A package installer or respring menu inside the Island. The installer belongs in Tellus.
+- Command palette or Island search.
+- Macros, multi-action routines and automation rules.
+- Pinning or favouriting particular Island cards.
+- Smart or predictive suggestions, such as showing ANC controls when AirPods connect.
+- Themes, material profiles and per-app styling systems beyond notification accents.
 
-## Confirmed via OITInspector dump (2026-07-16)
+---
 
-- `SBSystemApertureStatusBarPillElementProvider` / `SBSystemApertureStatusBarPillElement` exist
-  as real classes on-device. These appear to be Apple's own connective tissue between the status
-  bar layout system and the Dynamic Island -- worth investigating directly if we ever pursue the
-  "status bar flows into the Island" idea for real.
-- **Correction (Oct 2026):** the status bar content *is* ordinary UIKit subviews: `_UIStatusBar` -> `_UIStatusBarForegroundView` ->
-  per-element views (`_UIStatusBarStringView`, `_UIBatteryView`, wifi and cellular signal views, network type view). OITS already
-  moves individual elements. `SBMainDisplaySceneLayoutStatusBarView` is only a full-screen container with no UIKit children.
-  OITInspector can't enumerate the persistent `UIStatusBarWindow`; use FLEX or the OITS diagnostic dump (`DIAGNOSTICS.md`).
+## 5. Parked, closed or superseded directions
 
-## Confirmed via dumps (Oct 2026)
+These decisions are context. Do not silently turn them back into proposals.
 
-- The Island can be resized without scaling its content: scale `SBUISystemApertureLayoutMetrics -sensorRegionSize` (the root input). Done and released in v0.1.0 as the Island Size sliders.
-- Apple has a content element model (`SBSystemApertureProvidedContentElement`, `SBUISystemApertureCustomContentProvider`, `SAUISystemApertureManager`, `SBSystemApertureElementAuthority`) that may let OITI add its own elements as real Island elements. This replaces the "own overlay window" idea as the default plan.
+### Parked
 
-## Later (17 to 18 Nov 2026)
+- **Landscape Island notifications.** On hold for a long while. The original proposal used Insula-rendered landscape views in their own window, with unresolved questions about orientation, styling, Apple's own landscape banner, and testing on real Dynamic Island hardware. Parked, not cancelled.
+- **Litus.** Parked. Known remaining work: adapt to the `_UIStatusBarProvider_DynamicSplit` layout class, rebuild lost diagnostic fixes, and restore the scoping guard. Resume only when the owner decides to.
+- **Public plugin marketplace or SDK.** Possibly interesting once Insula and its internal content mechanism are mature; premature now, because it creates API stability, compatibility, documentation, security and support commitments.
+- **Live third-party network features.** Translation APIs, currency services and AI quick actions. They bring API keys, rate limits, network failures and ongoing service dependencies that are outside the current core.
+- **A unified Insula and Litus status-event engine.** A possible long-term direction, but not before both work independently and there is a clear shared interface.
 
-- **Private and incognito tabs in Arc Search and Chrome (not checked).** 0.3.7 hides Safari's Private Browsing downloads (the web view's data store is not persistent). Arc and Chrome downloads (public `WKDownload`) are not checked: a download there shows whether or not it comes from a private tab. A public `WKDownload.originatingWebView` is recalled, not verified; it would need the same measurement as Safari got (a research log with a normal and a private download in each browser) before any change.
+### Closed or superseded
 
-## Confirmed via code review (Oct 2026)
+- **Lock-screen notification cards.** Explicitly scrapped. Do not suggest them again unless the owner reopens the decision.
+- **A separate OITUI customization companion app.** Superseded by Tellus. Do not propose a second app that merely moves the same settings out of the Settings bundle.
 
-- OITI is a positioning/appearance shim over Apple's real Dynamic Island. `islandEnabled` spoofs `ArtworkDeviceSubType` (2556) so
-  iOS builds SystemAperture; `Tweak.xm` hooks `SBSystemApertureWindow`, `SBBannerWindow` and a few appearance views. Island content
-  (music, timers) is Apple's. The Island's expanded media player is rendered by the **MediaRemoteUI** process (per Crescendo's README).
-- Next research step (done in October 2026): the element route was chosen and works. Notes: `LEARNINGS.md`, "Island elements".
+---
 
-## Infrastructure ideas (from the OITI review and Crescendo)
+## 6. Principles for evaluating ideas
 
-- **Split `Tweak.xm` into module folders** (owner's idea; agreed on 2026-10-28 as the next step before 0.3.0, plan and order in `OVERVIEW.md`, "The Great Split"): for example `OITI/Download Progress/`, `OITI/Resizing/`, `OITI/Notifications/`, `OITI/Startup/`, with a small shared core for logging, preferences and the element machinery. Folder names with spaces are fine for Theos but a nuisance in shell commands, so `DownloadProgress/` is probably better. The work is mostly moving code without changing behavior, which makes it risky in one big step: do it one module at a time with a build and a short device check after each, starting with the most self-contained one (the download tracker and its views, which only touch the element presenter through two calls). The file list lives in `OITI/Makefile` (`OITI_FILES`), and Logos `%hook` groups can sit in `.xm` files in any folder (initialised from a small function in the same file). **Status:** done. All eight rounds (Diagnostics, DownloadProgress, IslandSize, IslandNotifications, Startup, StatusBar, Shared and core with Safety, shared runtime helpers) were built and checked on the phone, and the split shipped as 0.2.5 (`v0.2.5`).
+- Avoid marketing claims such as guaranteed 120 FPS, zero dropped frames or immeasurable battery impact. Set performance budgets from on-device measurements.
+- Custom renderers and compositing work need measured performance, memory and battery testing.
+- Keep default logging off unless the owner explicitly changes that decision.
+- Prefer small, testable changes. The module split worked because it was done one round at a time with a build and a short device check each time.
 
-- **Respring-loop safe mode**: auto-disable OITI features after repeated respring cycles in a short window.
-- **Startup self-check** for the MobileGestalt spoof: log when `islandEnabled` is on but the cache no longer holds the spoofed value.
-- **Shared logging in OITCore** (`OITLog`): async, rate-limited, state-change logging, reused from the OITS diagnostic build.
-- **Live settings** over a Darwin notify-token state with a preferences fallback, so most changes need no respring.
-- **Clean-uninstall guarantee**: removing a package removes everything it wrote (already true for the MobileGestalt value via `prerm`).
-- **Contributor hygiene**: issue templates and a short CONTRIBUTING file.
+## 7. References
 
-## Icon concepts (not yet made, no urgency)
+The current documentation is the source of truth when implementation details have changed:
 
-- **OITI**: Capsule/pill silhouette (the Island's actual shape) with something
-  happening subtly *inside* it -- a small glass refraction highlight, or the
-  pill mid-morph into a slightly different shape. Dark background, single
-  accent color, restrained rather than busy.
-- **OITS**: Thin status-bar-shaped bar across the top of the icon, split
-  left/right with a small gap in the middle (echoing the iOS 26/27 layout
-  target) -- clock glyph on one side, signal/battery glyphs on the other.
-- **OITCore**: Not user-facing, so probably skip a "cute" icon -- simple
-  geometric mark (hexagon/gear) is enough.
-- **OITUI (whole project)**: TBD -- needs to feel like it ties the family
-  together once the individual module icons exist. Revisit after the others
-  are settled so it doesn't clash.
+- `PLANS.md`: accepted, owner-approved future work.
+- `OVERVIEW.md`: current project state and development history.
+- `LEARNINGS.md`: measured behaviour and technical findings.
+- `COMMANDS.md`: repeatable device-testing and diagnostic procedures.
+- `DEVICES.md`: device identifiers and measurement notes.
+- `DIAGNOSTICS.md`: diagnostic procedures and status-bar investigation notes.
+- `WORKFLOW.md`: build and release workflow, asset and version handling.
