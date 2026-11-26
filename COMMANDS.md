@@ -2855,7 +2855,7 @@ The candidate is deleted or promoted afterwards as in section 42 (`gh release de
 
 ## 45. The release tool: `oitui-release`
 
-`tools/oitui-release` does steps 2 to 4 of section 44 in one command (check the repository and CI, use or start the release build, assemble the packages, show them, sign after your yes, check the signature against the keys built into the helper, publish the pre-release, and download it again to verify what GitHub serves) plus two read-only commands. It does **not** do the phone tests (section 44, steps 5 to 8), and promoting a candidate to a release is still the manual procedure of section 30, step 6, until a `release` command exists. Python 3, standard library only; needs `git`, `gh` (logged in) and OpenSSL 3.
+`tools/oitui-release` does steps 2 to 4 of section 44 in one command (check the repository and CI, use or start the release build, assemble the packages, show them, sign after your yes, check the signature against the keys built into the helper, publish the pre-release, and download it again to verify what GitHub serves) plus two read-only commands. It does **not** do the phone tests (section 44, steps 5 to 8). `release` promotes a tested candidate (the same signed files) to a release, replacing the manual procedure of section 30, step 6, which remains the fallback. Python 3, standard library only; needs `git`, `gh` (logged in) and OpenSSL 3.
 
 **Install (Arch PC, fish).** A fish function, like your `update` alias:
 
@@ -2887,5 +2887,30 @@ oitui-release candidate 0.4.2
 
 `0.4.2` is the OITUI release number the candidate is for; the tag is `v0.4.2-rc.<n>` with the next free number. The command refuses to go on unless: you are on `experiments` with a clean tree; HEAD is what `origin/experiments` has; CI built HEAD successfully; the release number is higher than the latest stable release; each package's version is not lower than the released one and at least one changed; the control file and Xcode project versions of Tellus agree and Tellus's Insula requirement is met; the downloaded build matches its own `SHA256SUMS`; the unchanged packages from the previous release match that release's `SHA256SUMS` (they are attached byte-identical, never rebuilt); no name has `+debug` or `~`. It uses an existing hand-started release build of HEAD if there is one (or the one named with `--run <id>`), otherwise it starts one and waits. Then it prints the files and their hashes and asks `Sign this SHA256SUMS ...? [y/N]` (answer `y`; `openssl` then asks for the key passphrase), refuses to go on unless one of the helper's built-in keys accepts the new signature, asks `Tag ... and publish the pre-release? [y/N]`, tags the commit, pushes the tag, creates the pre-release with the five files, and verifies the published release. The files are kept in `~/Downloads/oiti-release-<tag>` (change with `--out`). Pushing a tag also starts a release build of the same sources: ignore its artifact. With `--dry-run` nothing is signed, tagged, pushed or published: every such command is only printed. Each run writes a log (the commands and their exit codes, no secrets) to `~/.local/state/oitui-release/`.
 
-**Tests.** `python3 tools/oitui_release_test.py` must end in `Ran 28 tests ... OK`. They use a fake `gh` and a throw-away repository, so they prove the tool's logic and refusals, not GitHub's real answers: the first real run is the dry run above.
+**Tests.** `python3 tools/oitui_release_test.py` must end in `Ran 51 tests ... OK` (about 30 seconds). They use a fake `gh` and a throw-away repository, so they prove the tool's logic and refusals, not GitHub's real answers: the first real run is the dry run above.
+
+**Releasing a tested candidate.** Save the release notes in a file outside the repository (the GitHub Release text is the only release note), push everything and wait for CI, then rehearse:
+
+```
+cd ~/OITUI
+git switch experiments
+git status --short
+git push origin experiments
+gh run watch --exit-status
+oitui-release release v0.4.2-rc.1 --notes-file ~/Downloads/oiti-0.4.2-notes.md --dry-run
+```
+
+Expected from the dry run: a `stage: from the beginning` line; five `ok` lines for the candidate's three `.deb` files, the signature and `only documentation and tooling changed (N files)`; `ok   CI is green for <hash>`; the three packages with their hashes; the numbered list of what the run will do; and `[dry-run] nothing was changed`. Nothing is created, merged, tagged or deleted. A `STOPPED:` line says what is wrong; the refusals are: not on `experiments` or `main`, a dirty tree, a clone that does not fetch all branches (`git remote set-branches origin '*'`), a candidate that is not a signed, complete pre-release, packages in the candidate that differ from the versions at the tested commit, any file other than documentation and tooling changed since the tested commit (`FAIL product file changed since the test: <path>`, then make a new candidate), `experiments` not equal to `origin/experiments`, CI not green for it, `experiments` not containing `main`, an open pull request, a release number that is not higher than the latest release, no `--notes-file`.
+
+Then the real run:
+
+```
+oitui-release release v0.4.2-rc.1 --notes-file ~/Downloads/oiti-0.4.2-notes.md
+```
+
+It asks whether the signing keys are safe (answer `y` only if the primary key's copies and the offline backup key have been checked), then asks you to type the release number (`0.4.2`). It then: opens a pull request `experiments` to `main` and checks its file list; squash-merges it (the squash commit is `OITUI 0.4.2 (#<number>)`); fetches and fast-forwards `main` and stops if `main`'s tree is not exactly the tree of `experiments` that was merged, or if any file other than documentation and tooling differs from the tested commit; tags the merge commit `v0.4.2` and pushes the tag; creates the GitHub Release `OITUI 0.4.2` (not a pre-release) with the candidate's five files, byte-identical, and your notes; downloads it again and verifies hashes and signature; deletes the pre-release `v0.4.2-rc.1` with its tag; and recreates `experiments` from `main` (deleting the old remote `experiments` first if the merge left it there, and the old local branch only if its tree equals `main`'s and the remote one is at the same commit). It ends with `ok   experiments was recreated from main (<hash>)` and `Released v0.4.2.`.
+
+If a run stops half way (network, `gh` error), fix the cause and run the same command again: it works out where it stopped (`stage: the merge has already happened`, `the tag exists, the release does not`, or `the release exists, only the cleanup is left`) and does only the rest; it never merges twice. If it says `NOT deleting it`, the release itself is done and your local `experiments` holds work that is not in `main`: nothing was deleted; look at it with `git log main..experiments` before doing anything else.
+
+After a release: `oitui-release verify v0.4.2`, then on the phone, in Tellus with **Include Pre-releases** off, everything says `Up to date`.
 

@@ -4,6 +4,7 @@
   oitui-release status                      read-only overview of the repository and the releases
   oitui-release verify <tag | folder>       check a release's files against its signed SHA256SUMS
   oitui-release candidate <version>         build, assemble, sign and publish a release candidate (a pre-release)
+  oitui-release release <candidate-tag>     release a tested candidate: PR and squash merge, tag, GitHub Release, cleanup
 
 <version> is the number of the OITUI release (for example 0.4.2); the candidate is tagged v<version>-rc.<n>.
 
@@ -12,7 +13,8 @@ Safety rules the tool keeps, whatever the options:
   - It signs only after it has shown you the files and the hashes and you have said yes, and it checks the new signature
     against the public keys built into TellusApp/Helper/tellus-helper.c before it goes on.
   - Every command that changes something (workflow run, tag, push, release) is logged, and with --dry-run it is only printed.
-  - It never merges, never force-pushes and never touches the main branch.
+  - It never force-pushes. `release` merges to main only through a pull request, only after you typed the release number, and only
+    when no product file differs from the commit that was tested.
 
 Needs: python3, git, gh (logged in), openssl 3. Standard library only. Logs go to ~/.local/state/oitui-release/.
 """
@@ -47,6 +49,8 @@ PACKAGES = [
 KEY_LABELS = {"1": "primary", "2": "backup"}
 SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")   # DER wrapper of a raw 32-byte Ed25519 public key
 POLL_SECONDS = float(os.environ.get("OITUI_POLL_SECONDS", "3"))
+# A candidate was tested at one commit. Later commits may only change documentation and tooling, never the product.
+ALLOWED_PREFIXES = ("tools/", "TellusApp/Documentation/", "Third Party Licenses/")
 
 DRY_RUN = False
 LOG_FILE = None
@@ -257,15 +261,19 @@ def preflight():
     remote = git("rev-parse", "origin/" + WORK_BRANCH, check=False).stdout.strip()
     if head != remote:
         raise Abort("HEAD (" + head[:7] + ") is not what origin/" + WORK_BRANCH + " has (" + (remote[:7] or "nothing") + "): push or pull first")
-    runs = gh_json(["run", "list", "--workflow", BUILD_WORKFLOW, "--branch", WORK_BRANCH, "--limit", "20",
-                    "--json", "databaseId,headSha,status,conclusion"])
-    mine = [item for item in runs if item["headSha"] == head]
-    if not mine:
-        raise Abort("no CI build of " + head[:7] + " yet (push it and wait for " + BUILD_WORKFLOW + ")")
-    if not any(item["status"] == "completed" and item["conclusion"] == "success" for item in mine):
-        raise Abort("the CI build of " + head[:7] + " has not succeeded (status " + mine[0]["status"] + ", " + str(mine[0]["conclusion"]) + ")")
+    require_green_ci(head)
     say("ok   on " + WORK_BRANCH + ", clean, pushed, and CI is green for " + head[:7])
     return head
+
+
+def require_green_ci(sha):
+    runs = gh_json(["run", "list", "--workflow", BUILD_WORKFLOW, "--branch", WORK_BRANCH, "--limit", "20",
+                    "--json", "databaseId,headSha,status,conclusion"])
+    mine = [item for item in runs if item["headSha"] == sha]
+    if not mine:
+        raise Abort("no CI build of " + sha[:7] + " yet (push it and wait for " + BUILD_WORKFLOW + ")")
+    if not any(item["status"] == "completed" and item["conclusion"] == "success" for item in mine):
+        raise Abort("the CI build of " + sha[:7] + " has not succeeded (status " + mine[0]["status"] + ", " + str(mine[0]["conclusion"]) + ")")
 
 
 def latest_stable_tag():
@@ -508,6 +516,262 @@ def command_candidate(arguments):
     return 0
 
 
+# ---------------------------------------------------------------- release
+
+def is_docs_or_tooling(path):
+    return path.startswith(ALLOWED_PREFIXES) or ("/" not in path and path.endswith(".md"))
+
+
+def changed_paths(first, second):
+    return [path for path in git("diff", "--name-only", first, second).stdout.splitlines() if path]
+
+
+def ref_exists(ref):
+    return git("rev-parse", "-q", "--verify", ref, check=False).returncode == 0
+
+
+def rev(ref):
+    return git("rev-parse", ref).stdout.strip()
+
+
+def tree_of(ref):
+    return rev(ref + "^{tree}")
+
+
+def control_version_at(commit, path):
+    text = git("show", commit + ":" + path).stdout
+    match = re.search(r"^Version:\s*(\S+)", text, re.M)
+    return match.group(1) if match else None
+
+
+def release_exists(tag):
+    return run(["gh", "release", "view", tag, "--json", "tagName"], check=False).returncode == 0
+
+
+def remote_tag_exists(tag):
+    return bool(git("ls-remote", "--tags", "origin", "refs/tags/" + tag, check=False).stdout.strip())
+
+
+def remote_branch_sha(branch):
+    output = git("ls-remote", "--heads", "origin", branch, check=False).stdout.split()
+    return output[0] if output else None
+
+
+def command_release(arguments):
+    global DRY_RUN
+    DRY_RUN = arguments.dry_run
+    start_log("release")
+    match = re.fullmatch(r"v(\d+\.\d+\.\d+)-rc\.\d+", arguments.candidate)
+    if not match:
+        raise Abort("<candidate-tag> must look like v0.4.2-rc.1")
+    candidate_tag = arguments.candidate
+    version = match.group(1)
+    final_tag = "v" + version
+
+    fetch_config = git("config", "--get-all", "remote.origin.fetch", check=False).stdout
+    if "+refs/heads/*:refs/remotes/origin/*" not in fetch_config:
+        raise Abort("this clone does not fetch all branches; run: git remote set-branches origin '*'")
+    if git("status", "--porcelain").stdout.strip():
+        raise Abort("the working tree has uncommitted changes (git status --short)")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if branch not in (WORK_BRANCH, "main"):
+        raise Abort("you are on '" + branch + "'; switch to " + WORK_BRANCH + " first")
+    git("fetch", "--quiet", "--tags", "--prune", "origin")
+
+    # Where did an earlier (interrupted) run get to?
+    if release_exists(final_tag):
+        stage = "cleanup"
+    elif remote_tag_exists(final_tag):
+        stage = "release"
+    else:
+        stage = "start"
+    work_tip = rev(WORK_BRANCH) if ref_exists("refs/heads/" + WORK_BRANCH) else None
+    if stage == "start" and work_tip and tree_of(WORK_BRANCH) == tree_of("origin/main"):
+        stage = "tag"   # main already has exactly the tree of the work branch: the pull request was merged
+    say("stage: " + {"start": "from the beginning", "tag": "the merge has already happened", "release": "the tag exists, the release does not",
+                     "cleanup": "the release exists, only the cleanup is left"}[stage])
+
+    tested = tip = None
+    notes = ""
+    rc_dir = Path(tempfile.mkdtemp(prefix="oitui-release-rc-"))
+    try:
+        if stage != "cleanup":
+            if not ref_exists("refs/tags/" + candidate_tag):
+                raise Abort("tag " + candidate_tag + " is not in this clone")
+            tested = rev(candidate_tag + "^{commit}")
+            run(["gh", "release", "download", candidate_tag, "-D", str(rc_dir)])
+            info = gh_json(["release", "view", candidate_tag, "--json", "isPrerelease"])
+            if not info.get("isPrerelease"):
+                raise Abort(candidate_tag + " is not a pre-release")
+            problems, signed = check_release_folder(rc_dir)
+            if problems or not signed:
+                for problem in problems:
+                    say("FAIL " + problem)
+                raise Abort("the candidate's files are not signed, complete and consistent (see above)")
+            # the packages in the candidate must be the versions that were tested
+            attached = {parse_deb_name(path.name)[0]: parse_deb_name(path.name)[1] for path in rc_dir.glob("*.deb") if parse_deb_name(path.name)}
+            for _, package_id, control in PACKAGES:
+                if attached.get(package_id) != control_version_at(tested, control):
+                    raise Abort(package_id + ": the candidate has " + str(attached.get(package_id)) + " but the tested commit says "
+                                + str(control_version_at(tested, control)))
+            if not work_tip:
+                raise Abort("no local " + WORK_BRANCH + " branch")
+            tip = work_tip
+            if git("merge-base", "--is-ancestor", tested, tip, check=False).returncode != 0:
+                raise Abort("the tested commit " + tested[:7] + " is not part of the local " + WORK_BRANCH + " branch")
+            differing = changed_paths(tested, tip)
+            product = [path for path in differing if not is_docs_or_tooling(path)]
+            if product:
+                for path in product:
+                    say("FAIL product file changed since the test: " + path)
+                raise Abort("files other than documentation and tooling changed after " + candidate_tag + " was tested: make a new candidate")
+            say("ok   the candidate is signed and consistent; since the tested commit " + tested[:7] + " only documentation and tooling changed ("
+                + str(len(differing)) + " files)")
+            if arguments.notes_file:
+                notes = Path(arguments.notes_file).expanduser().read_text().strip()
+            if not notes and stage in ("start", "tag", "release") and not DRY_RUN:
+                raise Abort("give the release notes with --notes-file <file> (the GitHub Release text is the only release note; keep the file outside the repository)")
+        if stage == "start":
+            if not ref_exists("refs/remotes/origin/" + WORK_BRANCH) or rev("origin/" + WORK_BRANCH) != tip:
+                raise Abort("the local " + WORK_BRANCH + " is not what origin/" + WORK_BRANCH + " has: push or pull first")
+            require_green_ci(tip)
+            say("ok   CI is green for " + tip[:7])
+            if git("merge-base", "--is-ancestor", "origin/main", "origin/" + WORK_BRANCH, check=False).returncode != 0:
+                raise Abort(WORK_BRANCH + " does not contain main: recreate it from main first")
+            if gh_json(["pr", "list", "--head", WORK_BRANCH, "--state", "open", "--json", "number"]):
+                raise Abort("a pull request from " + WORK_BRANCH + " is already open: close it or merge it by hand")
+            stable = latest_stable_tag()
+            if stable and parse_version(version) <= parse_version(stable.lstrip("v")):
+                raise Abort("release number " + version + " is not higher than the latest release " + str(stable))
+
+        say("")
+        say("Release OITUI " + version + " from " + candidate_tag + (" (tested commit " + tested[:7] + ")" if tested else ""))
+        if tested:
+            for path in sorted(rc_dir.iterdir()):
+                say("  " + path.name + ("  " + sha256_file(path) if path.suffix == ".deb" else ""))
+        plan = {
+            "start": ["open a pull request " + WORK_BRANCH + " -> main and squash-merge it", "check the merged tree", "tag " + final_tag + " and push the tag",
+                      "create the GitHub Release " + final_tag + " with the tested, signed files and your notes", "verify what GitHub serves",
+                      "delete the pre-release " + candidate_tag + " and its tag", "recreate " + WORK_BRANCH + " from main"],
+            "tag": ["tag " + final_tag + " and push the tag", "create the GitHub Release with the tested, signed files and your notes", "verify what GitHub serves",
+                    "delete the pre-release " + candidate_tag + " and its tag", "recreate " + WORK_BRANCH + " from main"],
+            "release": ["create the GitHub Release with the tested, signed files and your notes", "verify what GitHub serves",
+                        "delete the pre-release " + candidate_tag + " and its tag", "recreate " + WORK_BRANCH + " from main"],
+            "cleanup": ["verify what GitHub serves", "delete the pre-release " + candidate_tag + " and its tag (if still there)", "recreate " + WORK_BRANCH + " from main"],
+        }[stage]
+        say("This run will:")
+        for number, step in enumerate(plan, 1):
+            say("  " + str(number) + ". " + step)
+        if DRY_RUN:
+            say("[dry-run] nothing was changed")
+            return 0
+        if stage == "start":
+            confirm("The signing key is safe: the primary key's copies and the offline backup key have been checked?")
+            try:
+                typed = input("Type the release number (" + version + ") to merge to main and publish: ").strip()
+            except EOFError:
+                typed = ""
+            if typed != version:
+                raise Abort("stopped: that is not the release number")
+        else:
+            confirm("Go on with the rest of the release of " + final_tag + "?")
+
+        pre_merge_tip = tip
+        if stage == "start":
+            body = "Release OITUI " + version + " from the tested candidate " + candidate_tag + " (commit " + tested[:7] + "). The release notes are in the GitHub Release."
+            run(["gh", "pr", "create", "--base", "main", "--head", WORK_BRANCH, "--title", "OITUI " + version, "--body", body], mutating=True)
+            prs = gh_json(["pr", "list", "--head", WORK_BRANCH, "--state", "open", "--json", "number"])
+            if not prs:
+                raise Abort("the pull request was not created")
+            number = str(prs[0]["number"])
+            listed = sorted(path for path in run(["gh", "pr", "diff", number, "--name-only"]).stdout.splitlines() if path)
+            expected = sorted(changed_paths("origin/main", "origin/" + WORK_BRANCH))
+            if listed != expected:
+                raise Abort("pull request " + number + " lists different files than " + WORK_BRANCH + " has over main: check it on GitHub; it is still open")
+            run(["gh", "pr", "merge", number, "--squash", "--subject", "OITUI " + version + " (#" + number + ")", "--body", body], mutating=True)
+            state = gh_json(["pr", "view", number, "--json", "state,mergeCommit"])
+            if state.get("state") != "MERGED":
+                raise Abort("pull request " + number + " is not merged (" + str(state.get("state")) + "); nothing else was done")
+            merge_commit = (state.get("mergeCommit") or {}).get("oid")
+            say("ok   pull request " + number + " is merged")
+            stage = "tag"
+        else:
+            merge_commit = None
+
+        if stage == "tag":
+            git("fetch", "--quiet", "--prune", "origin")
+            git("switch", "main")
+            git("merge", "--ff-only", "--quiet", "origin/main")
+            if merge_commit and rev("HEAD") != merge_commit:
+                raise Abort("main is at " + rev("HEAD")[:7] + " but the merge commit is " + merge_commit[:7] + "; stopped before tagging")
+            if tree_of("HEAD") != tree_of(pre_merge_tip):
+                raise Abort("the merged tree differs from the tree of " + WORK_BRANCH + " that was reviewed: stopped before tagging")
+            leftover = [path for path in changed_paths(tested, "HEAD") if not is_docs_or_tooling(path)]
+            if leftover:
+                raise Abort("main differs from the tested commit in product files (" + ", ".join(leftover) + "): stopped before tagging")
+            say("ok   main has exactly the reviewed tree, and only documentation and tooling differ from the tested commit")
+            git("tag", "-a", final_tag, "-m", "OITUI " + version, mutating=True)
+            git("push", "origin", final_tag, mutating=True)
+            stage = "release"
+
+        if stage == "release":
+            if rev(final_tag + "^{commit}") != rev("origin/main"):
+                raise Abort("tag " + final_tag + " is not on the tip of main")
+            files = [str(path) for path in sorted(rc_dir.iterdir())]
+            run(["gh", "release", "create", final_tag, "--verify-tag", "--title", "OITUI " + version, "--notes", notes] + files, mutating=True)
+            stage = "cleanup"
+
+        # verification of what GitHub now serves
+        with tempfile.TemporaryDirectory() as check:
+            run(["gh", "release", "download", final_tag, "-D", check])
+            problems, signed = check_release_folder(check)
+            if problems or not signed:
+                for problem in problems:
+                    say("FAIL " + problem)
+                raise Abort("the published release " + final_tag + " did not verify; nothing was deleted")
+        info = gh_json(["release", "view", final_tag, "--json", "isPrerelease"])
+        if info.get("isPrerelease"):
+            raise Abort(final_tag + " is marked as a pre-release")
+        say("ok   " + final_tag + " is published and verifies")
+
+        # cleanup
+        if release_exists(candidate_tag):
+            run(["gh", "release", "delete", candidate_tag, "--cleanup-tag", "--yes"], mutating=True)
+        if ref_exists("refs/tags/" + candidate_tag):
+            git("tag", "-d", candidate_tag, mutating=True)
+        git("fetch", "--quiet", "--prune", "origin")
+        git("switch", "main", check=False)
+        git("merge", "--ff-only", "--quiet", "origin/main")
+        if ref_exists("refs/heads/" + WORK_BRANCH):
+            if rev(WORK_BRANCH) == rev("main"):
+                say("ok   " + WORK_BRANCH + " already equals main")
+            else:
+                if tree_of(WORK_BRANCH) != tree_of("main"):
+                    raise Abort("the local " + WORK_BRANCH + " is not what was merged (its tree differs from main's): NOT deleting it; the release itself is done")
+                remote = remote_branch_sha(WORK_BRANCH)
+                if remote is not None:
+                    if remote != rev(WORK_BRANCH):
+                        raise Abort("origin/" + WORK_BRANCH + " is at " + remote[:7] + ", not at your local branch: NOT deleting it; the release itself is done")
+                    git("push", "origin", "--delete", WORK_BRANCH, mutating=True)
+                git("branch", "-D", WORK_BRANCH, mutating=True)
+                git("switch", "-c", WORK_BRANCH, mutating=True)
+                git("push", "-u", "origin", WORK_BRANCH, mutating=True)
+        else:
+            git("switch", "-c", WORK_BRANCH, mutating=True)
+            git("push", "-u", "origin", WORK_BRANCH, mutating=True)
+        if remote_branch_sha(WORK_BRANCH) is None:
+            git("push", "-u", "origin", WORK_BRANCH, mutating=True)
+        hashes = [rev("main"), rev(WORK_BRANCH), rev("origin/" + WORK_BRANCH)]
+        if len(set(hashes)) != 1:
+            raise Abort("main, " + WORK_BRANCH + " and origin/" + WORK_BRANCH + " are not the same commit: " + " ".join(h[:7] for h in hashes))
+        say("ok   " + WORK_BRANCH + " was recreated from main (" + hashes[0][:7] + ")")
+        say("")
+        say("Released " + final_tag + ". On the phone, in Tellus with Include Pre-releases off: everything should say Up to date.")
+        return 0
+    finally:
+        shutil.rmtree(rc_dir, ignore_errors=True)
+
+
 # ---------------------------------------------------------------- main
 
 def main(argv=None):
@@ -522,9 +786,14 @@ def main(argv=None):
     candidate.add_argument("--run", help="use this release-workflow run id instead of looking for or starting one")
     candidate.add_argument("--out", help="folder for the release files (default ~/Downloads/oiti-release-<tag>)")
     candidate.add_argument("--key", help="the encrypted signing key (default ~/oitui-signing/oitui-release-primary.key)")
+    release = sub.add_parser("release", help="release a tested candidate")
+    release.add_argument("candidate", help="the candidate's tag, e.g. v0.4.2-rc.1")
+    release.add_argument("--notes-file", help="a text file with the release notes (the GitHub Release text); keep it outside the repository")
+    release.add_argument("--dry-run", action="store_true", help="check everything and print the plan, change nothing")
     arguments = parser.parse_args(argv)
     try:
-        handler = {"status": command_status, "verify": command_verify, "candidate": command_candidate}[arguments.command]
+        handler = {"status": command_status, "verify": command_verify, "candidate": command_candidate,
+                   "release": command_release}[arguments.command]
         return handler(arguments)
     except Abort as problem:
         say("STOPPED: " + str(problem))

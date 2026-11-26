@@ -97,8 +97,8 @@ After signed release verification is in place, add an optional setting that chec
 One command-line tool on the owner's PC that carries out the documented release steps (`COMMANDS.md` sections 43 to 45), so a release is: choose a tested candidate, release it, done.
 
 - First: `status` (read-only overview), `verify` (check a release's files and its signature against the keys built into the helper) and `candidate` (use or start the release build, assemble the packages, sign `SHA256SUMS`, publish a pre-release).
-- Then, after those have worked for real: `release`, which promotes a tested candidate (the same signed files) to a release and does the cleanup.
-- Rules the tool keeps: it never sees the key passphrase; it signs only after showing the files and hashes and getting a yes, and only if the helper's built-in keys accept the new signature; every command that changes something is logged and can be rehearsed with `--dry-run`; it never force-pushes and never merges to `main` without the owner's explicit typed confirmation; unchanged packages are attached byte-identical from the previous release.
+- Then `release`, which promotes a tested candidate (the same signed files) to a release (pull request and squash merge, tree checks, tag, GitHub Release, cleanup, `experiments` recreated from `main`). The owner chose to build it before `candidate` had been used for real; it is rehearsed with `--dry-run` and tested with a fake GitHub that performs real merges in a throw-away repository.
+- Rules the tool keeps: it never sees the key passphrase; it signs only after showing the files and hashes and getting a yes, and only if the helper's built-in keys accept the new signature; every command that changes something is logged and can be rehearsed with `--dry-run`; it never force-pushes and never merges to `main` without the owner typing the release number, and only when no product file differs from the tested candidate's commit; unchanged packages are attached byte-identical from the previous release.
 - Before relying on it, its tests with a fake `gh` pass, and its first use on the real repository is a dry run.
 
 ## Ongoing updater requirements
