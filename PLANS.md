@@ -59,6 +59,7 @@ Add an optional setting that checks for updates when Tellus launches.
 - Results are cached, and GitHub's `ETag` support is used so requests are not wasted against the per-address API limit.
 - A check never installs anything. The user stays in control of installation.
 - Offline launches and failed checks must not make Tellus unusable or cause repeated needless requests.
+- The update screen's **Include Pre-releases** and **Allow Reinstall** switches keep their setting once switched on, even after Tellus is updated (they are stored outside the app); the launch check follows the pre-release setting.
 
 ### 2. Release tool (`oitui-release`)
 

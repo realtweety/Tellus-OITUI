@@ -24,16 +24,26 @@ final class UpdateCheckViewModel: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var downloads: [UpdateComponent: DownloadState] = [:]
     @Published private(set) var installs: [UpdateComponent: InstallState] = [:]
-    /// Off by default: Tellus only offers real updates. Turning it on also offers reinstalling the version that is already installed.
-    /// Tellus never downgrades: the root helper refuses a version lower than the installed one.
-    @Published var allowReinstall = false
-    /// Off by default: pre-releases are for testing a release candidate before it is published for everyone.
-    @Published var includePrereleases = false
+    /// Off until switched on, and then it stays on (UpdateSettings keeps it outside the app): Tellus only offers real updates; turning
+    /// it on also offers reinstalling the version that is already installed. Tellus never downgrades: the root helper refuses a version
+    /// lower than the installed one.
+    @Published var allowReinstall = false {
+        didSet { UpdateSettings.shared.allowReinstall = allowReinstall }
+    }
+    /// Off until switched on, and then it stays on: pre-releases are for testing a release candidate before it is published for everyone.
+    @Published var includePrereleases = false {
+        didSet { UpdateSettings.shared.includePrereleases = includePrereleases }
+    }
 
     private let client = GitHubReleaseClient()
     private let downloader = PackageDownloader()
     private let installer = PackageInstaller()
     private var latestRelease: GitHubRelease?
+
+    init() {
+        allowReinstall = UpdateSettings.shared.allowReinstall
+        includePrereleases = UpdateSettings.shared.includePrereleases
+    }
 
     /// Set while Update All is working, for example "Updating Insula (2 of 3)\u{2026}".
     @Published private(set) var updateAllProgress: String?
@@ -65,7 +75,7 @@ final class UpdateCheckViewModel: ObservableObject {
             let release = try await client.fetchLatestRelease(includePrereleases: includePrereleases)
             latestRelease = release
             let installed = await InstalledVersionReader.collect()
-            state = .loaded(UpdateReportBuilder.build(release: release, installed: installed))
+            show(UpdateReportBuilder.build(release: release, installed: installed))
         } catch is CancellationError {
             // The screen went away mid-check; leave the previous state alone.
             state = .idle
@@ -145,7 +155,13 @@ final class UpdateCheckViewModel: ObservableObject {
     private func refreshInstalledVersions() async {
         guard let release = latestRelease else { return }
         let installed = await InstalledVersionReader.collect()
-        state = .loaded(UpdateReportBuilder.build(release: release, installed: installed))
+        show(UpdateReportBuilder.build(release: release, installed: installed))
+    }
+
+    /// Shows a report and tells the About badge (when the launch check is on) how many updates it found.
+    private func show(_ report: UpdateReport) {
+        state = .loaded(report)
+        LaunchUpdateCheck.shared.updateFromScreen(count: report.updatesAvailable.count)
     }
 }
 

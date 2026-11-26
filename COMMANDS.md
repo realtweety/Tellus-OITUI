@@ -2914,3 +2914,50 @@ If a run stops half way (network, `gh` error), fix the cause and run the same co
 
 After a release: `oitui-release verify v0.4.2`, then on the phone, in Tellus with **Include Pre-releases** off, everything says `Up to date`.
 
+## 46. Update check at launch and persistent switches: device checks
+
+What changed in Tellus (written 26 Nov 2026, not yet device-tested): About > **Check When Tellus Opens** (off by default) with a badge, a Last Checked and a Last Result line; **Include Pre-releases** and **Allow Reinstall** now stay on once switched on. They are stored in `/var/mobile/Library/Preferences/com.wilburt.tellus.prefs.plist`. Install the build from CI (the Tellus package of the Build Insula (OITI) run of the commit, `0.1.2+debug`, which dpkg accepts over `0.1.2`), as in section 41, step 3, then:
+
+```
+cd ~/OITUI
+gh run download (gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') -D ~/Downloads/tellus-launch-check
+find ~/Downloads/tellus-launch-check -name 'com.wilburt.tellus_*.deb'
+ssh -p 2222 root@127.0.0.1 'mkdir -p /var/mobile/tellus-launch-check'
+scp -P 2222 (find ~/Downloads/tellus-launch-check -name 'com.wilburt.tellus_*.deb') root@127.0.0.1:/var/mobile/tellus-launch-check/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/tellus-launch-check/com.wilburt.tellus_*.deb; dpkg -s com.wilburt.tellus | grep Version'
+```
+
+Expected: `Version: 0.1.2+debug` (or the debug version the build has). Open Tellus.
+
+**A. The switches stay on.** About > Check for Updates > menu: turn **Include Pre-releases** and **Allow Reinstall** on. Close Tellus completely (swipe it away) and open it again: both are still on. Then check the file, and install the same package again (it replaces the app) and reopen Tellus:
+
+```
+ssh -p 2222 root@127.0.0.1 'plutil -p /var/mobile/Library/Preferences/com.wilburt.tellus.prefs.plist'
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/tellus-launch-check/com.wilburt.tellus_*.deb'
+```
+
+Expected: the file lists `"updates.allowReinstall" => 1` and `"updates.includePrereleases" => 1`; after the reinstall and reopening, both switches are still on. Turn them off, reopen Tellus, and they are off (and the file says `0`). If the file is missing, or a switch resets, tell me which step.
+
+**B. Off by default, no badge.** With the new switch off (its default) nothing is checked: no badge, no Last Result line.
+
+**C. The badge, and the cache.** Make a temporary pre-release that looks like a newer Tellus (it contains a dummy file, so Tellus could not install it anyway; it is deleted at the end; the tag has no leading `v` so it starts no build):
+
+```
+cd /tmp; and echo dummy > com.wilburt.tellus_0.1.9_iphoneos-arm64.deb
+gh release create badgetest-1 --target experiments --prerelease --title "badge test (temporary)" --notes "Temporary test, will be deleted." /tmp/com.wilburt.tellus_0.1.9_iphoneos-arm64.deb
+```
+
+On the phone, with **Include Pre-releases** on: About > turn **Check When Tellus Opens** on. Expected within a few seconds: Last Result `New answer from GitHub`, Last Checked now, and a red `1` on Check for Updates and on the About row of the main list. Go back to the main list: the About row shows the `1`. Close Tellus completely, open it again: the badge returns and Last Result says `Used the saved answer` (an answer less than an hour old is trusted). Turn the new switch off and on again: it asks GitHub with the saved ETag; expected Last Result `Nothing new (not modified)`, badge unchanged.
+
+**D. Offline.** Switch the phone to Airplane Mode, then turn the new switch off and on: expected Last Result `Could not reach GitHub; it will try again later`, the badge still shows `1`, and Tellus works normally. Close and reopen Tellus (still offline, within 15 minutes): Last Result `Used the saved answer`, no error anywhere. Turn Airplane Mode off.
+
+**E. Stable only, and clean up.** In Check for Updates turn **Include Pre-releases** off; reopen Tellus: no badge (the stable release is not newer: Tellus 0.1.2, Insula 0.4.1 and OITCore 0.1.0 are all current). Then delete the test release and, if you like, turn the launch check off:
+
+```
+gh release delete badgetest-1 --cleanup-tag --yes
+```
+
+**F. The old rule still holds.** The Check for Updates screen still shows errors for itself (turn Airplane Mode on and press Check Again: it shows the offline message); only the launch check is silent.
+
+Answer which of A to F matched, and paste what differed.
+

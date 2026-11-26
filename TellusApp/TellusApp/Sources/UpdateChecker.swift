@@ -285,6 +285,12 @@ private struct LossyRelease: Decodable {
     }
 }
 
+/// The answer to a request that carried the ETag of an earlier answer.
+enum ConditionalRelease {
+    case notModified
+    case release(GitHubRelease, etag: String?)
+}
+
 struct GitHubReleaseClient {
     static let repository = "realtweety/Tellus-OITUI"
     // `/releases/latest` skips drafts and pre-releases, which is what a normal
@@ -297,38 +303,37 @@ struct GitHubReleaseClient {
 
     /// The newest release. Pre-releases are only considered when asked for.
     func fetchLatestRelease(includePrereleases: Bool = false) async throws -> GitHubRelease {
-        if includePrereleases {
-            let data = try await fetch(Self.releaseListURL)
-            let candidates: [LossyRelease]
-            do {
-                candidates = try JSONDecoder().decode([LossyRelease].self, from: data)
-            } catch {
-                throw UpdateCheckError.malformedResponse
-            }
-            guard let release = candidates.compactMap({ $0.release }).first(where: { !$0.tagName.isEmpty }) else {
-                throw UpdateCheckError.noRelease
-            }
-            return release
-        }
-
-        let data = try await fetch(Self.latestReleaseURL)
-        do {
-            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
-            guard !release.tagName.isEmpty else { throw UpdateCheckError.malformedResponse }
-            return release
-        } catch {
-            throw UpdateCheckError.malformedResponse
-        }
+        let url = includePrereleases ? Self.releaseListURL : Self.latestReleaseURL
+        let (data, http) = try await perform(Self.request(for: url, etag: nil))
+        try Self.checkStatus(http)
+        return try Self.decodeRelease(from: data, includePrereleases: includePrereleases)
     }
 
-    private func fetch(_ url: URL) async throws -> Data {
+    /// Like `fetchLatestRelease`, but sends the ETag of an earlier answer. If nothing changed, GitHub answers "304 Not Modified",
+    /// which does not count against the limit of unauthenticated requests.
+    func fetchLatestReleaseConditional(includePrereleases: Bool, etag: String?) async throws -> ConditionalRelease {
+        let url = includePrereleases ? Self.releaseListURL : Self.latestReleaseURL
+        let (data, http) = try await perform(Self.request(for: url, etag: etag))
+        if http.statusCode == 304 { return .notModified }
+        try Self.checkStatus(http)
+        let release = try Self.decodeRelease(from: data, includePrereleases: includePrereleases)
+        return .release(release, etag: http.value(forHTTPHeaderField: "ETag"))
+    }
+
+    private static func request(for url: URL, etag: String?) -> URLRequest {
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         request.setValue("Tellus-App", forHTTPHeaderField: "User-Agent")
+        if let etag = etag, !etag.isEmpty {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+        return request
+    }
 
+    private func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let data: Data
         let response: URLResponse
         do {
@@ -349,10 +354,13 @@ struct GitHubReleaseClient {
         guard let http = response as? HTTPURLResponse else {
             throw UpdateCheckError.malformedResponse
         }
+        return (data, http)
+    }
 
+    private static func checkStatus(_ http: HTTPURLResponse) throws {
         switch http.statusCode {
         case 200:
-            return data
+            return
         case 404:
             throw UpdateCheckError.noRelease
         case 429:
@@ -365,6 +373,29 @@ struct GitHubReleaseClient {
             throw UpdateCheckError.httpStatus(403)
         default:
             throw UpdateCheckError.httpStatus(http.statusCode)
+        }
+    }
+
+    private static func decodeRelease(from data: Data, includePrereleases: Bool) throws -> GitHubRelease {
+        if includePrereleases {
+            let candidates: [LossyRelease]
+            do {
+                candidates = try JSONDecoder().decode([LossyRelease].self, from: data)
+            } catch {
+                throw UpdateCheckError.malformedResponse
+            }
+            guard let release = candidates.compactMap({ $0.release }).first(where: { !$0.tagName.isEmpty }) else {
+                throw UpdateCheckError.noRelease
+            }
+            return release
+        }
+
+        do {
+            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+            guard !release.tagName.isEmpty else { throw UpdateCheckError.malformedResponse }
+            return release
+        } catch {
+            throw UpdateCheckError.malformedResponse
         }
     }
 }
@@ -448,7 +479,7 @@ enum UpdateReportBuilder {
         )
     }
 
-    private static func status(installed: InstalledVersion, available: String?) -> UpdateStatus {
+    static func status(installed: InstalledVersion, available: String?) -> UpdateStatus {
         guard let available = available else { return .notPublished }
         switch installed {
         case .notInstalled:
