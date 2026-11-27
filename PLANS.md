@@ -25,22 +25,21 @@ These are process rules, not release assignments:
 
 ## Current baseline
 
-The latest published release is [OITUI 0.4.2](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.4.2):
+The latest published release is [OITUI 0.4.3](https://github.com/realtweety/Tellus-OITUI/releases/tag/v0.4.3):
 
 | Package | Published version |
 |---|---:|
 | OITCore | `0.1.0` |
 | Insula (formerly OITI) | `0.4.1` |
-| Tellus | `0.1.2` |
+| Tellus | `0.1.3` |
 
-It is the first signed release: Tellus verifies an Ed25519 signature of `SHA256SUMS` (`SHA256SUMS.sig`) before it installs anything, and no longer installs a version lower than the installed one. The Insula and OITCore files in it are byte-identical to those of 0.4.1. The Island position fix of 0.4.1 has not been confirmed by the person who reported the problem, and the owner's iPhone 8 Plus never had the bug.
+Releases from 0.4.2 on are signed: Tellus verifies an Ed25519 signature of `SHA256SUMS` (`SHA256SUMS.sig`) before it installs anything, and never installs a version lower than the installed one. 0.4.3 changed only Tellus (the optional update check at launch and switches that stay on); the Insula and OITCore files in it are byte-identical to those of 0.4.2. The Island position fix of 0.4.1 has not been confirmed by the person who reported the problem, and the owner's iPhone 8 Plus never had the bug.
 
 Update All installs only packages that are newer, in this order: OITCore, Insula, Tellus.
 
 ### Current release limitations
 
 - Releases up to 0.4.1 are not signed: Tellus does not install them (they can be installed by hand with Sileo, Zebra or dpkg). Releases from 0.4.2 on are signed.
-- Refusing a version older than the installed one is tested off the phone only, and a release signed by the backup key has not been accepted by the helper on a phone.
 - Insula is built and tested for rootless jailbreaks on iOS 16. The documented test device is an iPhone 8 Plus running iOS 16.7.16 with Dopamine. Other iOS versions and roothide are not supported.
 - Notifications, Download Progress and Status Bar functionality remain experimental.
 
@@ -48,27 +47,7 @@ Treat these as real support boundaries. Do not describe untested combinations as
 
 ## Accepted work
 
-The accepted forward work is the optional update check at Tellus launch and the finishing of the release tool. Signed release verification, which came first, is done (see `OVERVIEW.md`).
-
-### 1. Optional update check on launch
-
-Add an optional setting that checks for updates when Tellus launches.
-
-- The setting is **off by default**.
-- When enabled, Tellus checks for updates at launch, and an available update is shown as a badge on the About page.
-- Results are cached, and GitHub's `ETag` support is used so requests are not wasted against the per-address API limit.
-- A check never installs anything. The user stays in control of installation.
-- Offline launches and failed checks must not make Tellus unusable or cause repeated needless requests.
-- The update screen's **Include Pre-releases** and **Allow Reinstall** switches keep their setting once switched on, even after Tellus is updated (they are stored outside the app); the launch check follows the pre-release setting.
-
-### 2. Release tool (`oitui-release`)
-
-One command-line tool on the owner's PC that carries out the documented release steps (`COMMANDS.md` sections 43 to 45), so a release is: choose a tested candidate, release it, done.
-
-- First: `status` (read-only overview), `verify` (check a release's files and its signature against the keys built into the helper) and `candidate` (use or start the release build, assemble the packages, sign `SHA256SUMS`, publish a pre-release).
-- Then `release`, which promotes a tested candidate (the same signed files) to a release (pull request and squash merge, tree checks, tag, GitHub Release, cleanup, `experiments` recreated from `main`). All four commands exist and are tested with a fake GitHub that performs real merges in a throw-away repository. `status`, `verify` and `release` have been used for real. **Still to do:** the first real use of `candidate`; anything the real GitHub shows that the fake did not.
-- Rules the tool keeps: it never sees the key passphrase; it signs only after showing the files and hashes and getting a yes, and only if the helper's built-in keys accept the new signature; every command that changes something is logged and can be rehearsed with `--dry-run`; it never force-pushes and never merges to `main` without the owner typing the release number, and only when no product file differs from the tested candidate's commit; unchanged packages are attached byte-identical from the previous release.
-- Before relying on a command for real, its tests pass and its first use is a dry run.
+There is no accepted forward work at the moment. The optional update check at Tellus launch and the release tool (`status`, `verify`, `candidate`, `release`, all used for real) are done and shipped (see `OVERVIEW.md`). New work enters this file only after the owner explicitly accepts it from `IDEAS.md`.
 
 ## Ongoing updater requirements
 
@@ -76,7 +55,6 @@ These are validation requirements for updater work, not separate features:
 
 - Keep the Update All behaviour: install only packages that are newer, in the order OITCore, Insula, Tellus.
 - The next time OITCore itself changes, test the OITCore-first order of Update All end to end. It has not been tested, because 0.4.1 changed only Insula and Tellus.
-- Before the next Tellus release, check on the phone that the helper refuses a signed package older than the installed version and that it accepts a release signed by the backup key (`COMMANDS.md` section 47); until then both are tested off the phone only.
 - Do not install a package unless its signature and checksum checks have both passed, and keep signing every release and pre-release that Tellus has to install.
 - Keep stable-release and prerelease version comparisons correct. A prerelease that Tellus must download must not contain `~` in its version, because GitHub rewrites it in asset names; carry the final version numbers instead.
 

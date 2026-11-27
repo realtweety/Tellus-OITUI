@@ -2867,7 +2867,7 @@ source ~/.config/fish/functions/oitui-release.fish
 oitui-release status
 ```
 
-Expected from `status`: the repository path, the branch with the HEAD hash and `clean`, whether `origin/experiments` matches HEAD, the CI result of HEAD, `latest stable release: v0.4.1`, the three package versions each marked `unchanged`, `CHANGED from ...` or `new`, and the candidate tags. It changes nothing.
+Expected from `status`: the repository path, the branch with the HEAD hash and `clean`, whether `origin/experiments` matches HEAD, the CI result of HEAD, `latest stable release: v<the newest stable tag>`, the three package versions each marked `unchanged`, `CHANGED from ...` or `new`, and the candidate tags. It changes nothing.
 
 **First real check (read-only).** Verify the candidate that was made by hand and the old unsigned release:
 
@@ -2927,7 +2927,7 @@ scp -P 2222 (find ~/Downloads/tellus-launch-check -name 'com.wilburt.tellus_*.de
 ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/tellus-launch-check/com.wilburt.tellus_*.deb; dpkg -s com.wilburt.tellus | grep Version'
 ```
 
-Expected: `Version: 0.1.3+debug`. Open Tellus.
+Expected: `Version: 0.1.3-1+debug` (the exact string dpkg shows for the CI build). Open Tellus.
 
 **A. The switches stay on.** About > Check for Updates > menu: turn **Include Pre-releases** and **Allow Reinstall** on. Close Tellus completely (swipe it away) and open it again: both are still on. Then check the file, and install the same package again (it replaces the app) and reopen Tellus:
 
@@ -2963,7 +2963,7 @@ Answer which of A to F matched, and paste what differed.
 
 ## 47. Two more checks of the real helper on the phone (older version, backup key)
 
-Both use `tools/tellus_helper_device_test.sh` (see its header). Do them with the release candidate of the next Tellus release installed on the phone (so that the installed Tellus is newer than the previous signed release). Arch PC, fish, `iproxy 2222 22` running. `oitui-release candidate` keeps the candidate's files in `~/Downloads/oiti-release-<tag>`; the first command below finds the newest such folder.
+Both use `tools/tellus_helper_device_test.sh` (see its header). Both can also be run before a candidate exists, with the files of the previous signed release (the v0.4.3 cycle did the older-version check that way: the previous release for both folders; the backup-key check was done with the candidate's files). Do them with the release candidate of the next Tellus release installed on the phone (so that the installed Tellus is newer than the previous signed release). Arch PC, fish, `iproxy 2222 22` running. `oitui-release candidate` keeps the candidate's files in `~/Downloads/oiti-release-<tag>`; the first command below finds the newest such folder.
 
 **A. A signed package older than the installed one is refused (exit 24).** The older package is the Tellus of the previous signed release (v0.4.2, Tellus 0.1.2).
 
@@ -3002,3 +3002,42 @@ rm -rf ~/Downloads/oiti-backup-check
 
 Expected: nine `ok` lines and `9 passed, 0 failed`: the real arm64 helper accepts a signature made by the backup key. Afterwards put the backup key back where it is kept (it should not stay on this PC).
 
+
+## 48. The 0.4.3 release (27 Nov 2026): what was run, and the cleanup
+
+Tellus `0.1.3`, Insula `0.4.1`, OITCore `0.1.0`; the first real use of `oitui-release candidate`. Arch PC, fish, `iproxy 2222 22` for the phone steps.
+
+**1. CI, then a release build of HEAD by hand.** The build on `experiments` failed once at `upload-artifact` with `Failed to CreateArtifact: Unable to make request: ENOTFOUND` (a runner network error; the Tellus step had passed): `gh run rerun <id> --failed --repo realtweety/Tellus-OITUI`, no commit. A dry run of `candidate` without a release build of HEAD only prints `gh workflow run release-oiti.yml --ref experiments` and stops, so start that build first (the workflow has `contents: read`, only builds and uploads an artifact; it is the same call the tool makes), wait, then rehearse:
+
+```
+gh workflow run release-oiti.yml --ref experiments --repo realtweety/Tellus-OITUI
+gh run watch --repo realtweety/Tellus-OITUI --exit-status (gh run list --repo realtweety/Tellus-OITUI --workflow=release-oiti.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+oitui-release candidate 0.4.3 --dry-run
+oitui-release candidate 0.4.3
+```
+
+Expected from the real run: the three packages (the two unchanged ones marked `the byte-identical file of v0.4.2`), `Sign this SHA256SUMS ...? [y/N]` (then the key passphrase), `ok   signed; the primary key built into the helper accepts it`, `Tag v0.4.3-rc.1 ... publish the pre-release? [y/N]`, then four `ok` lines for what GitHub serves.
+
+**2. Put the phone back before testing the update.** A CI build installed on the phone (`0.1.3-1+debug`) sorts ABOVE the candidate's `0.1.3` in dpkg order, so Tellus would not offer the candidate and the helper would refuse it (exit 24). Install the previous release's Tellus by hand first (`dpkg -i` allows the downgrade), then do the Update All test with Include Pre-releases on:
+
+```
+rm -rf ~/Downloads/oiti-v042; gh release download v0.4.2 --repo realtweety/Tellus-OITUI -D ~/Downloads/oiti-v042
+ssh -p 2222 root@127.0.0.1 'mkdir -p /var/mobile/oiti-042'
+scp -P 2222 ~/Downloads/oiti-v042/com.wilburt.tellus_0.1.2_iphoneos-arm64.deb root@127.0.0.1:/var/mobile/oiti-042/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-042/com.wilburt.tellus_0.1.2_iphoneos-arm64.deb; dpkg -s com.wilburt.tellus | grep Version'
+```
+
+After Update All: Tellus `0.1.3`; switch the two switches on, reinstall Tellus and OITCore through Tellus (Details shows the four `STEP` lines for OITCore); the switches must still be on after Tellus replaces itself. Then the helper script of section 46/47 with the candidate's folder (`~/Downloads/oiti-release-v0.4.3-rc.1`; `gh release download v0.4.3-rc.1 -D <folder>` recreates it if it was deleted).
+
+**3. Release.** Release notes in a file outside the repository (`~/Downloads/oiti-0.4.3-notes.md`), then:
+
+```
+oitui-release release v0.4.3-rc.1 --notes-file ~/Downloads/oiti-0.4.3-notes.md --dry-run
+oitui-release release v0.4.3-rc.1 --notes-file ~/Downloads/oiti-0.4.3-notes.md
+oitui-release verify v0.4.3
+git rev-parse main experiments origin/experiments
+```
+
+Expected from the dry run: five `ok` lines (`only documentation and tooling changed (0 files)` when nothing changed after the tested commit), `ok   CI is green`, the seven numbered steps and `[dry-run] nothing was changed`. Real run: it asks whether the signing keys are safe, then for the release number (`0.4.3`). Afterwards `verify` ends with `verdict: signed, complete and consistent`, the release list shows `OITUI 0.4.3` as Latest and the three hashes are equal.
+
+**4. Cleanup.** The tool deletes its own candidate only. A pre-release left over from an earlier release (`v0.4.1-rc.1`) stays until the owner removes it: `gh release delete v0.4.1-rc.1 --repo realtweety/Tellus-OITUI --cleanup-tag --yes`. Remove the staged test files on the phone (`/var/mobile/oiti-042`, `/var/mobile/tellus-rc-test`, `/var/mobile/tellus-backup-test`) and the scratch folders in `~/Downloads`; the backup signing key must not stay on the PC outside its normal place.
