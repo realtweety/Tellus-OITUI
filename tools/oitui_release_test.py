@@ -114,6 +114,15 @@ def sh(*command, cwd=None, check=True, env=None):
     return subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=check, env=env)
 
 
+def pin_versions(repo):
+    """The tests build their fixtures for fixed versions (OITCore 0.1.0, Insula 0.4.1, Tellus 0.1.2), whatever the real repository has."""
+    for relative, version in (("OITCore/control", "0.1.0"), ("OITI/control", "0.4.1"), ("TellusApp/layout/DEBIAN/control", "0.1.2")):
+        path = Path(repo) / relative
+        path.write_text(re.sub(r"^Version: .*$", "Version: " + version, path.read_text(), flags=re.M))
+    project = Path(repo) / "TellusApp/TellusApp.xcodeproj/project.pbxproj"
+    project.write_text(re.sub(r"MARKETING_VERSION = [^;]+;", "MARKETING_VERSION = 0.1.2;", project.read_text()))
+
+
 def make_keys(folder):
     keys = {}
     for label in ("a", "b", "other"):
@@ -146,6 +155,7 @@ class ReleaseToolTest(unittest.TestCase):
             target = self.repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(REAL_REPO / relative, target)
+        pin_versions(self.repo)
         helper = self.repo / "TellusApp/Helper/tellus-helper.c"
         text = helper.read_text()
         text = re.sub(r'(#define TELLUS_TRUSTED_KEY_1 ")[0-9a-f]{64}', r"\g<1>" + self.keys["a"][1], text)
@@ -471,6 +481,7 @@ class ReleaseCommandTest(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             source = REAL_REPO / relative
             shutil.copy(source if source.exists() else REAL_REPO / "TellusApp/Helper/tellus-helper.c", target)
+        pin_versions(self.repo)
         text = (self.repo / "TellusApp/Helper/tellus-helper.c").read_text()
         text = re.sub(r'(#define TELLUS_TRUSTED_KEY_1 ")[0-9a-f]{64}', r"\g<1>" + self.keys["a"][1], text)
         text = re.sub(r'(#define TELLUS_TRUSTED_KEY_2 ")[0-9a-f]{64}', r"\g<1>" + self.keys["b"][1], text)

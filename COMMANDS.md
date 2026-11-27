@@ -2711,7 +2711,7 @@ ls -l SHA256SUMS SHA256SUMS.sig
 
 Expected: `cat` lists exactly the three `.deb` files with 64-character hashes; the signing step asks for the key passphrase; the verify line prints `Signature Verified Successfully`; `SHA256SUMS.sig` is exactly 64 bytes. Attach `SHA256SUMS` and `SHA256SUMS.sig` next to the `.deb` files. If a file changes after signing, sign again.
 
-**Off-phone helper tests (a container or Linux, as root; needs `dpkg`, `dpkg-deb` and OpenSSL 3):** `sh tools/tellus_helper_test.sh` must end in `46 passed, 0 failed` (the number grows when checks are added; any `FAIL` line blocks a release). The real helper on the phone is checked with `tools/tellus_helper_device_test.sh` (section 44, step 7).
+**Off-phone helper tests (a container or Linux, as root; needs `dpkg`, `dpkg-deb` and OpenSSL 3):** `sh tools/tellus_helper_test.sh` must end in `48 passed, 0 failed` (the number grows when checks are added; any `FAIL` line blocks a release). The real helper on the phone is checked with `tools/tellus_helper_device_test.sh` (section 44, step 7).
 
 **Checking the vendored Ed25519 code:** the SHA-256 of each Monocypher file is in `Third Party Licenses/MONOCYPHER-LICENSE.txt`; `sha256sum TellusApp/Helper/monocypher*` must print those values.
 
@@ -2913,4 +2913,92 @@ It asks whether the signing keys are safe (answer `y` only if the primary key's 
 If a run stops half way (network, `gh` error), fix the cause and run the same command again: it works out where it stopped (`stage: the merge has already happened`, `the tag exists, the release does not`, or `the release exists, only the cleanup is left`) and does only the rest; it never merges twice. If it says `NOT deleting it`, the release itself is done and your local `experiments` holds work that is not in `main`: nothing was deleted; look at it with `git log main..experiments` before doing anything else.
 
 After a release: `oitui-release verify v0.4.2`, then on the phone, in Tellus with **Include Pre-releases** off, everything says `Up to date`.
+
+## 46. Update check at launch and persistent switches: device checks
+
+What changed in Tellus (written 26 Nov 2026, not yet device-tested): About > **Check When Tellus Opens** (off by default) with a badge, a Last Checked and a Last Result line; **Include Pre-releases** and **Allow Reinstall** now stay on once switched on. They are stored in `/var/mobile/Library/Preferences/com.wilburt.tellus.prefs.plist`. Install the build from CI (the Tellus package of the Build Insula (OITI) run of the commit, `0.1.3+debug`, which dpkg accepts over the released `0.1.2`), as in section 41, step 3, then:
+
+```
+cd ~/OITUI
+gh run download (gh run list --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') -D ~/Downloads/tellus-launch-check
+find ~/Downloads/tellus-launch-check -name 'com.wilburt.tellus_*.deb'
+ssh -p 2222 root@127.0.0.1 'mkdir -p /var/mobile/tellus-launch-check'
+scp -P 2222 (find ~/Downloads/tellus-launch-check -name 'com.wilburt.tellus_*.deb') root@127.0.0.1:/var/mobile/tellus-launch-check/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/tellus-launch-check/com.wilburt.tellus_*.deb; dpkg -s com.wilburt.tellus | grep Version'
+```
+
+Expected: `Version: 0.1.3+debug`. Open Tellus.
+
+**A. The switches stay on.** About > Check for Updates > menu: turn **Include Pre-releases** and **Allow Reinstall** on. Close Tellus completely (swipe it away) and open it again: both are still on. Then check the file, and install the same package again (it replaces the app) and reopen Tellus:
+
+```
+ssh -p 2222 root@127.0.0.1 'plutil -p /var/mobile/Library/Preferences/com.wilburt.tellus.prefs.plist'
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/tellus-launch-check/com.wilburt.tellus_*.deb'
+```
+
+Expected: the file lists `"updates.allowReinstall" => 1` and `"updates.includePrereleases" => 1`; after the reinstall and reopening, both switches are still on. Turn them off, reopen Tellus, and they are off (and the file says `0`). If the file is missing, or a switch resets, tell me which step.
+
+**B. Off by default, no badge.** With the new switch off (its default) nothing is checked: no badge, no Last Result line.
+
+**C. The badge, and the cache.** Make a temporary pre-release that looks like a newer Tellus (it contains a dummy file, so Tellus could not install it anyway; it is deleted at the end; the tag has no leading `v` so it starts no build):
+
+```
+cd /tmp; and echo dummy > com.wilburt.tellus_0.1.9_iphoneos-arm64.deb
+gh release create badgetest-1 --target experiments --prerelease --title "badge test (temporary)" --notes "Temporary test, will be deleted." /tmp/com.wilburt.tellus_0.1.9_iphoneos-arm64.deb
+```
+
+On the phone, with **Include Pre-releases** on: About > turn **Check When Tellus Opens** on. Expected within a few seconds: Last Result `New answer from GitHub`, Last Checked now, and a red `1` on Check for Updates and on the About row of the main list. Go back to the main list: the About row shows the `1`. Close Tellus completely, open it again: the badge returns and Last Result says `Used the saved answer` (an answer less than an hour old is trusted). Turn the new switch off and on again: it asks GitHub with the saved ETag; expected Last Result `Nothing new (not modified)`, badge unchanged.
+
+**D. Offline.** Switch the phone to Airplane Mode, then turn the new switch off and on: expected Last Result `Could not reach GitHub; it will try again later`, the badge still shows `1`, and Tellus works normally. Close and reopen Tellus (still offline, within 15 minutes): Last Result `Used the saved answer`, no error anywhere. Turn Airplane Mode off.
+
+**E. Stable only, and clean up.** In Check for Updates turn **Include Pre-releases** off; reopen Tellus: no badge (the stable release is not newer than what is installed: the installed Tellus 0.1.3+debug is newer than the release's 0.1.2, and Insula 0.4.1 and OITCore 0.1.0 match). Then delete the test release and, if you like, turn the launch check off:
+
+```
+gh release delete badgetest-1 --cleanup-tag --yes
+```
+
+**F. The old rule still holds.** The Check for Updates screen still shows errors for itself (turn Airplane Mode on and press Check Again: it shows the offline message); only the launch check is silent.
+
+Answer which of A to F matched, and paste what differed.
+
+## 47. Two more checks of the real helper on the phone (older version, backup key)
+
+Both use `tools/tellus_helper_device_test.sh` (see its header). Do them with the release candidate of the next Tellus release installed on the phone (so that the installed Tellus is newer than the previous signed release). Arch PC, fish, `iproxy 2222 22` running. `oitui-release candidate` keeps the candidate's files in `~/Downloads/oiti-release-<tag>`; the first command below finds the newest such folder.
+
+**A. A signed package older than the installed one is refused (exit 24).** The older package is the Tellus of the previous signed release (v0.4.2, Tellus 0.1.2).
+
+```
+set rc (ls -dt ~/Downloads/oiti-release-v*-rc.* | head -n 1)
+echo $rc
+ls $rc
+rm -rf ~/Downloads/oiti-v042
+gh release download v0.4.2 -D ~/Downloads/oiti-v042
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/tellus-rc-test /var/mobile/tellus-older; mkdir /var/mobile/tellus-rc-test /var/mobile/tellus-older'
+scp -P 2222 ~/OITUI/tools/tellus_helper_device_test.sh $rc/com.wilburt.oitcore_0.1.0_iphoneos-arm64.deb $rc/SHA256SUMS $rc/SHA256SUMS.sig root@127.0.0.1:/var/mobile/tellus-rc-test/
+scp -P 2222 ~/Downloads/oiti-v042/com.wilburt.tellus_0.1.2_iphoneos-arm64.deb ~/Downloads/oiti-v042/SHA256SUMS ~/Downloads/oiti-v042/SHA256SUMS.sig root@127.0.0.1:/var/mobile/tellus-older/
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/tellus-rc-test/tellus_helper_device_test.sh /var/mobile/tellus-rc-test /var/mobile/tellus-older'
+```
+
+Expected: `echo $rc` shows the folder of the newest candidate and `ls $rc` its five files; ten `ok` lines, including `ok   older signed Tellus 0.1.2 is refused while 0.1.3 is installed (exit 24)` (use the versions that are really installed), and `10 passed, 0 failed`. If the script says `skip the older-version check`, the installed Tellus is not newer than 0.1.2: install the candidate first. Any `FAIL` line shows the exit code it got instead: paste it.
+
+**B. A release signed by the BACKUP key is accepted.** Sign a copy of the candidate's manifest with the backup key (the key file is on your offline storage: put its real path into the first line), check it with the release tool, and run the same script on it. The copy is thrown away afterwards; it is never published.
+
+```
+set backup /real/path/to/oitui-release-backup.key
+rm -rf ~/Downloads/oiti-backup-check; mkdir ~/Downloads/oiti-backup-check
+cp $rc/com.wilburt.oitcore_0.1.0_iphoneos-arm64.deb $rc/com.wilburt.oiti_0.4.1_iphoneos-arm64.deb $rc/SHA256SUMS ~/Downloads/oiti-backup-check/
+openssl pkeyutl -sign -rawin -inkey $backup -in ~/Downloads/oiti-backup-check/SHA256SUMS -out ~/Downloads/oiti-backup-check/SHA256SUMS.sig
+oitui-release verify ~/Downloads/oiti-backup-check
+```
+
+Expected from the last command: `ok   SHA256SUMS.sig is a valid signature by the backup key` (the Tellus package is not in that folder on purpose, so `SHA256SUMS lists com.wilburt.tellus_... which is not in the release` appears as a FAIL line: ignore that one, the signature line is what counts here). Then on the phone:
+
+```
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/tellus-backup-test; mkdir /var/mobile/tellus-backup-test'
+scp -P 2222 ~/OITUI/tools/tellus_helper_device_test.sh ~/Downloads/oiti-backup-check/com.wilburt.oitcore_0.1.0_iphoneos-arm64.deb ~/Downloads/oiti-backup-check/SHA256SUMS ~/Downloads/oiti-backup-check/SHA256SUMS.sig root@127.0.0.1:/var/mobile/tellus-backup-test/
+ssh -p 2222 root@127.0.0.1 'sh /var/mobile/tellus-backup-test/tellus_helper_device_test.sh /var/mobile/tellus-backup-test'
+rm -rf ~/Downloads/oiti-backup-check
+```
+
+Expected: nine `ok` lines and `9 passed, 0 failed`: the real arm64 helper accepts a signature made by the backup key. Afterwards put the backup key back where it is kept (it should not stay on this PC).
 

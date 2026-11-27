@@ -6,6 +6,7 @@ struct TellusApp: App {
     @State private var showRespringConfirmation = false
     @State private var showSafeModeConfirmation = false
     @State private var safeModeActive = false
+    @StateObject private var launchCheck = LaunchUpdateCheck.shared
 
     var body: some Scene {
         WindowGroup {
@@ -98,7 +99,8 @@ struct TellusApp: App {
                                     subtitle: "Tellus version and project information.",
                                     symbol: "info",
                                     tint: Color.gray,
-                                    showsChevron: false
+                                    showsChevron: false,
+                                    badgeCount: launchCheck.updateCount
                                 )
                             }
                             .buttonStyle(.plain)
@@ -118,6 +120,7 @@ struct TellusApp: App {
                 .listStyle(.insetGrouped)
                 .navigationTitle("Tellus")
                 .task { await refreshRecoveryState() }
+                .task { await launchCheck.runAtLaunch() }
                 .confirmationDialog("Respring?", isPresented: $showRespringConfirmation, titleVisibility: .visible) {
                     Button("Respring", role: .destructive) {
                         post("com.wilburt.oiti/Respring")
@@ -176,6 +179,7 @@ private struct MiscRowLabel: View {
     let symbol: String
     let tint: Color
     var showsChevron = true
+    var badgeCount = 0
 
     var body: some View {
         HStack(spacing: 14) {
@@ -197,6 +201,11 @@ private struct MiscRowLabel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if badgeCount > 0 {
+                Spacer(minLength: 4)
+                UpdateBadge(count: badgeCount)
+            }
+
             if showsChevron {
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
@@ -209,8 +218,25 @@ private struct MiscRowLabel: View {
     }
 }
 
+/// A small red count that says how many components have an update.
+private struct UpdateBadge: View {
+    let count: Int
+
+    var body: some View {
+        Text("\(count)")
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 8)
+            .frame(minWidth: 24, minHeight: 24)
+            .background(Capsule().fill(Color.red))
+            .accessibilityLabel(count == 1 ? "1 update available" : "\(count) updates available")
+    }
+}
+
 private struct AboutSettingsView: View {
     @State private var insulaVersion = "Loading…"
+    @ObservedObject private var launchCheck = LaunchUpdateCheck.shared
+    @ObservedObject private var settings = UpdateSettings.shared
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
@@ -232,14 +258,30 @@ private struct AboutSettingsView: View {
                 NavigationLink {
                     UpdateCheckView()
                 } label: {
-                    Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
+                    HStack {
+                        Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
+                        if launchCheck.updateCount > 0 {
+                            Spacer(minLength: 4)
+                            UpdateBadge(count: launchCheck.updateCount)
+                        }
+                    }
+                }
+                Toggle("Check When Tellus Opens", isOn: $settings.checkOnLaunch)
+                if settings.checkOnLaunch, let last = launchCheck.lastChecked {
+                    LabeledContent("Last Checked", value: last.formatted(date: .abbreviated, time: .shortened))
+                }
+                if settings.checkOnLaunch, let outcome = launchCheck.lastOutcome {
+                    LabeledContent("Last Result", value: outcome)
                 }
             } footer: {
-                Text("Looks for newer releases on GitHub. This only checks; it does not install anything.")
+                Text("Looks for newer releases on GitHub. This only checks; it does not install anything. With the switch on, Tellus also checks when it opens (at most once an hour, and it reuses GitHub\u{2019}s answer when nothing changed) and shows a badge on About when an update is available. It is off by default.")
             }
         }
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: settings.checkOnLaunch) { _ in
+            launchCheck.settingChanged()
+        }
         .task {
             do {
                 insulaVersion = try await DiagnosticsBridge.perform("insulaVersion")
