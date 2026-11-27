@@ -32,9 +32,7 @@ Rules for this file:
 - **Candidate: Several simultaneous downloads.** Show multiple downloads together, potentially as a compact stack.
 - **Candidate: More download sources.** Add a browser or app only where a stable download source can be measured and tested on the device.
 - **Candidate: Browser pause/resume.** Expose pause or resume only for browsers that genuinely support it. Arc was measured as not supporting pause; never show a fake or ineffective control.
-- **Candidate: Download completion feedback.** Optional haptic or sound when a download finishes, off by default.
 - **Research: Richer App Store Installing/Updating state.** Distinguish installation and update activity more clearly than a percentage alone. An Installing state already exists, so first identify exactly what information is still missing.
-- **Research: Private/incognito browser download checks.** Safari Private Browsing downloads are hidden because the web view's data store is not persistent. Arc Search and Chrome behaviour has not been measured. Compare normal and private downloads in each browser, and verify whether the public `WKDownload` information can reliably identify the originating web view or tab, before changing anything.
 - **Dependency / Research: A real Island content queue.** Stop music, timers, downloads and other activities from constantly replacing one another. This needs a content-management mechanism and clear priority and interruption rules first.
 - **Dependency / Research: Context awareness.** Adapt Island content to the foreground app or activity (for example media controls in a music app). Needs the same content-management foundation and careful privacy and resource decisions.
 - **Research: Universal progress representation.** Let an activity provide progress information that Insula renders consistently. Download Progress is the natural first use. A public third-party API is a much later, separate decision.
@@ -75,7 +73,6 @@ Rules for this file:
 
 These are not part of the accepted updater plan unless they appear in `PLANS.md`.
 
-- **Candidate: Dynamic Double Tap Opens Tellus hit zone.** Make the touch zone follow the Island's actual position, size and scale. The shipped zone is a fixed band near the default Island location (60 pt from the top, 90 pt either side of the middle); more extreme custom layouts may fall outside it.
 - **Candidate: Package version from reliable metadata.** Read a package's version from its metadata or the release data rather than from the asset filename. GitHub can rewrite characters such as `~` in asset names, which can break prerelease handling. See `WORKFLOW.md`.
 - **Candidate: Clean stale staged packages.** Remove obsolete staged `.deb` files left in `/var/mobile/Library/Caches/TellusUpdates`. A Tellus self-update leaves its own staged package, and the staged `SHA256SUMS` and `SHA256SUMS.sig`, because dpkg ends the app before it can clean up.
 - **Candidate: Insula update note with an inline respring action.** After Insula is installed, offer the respring action in the same row instead of only explaining it in text.

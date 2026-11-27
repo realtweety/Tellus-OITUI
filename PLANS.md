@@ -47,7 +47,13 @@ Treat these as real support boundaries. Do not describe untested combinations as
 
 ## Accepted work
 
-There is no accepted forward work at the moment. The optional update check at Tellus launch and the release tool (`status`, `verify`, `candidate`, `release`, all used for real) are done and shipped (see `OVERVIEW.md`). New work enters this file only after the owner explicitly accepts it from `IDEAS.md`.
+Three small Insula items, accepted by the owner on 27 Nov 2026. They have no release number: the Insula version and the OITUI release number are decided when they ship. Each one needs its own device test on the owner's iPhone 8 Plus before it ships, and a change to Insula needs an Insula version bump.
+
+1. **Private/incognito download check for Arc and Chrome.** Safari Private Browsing downloads are hidden because the web view's data store is not persistent; Arc Search and Chrome have not been measured. The first step is a log-only build that records, for a normal and a private download in each browser, what the public `WKDownload` information and the originating web view or tab reveal (`OITI/DownloadProgress/OITIBrowserSource.xm`, `OITI/Browser/OITIBrowserDump.xm`). The behaviour changes only after that data is read, and fails closed: a download that cannot be shown to be non-private is not shown. If private downloads do show on the Island, this is a privacy fix and may ship on its own as soon as it is ready.
+2. **Dynamic Double Tap Opens Tellus hit zone.** The shipped zone is a fixed band near the default Island location, so a moved, resized or scaled Island can fall outside it. The detection depends on a status bar view taking the touch, so the first step is a log-only probe at several Island positions and scales that records which view receives the double tap (`OITI/IslandSize/OITIIslandHooks.xm`). If the Island cannot be reached beyond some position, say so in the documentation instead of promising more. The behaviour at the default position must not change.
+3. **Download completion feedback.** A haptic when a download or installation ends: one haptic when it finishes successfully, two short haptics in a quick burst when it fails or is cancelled. Haptic only (no sound in this item), a setting that is off by default, and it covers every download source Insula already tracks (App Store, Safari, Chrome, Arc).
+
+New work enters this file only after the owner explicitly accepts it from `IDEAS.md`. The optional update check at Tellus launch and the release tool (`status`, `verify`, `candidate`, `release`, all used for real) are done and shipped (see `OVERVIEW.md`).
 
 ## Ongoing updater requirements
 
