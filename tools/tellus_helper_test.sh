@@ -208,11 +208,32 @@ cp "$W/core.orig" "$W/devsrc/$CORE"
 ( cd "$W/devsrc" && sha256sum "$CORE" > SHA256SUMS )
 openssl pkeyutl -sign -rawin -inkey "$W/keyA.pem" -in "$W/devsrc/SHA256SUMS" -out "$W/devsrc/SHA256SUMS.sig"
 rm -f "$W/installed/"*
+export DPKG="$REAL_DPKG" DPKG_DEB="$(command -v dpkg-deb)" DPKG_QUERY="$W/fake-dpkg-query.sh"
 if HELPER="$W/helper" STAGE="$W/stage" sh "$HERE/tools/tellus_helper_device_test.sh" "$W/devsrc" > "$W/devtest.log" 2>&1; then
     ok "tools/tellus_helper_device_test.sh passes against this test build ($(grep -c '^ok' "$W/devtest.log") checks)"
 else
     bad "tools/tellus_helper_device_test.sh fails against this test build"; sed 's/^/     /' "$W/devtest.log"
 fi
+# ... and with an older signed Tellus package, which the helper must refuse because a newer Tellus is installed (exit 24)
+mkdir -p "$W/devolder"
+cp "$W/stage/$TELLUS" "$W/devolder/$TELLUS"     # Tellus 0.1.0
+( cd "$W/devolder" && sha256sum "$TELLUS" > SHA256SUMS )
+openssl pkeyutl -sign -rawin -inkey "$W/keyA.pem" -in "$W/devolder/SHA256SUMS" -out "$W/devolder/SHA256SUMS.sig"
+printf '%s' "0.2.0" > "$W/installed/com.wilburt.tellus"
+if HELPER="$W/helper" STAGE="$W/stage" sh "$HERE/tools/tellus_helper_device_test.sh" "$W/devsrc" "$W/devolder" > "$W/devtest2.log" 2>&1 \
+   && grep -q "^ok   older signed Tellus 0.1.0 is refused while 0.2.0 is installed (exit 24)" "$W/devtest2.log"; then
+    ok "the device script's older-version case passes (the helper refuses Tellus 0.1.0 over 0.2.0)"
+else
+    bad "the device script's older-version case"; sed 's/^/     /' "$W/devtest2.log"
+fi
+printf '%s' "0.0.5" > "$W/installed/com.wilburt.tellus"
+if HELPER="$W/helper" STAGE="$W/stage" sh "$HERE/tools/tellus_helper_device_test.sh" "$W/devsrc" "$W/devolder" > "$W/devtest3.log" 2>&1 \
+   && grep -q "^skip the older-version check" "$W/devtest3.log"; then
+    ok "the device script skips the older-version case when the installed Tellus is not newer"
+else
+    bad "the device script's skip of the older-version case"; sed 's/^/     /' "$W/devtest3.log"
+fi
+rm -f "$W/installed/"*
 
 echo; echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

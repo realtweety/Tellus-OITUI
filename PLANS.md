@@ -76,6 +76,7 @@ These are validation requirements for updater work, not separate features:
 
 - Keep the Update All behaviour: install only packages that are newer, in the order OITCore, Insula, Tellus.
 - The next time OITCore itself changes, test the OITCore-first order of Update All end to end. It has not been tested, because 0.4.1 changed only Insula and Tellus.
+- Before the next Tellus release, check on the phone that the helper refuses a signed package older than the installed version and that it accepts a release signed by the backup key (`COMMANDS.md` section 47); until then both are tested off the phone only.
 - Do not install a package unless its signature and checksum checks have both passed, and keep signing every release and pre-release that Tellus has to install.
 - Keep stable-release and prerelease version comparisons correct. A prerelease that Tellus must download must not contain `~` in its version, because GitHub rewrites it in asset names; carry the final version numbers instead.
 
