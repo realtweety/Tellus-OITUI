@@ -3145,3 +3145,72 @@ The first line is the number of probe lines (expect about 15 to 20 per row). Pas
 ### Regression (must all pass)
 
 Stock settings (S1) still look stock; the status bar tap still scrolls an app to the top; a notification Island still opens its app when tapped; nothing near the top of the screen feels delayed; the Settings > Insula > Download Progress footer says that downloads from private browsing are shown like any other.
+
+## 50. Build `OITI-exp-2026-11-27-b`: the Double Tap zone follows the Island
+
+Insula only (still `0.4.1` in `control`). Written from the single probe log of section 49 (your everyday settings only), syntax-checked offline (`bash tools/offline_check.sh`: `errors=0` for every file, same output as before the change), NOT compiled by CI, NOT device-tested. What changed in `OITI/IslandSize/OITIIslandHooks.xm`:
+
+- With **Use Custom Position**, **Use Custom Scale** or a changed Island Size width on, the status-bar zone is centred on the Island window (at least 90 points either side, wider for a wider pill). With all three off it is exactly the old fixed band.
+- A double tap that **the Island window itself takes** now opens Tellus when no Island element is showing (the manager lists no element and no visible hosted-content view). The old build rejected these. The element test is a guess: Apple's own elements (timer, music, charging) must still be left alone, which is what check 4 is for.
+
+**1. Apply, push, wait for CI** (Arch PC, fish):
+
+```
+tar -xzf ~/Downloads/oitui-0.4.2-b.tar.gz -C ~/OITUI
+cd ~/OITUI
+git status --short
+```
+
+Expected: 7 modified files, none untracked: `COMMANDS.md`, `DIAGNOSTICS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `PLANS.md`, `OITI/IslandSize/OITIIslandHooks.xm`, `OITI/Tweak.xm`. If the list differs, stop and tell me. Then:
+
+```
+git add -A
+git commit -m "Insula: Double Tap zone follows the Island (build OITI-exp-2026-11-27-b, untested)"
+git push origin experiments
+gh run watch --repo realtweety/Tellus-OITUI --exit-status (gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId')
+```
+
+A red run: tell me the failing step (a compile error is mine; an `upload-artifact` `ENOTFOUND` is a runner error: `gh run rerun <id> --failed --repo realtweety/Tellus-OITUI`, no commit).
+
+**2. Install the CI build** (`iproxy 2222 22` running):
+
+```
+cd ~/OITUI
+gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json headSha,conclusion,status
+git rev-parse HEAD
+```
+
+`headSha` must equal the second line and `conclusion` must be `success`. Then:
+
+```
+rm -rf ~/Downloads/oiti-ci
+gh run download (gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --repo realtweety/Tellus-OITUI -D ~/Downloads/oiti-ci
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-ci; mkdir /var/mobile/oiti-ci'
+scp -P 2222 (find ~/Downloads/oiti-ci -name '*.deb') root@127.0.0.1:/var/mobile/oiti-ci/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-ci/*.deb; sbreload'
+ssh -p 2222 root@127.0.0.1 'grep "START build=" /tmp/OITIDebug.log | tail -n 1'
+```
+
+Expected last line: `build=OITI-exp-2026-11-27-b`. Otherwise respring again and tell me.
+
+**3. Settings.** Tellus > Diagnostics > **Log Detail: Detailed**, Tellus > Insula > Extras > **Double Tap Opens Tellus ON**, your everyday Island settings as they are. Respring.
+
+**4. Checks** (yes or no each; what you saw). The Island fully idle unless stated. Checks 1, 2 and 4 matter most; do the rest as time allows.
+
+1. Home Screen: double tap the Island pill. Tellus opens.
+2. Inside Safari: double tap the Island pill. Tellus opens.
+3. A single tap, or two taps a second or more apart, do nothing.
+4. Start a timer in Clock and double tap the Island. **Nothing** from Insula (Apple's element takes it; the Clock app may open, that is Apple). This is the check for a false accept.
+5. Plug in the charger so the charging element shows, double tap the Island during it. Nothing from Insula.
+6. Open Tellus > Insula > Appearance and set Use Custom Scale to 1.0 / 1.0 and Use Custom Position off (stock look): double tap the Island. Tellus opens (the default case). Restore your settings afterwards.
+7. Island moved: Tellus > Insula > Island > Use Custom Position on, X 0, Y 60 (Save Position): double tap the pill. Write down whether Tellus opens. Then X 100, Y 20.5: same. Restore your settings afterwards.
+8. Lock the phone, wake it, double tap: nothing. Apple Mode on: nothing.
+9. Regression: the status bar tap still scrolls an app to the top; a notification Island still opens its app when tapped; nothing near the top feels delayed.
+
+**5. Read the log:**
+
+```
+ssh -p 2222 root@127.0.0.1 'grep -E "START build=|double tap (accepted|rejected)" /tmp/OITIDebug.log | tail -n 40'
+```
+
+Send me the output and your answers. For every accepted line it says `via the status bar` or `via the Island window (<evidence>)`; for every rejected one the reason. A line `accepted via the Island window` during check 4 or 5 means the element test missed that element. Afterwards set Log Detail back to Normal.

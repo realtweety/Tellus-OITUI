@@ -14,6 +14,7 @@
 #import "Shared/OITIShared.h"
 #import "IslandSize/OITIIslandSize.h"
 #import "Diagnostics/OITIDiagnostics.h"
+#import "IslandNotifications/OITIIslandNotifications.h"   // sRegisteringManager / sSeenManager (is an Island element showing?)
 #import "OITIPositionLimits.h"   // one-screen limit for the typed positions (UIKit: used from layout code only)
 
 static const void *kOITIAppliedScaleKey = &kOITIAppliedScaleKey;
@@ -146,6 +147,12 @@ static CGSize OITIApplyMetricsFactor(CGSize size, CGFloat factorX, CGFloat facto
 // So the feature only OBSERVES touches in UIApplication sendEvent: (below): a touch that begins in a small band at the top centre,
 // is taken by a status bar view and has tapCount 2 is a double tap on the idle Island. A touch an Island element takes goes to
 // SBSystemApertureWindow, fails the status bar test and is left to Apple. Nothing is cancelled, delayed or added to any window.
+// 0.4.2 (build -b, written from ONE probe log at the owner's everyday settings, NOT device-tested): the zone now follows the Island.
+// (1) With a custom position, scale or size the status-bar zone is centred on the Island window's centre, not on the screen's.
+// (2) A touch the Island window itself takes (the log of build -a: with custom position, scale and size the pill area went to
+// SBSystemApertureWindow, views UIView / _UIPortalView) counts too, when no Island element is showing (OITIIslandShowsElementContent);
+// the window only takes touches where it has content, so its own hit area is the zone at any position and scale. Whether that
+// area was the IDLE Island or an element in the build -a log is unconfirmed: every decision is logged with its evidence.
 static NSString *const kOITITellusBundleID = @"com.wilburt.tellus";
 static CFAbsoluteTime sOITILastDoubleTapOpen;
 
@@ -154,6 +161,69 @@ static CFAbsoluteTime sOITILastDoubleTapOpen;
 static BOOL OITIIslandTapBand(CGPoint screenPoint) {
     CGRect bounds = [UIScreen mainScreen].bounds;
     return screenPoint.y < 60.0 && fabs(screenPoint.x - CGRectGetMidX(bounds)) < 90.0;
+}
+
+// The first Island window that is on screen (nil if none).
+static UIView *OITIFirstLiveIslandWindow(void) {
+    for (UIView *view in sLiveApertureWindows.allObjects) {
+        if ([view isKindOfClass:[UIWindow class]] && !view.hidden) return view;
+    }
+    return nil;
+}
+
+// 0.4.2: the zone for a touch a STATUS BAR view takes (the status bar window is not transformed, so the point is in screen space).
+// With no custom position, scale or size it is exactly the fixed band above (default behaviour unchanged). Otherwise it is centred on
+// the Island window's centre and at least 90 points either side, wider when the pill is estimated wider (stock idle width 125 window
+// units times the width multiplier times the window's scale, plus 25 points). Vertically it stays y under 60: below the status bar
+// an app or the Home Screen takes the touch, so that is the limit of this path (the Island window path has none).
+static BOOL OITIIslandStatusBarZone(CGPoint screenPoint, NSString **noteOut) {
+    CGFloat centerX = CGRectGetMidX([UIScreen mainScreen].bounds);
+    CGFloat halfWidth = 90.0;
+    BOOL followsIsland = NO;
+    if (posEnabled || scaleEnabled || sMetricsSensorX != 1.0) {
+        UIView *window = OITIFirstLiveIslandWindow();
+        if (window && isfinite(window.center.x)) {
+            CGFloat a = window.transform.a;
+            if (!(a > 0.1 && a < 4.0)) a = 1.0;
+            centerX = window.center.x;
+            halfWidth = MAX(90.0, 125.0 * sMetricsSensorX * a / 2.0 + 25.0);
+            followsIsland = YES;
+        }
+    }
+    if (noteOut) *noteOut = [NSString stringWithFormat:@"zone centre x %.1f, half width %.1f (%@)", centerX, halfWidth, followsIsland ? @"follows the Island" : @"fixed band"];
+    return screenPoint.y < 60.0 && fabs(screenPoint.x - centerX) < halfWidth;
+}
+
+// Element content hosted in the Island window (Island elements sit in _SAUIProvidedViewContainerView, LEARNINGS "Content is hosted").
+static BOOL OITIViewTreeHasHostedContent(UIView *view, NSUInteger depth) {
+    static Class containerClass;
+    if (!containerClass) containerClass = NSClassFromString(@"_SAUIProvidedViewContainerView");
+    if (!containerClass || depth > 12) return NO;
+    if ([view isKindOfClass:containerClass] && !view.hidden && view.alpha > 0.01) return YES;
+    for (UIView *subview in view.subviews) if (OITIViewTreeHasHostedContent(subview, depth + 1)) return YES;
+    return NO;
+}
+
+// Whether an Island element (Apple's or ours) is showing, so a double tap on the Island window belongs to Apple. Two signs: Apple's
+// manager lists element view controllers (only known when a manager was seen), or a visible hosted-content view is in an Island window.
+// `evidence` says what was found; when neither sign is there the Island is taken as idle. UNVERIFIED on the device.
+static BOOL OITIIslandShowsElementContent(NSString **evidence) {
+    id manager = sRegisteringManager ?: sSeenManager;
+    if (manager) {
+        id list = OITISafeObject(manager, @"orderedElementViewControllers");
+        if ([list isKindOfClass:[NSArray class]] && [(NSArray *)list count] > 0) {
+            *evidence = [NSString stringWithFormat:@"the manager lists %lu element view controller(s)", (unsigned long)[(NSArray *)list count]];
+            return YES;
+        }
+    }
+    for (UIView *view in sLiveApertureWindows.allObjects) {
+        if ([view isKindOfClass:[UIWindow class]] && !view.hidden && OITIViewTreeHasHostedContent(view, 0)) {
+            *evidence = @"a visible hosted-content view is in the Island window";
+            return YES;
+        }
+    }
+    *evidence = manager ? @"the manager lists no element and no hosted-content view is visible" : @"no manager seen and no hosted-content view is visible";
+    return NO;
 }
 
 // nil when the device is unlocked; fails closed when the lock state cannot be read.
@@ -165,7 +235,7 @@ static NSString *OITIDoubleTapLockReason(void) {
     return locked ? @"device is locked" : nil;
 }
 
-// ---- 0.4.2 PROBE (log only; build OITI-exp-2026-11-27-a): where do double taps land when the Island is moved or scaled? ---------
+// ---- 0.4.2 PROBE (log only; kept from build -a, Log Detail 1): where do double taps land when the Island is moved or scaled? ---
 // Plan item 2 (Dynamic Double Tap Opens Tellus hit zone). The fixed band below was measured at the default position only. This logs
 // every touch that begins in the top 170 points (the real one, not the _UISystemGestureWindow copy): a short line for a first tap,
 // and for the second tap of a double tap the window and view that took it, the view's ancestors, the Island window's frame and
@@ -240,20 +310,28 @@ static void OITIProbeIslandTouch(UITouch *touch, CGPoint screenPoint) {
 static void OITIHandleIslandTouch(UITouch *touch) {
     if (touch.phase != UITouchPhaseBegan) return;
     CGPoint screenPoint = [touch locationInView:nil];
-    OITIProbeIslandTouch(touch, screenPoint);   // 0.4.2 probe: log only
-    if (!OITIIslandTapBand(screenPoint)) return;
+    OITIProbeIslandTouch(touch, screenPoint);   // log only
     NSString *windowClass = touch.window ? NSStringFromClass([touch.window class]) : @"no window";
     NSString *viewClass = touch.view ? NSStringFromClass([touch.view class]) : @"no view";
-    OITLOGGER_LOG_RATED(sLog, 1, @"ISLANDTOUCH", @"island.touch.event", 5, @"touch began at %@ window=%@ view=%@ taps=%lu",
-                        NSStringFromCGPoint(screenPoint), windowClass, viewClass, (unsigned long)touch.tapCount);
+    // A touch the Island window itself takes is measured in that window's own scaled space, so the zone applies to the other touches
+    // (status bar and the system gesture copy); an Island window touch is its own zone (the window only takes touches where it has content).
+    BOOL islandWindowTouch = [windowClass isEqualToString:@"SBSystemApertureWindow"];
+    if (!islandWindowTouch && screenPoint.y >= 60.0) return;   // cheap exit for every touch below the top strip
+    NSString *zoneNote = nil;
+    BOOL inZone = OITIIslandStatusBarZone(screenPoint, &zoneNote);
+    if (!islandWindowTouch && !inZone) return;
+    OITLOGGER_LOG_RATED(sLog, 1, @"ISLANDTOUCH", @"island.touch.event", 5, @"touch began at %@ window=%@ view=%@ taps=%lu (%@)",
+                        NSStringFromCGPoint(screenPoint), windowClass, viewClass, (unsigned long)touch.tapCount, zoneNote);
     // Every touch also arrives as a copy in _UISystemGestureWindow (no view); the real one follows it. Only the real one decides.
     if ([windowClass isEqualToString:@"_UISystemGestureWindow"]) return;
     if (touch.tapCount != 2 || !sExtrasDoubleTapOpensTellus) return;
 
     NSString *reason = nil;
     BOOL statusBarView = [viewClass hasPrefix:@"_UIStatusBar"] || [viewClass hasPrefix:@"UIStatusBar"];
-    if (!statusBarView) {
-        reason = [NSString stringWithFormat:@"the touch was not taken by the status bar (window %@, view %@)", windowClass, viewClass];
+    if (!statusBarView && !islandWindowTouch) {
+        reason = [NSString stringWithFormat:@"the touch was not taken by the status bar or the Island window (window %@, view %@)", windowClass, viewClass];
+    } else if (statusBarView && !inZone) {
+        reason = [NSString stringWithFormat:@"outside the zone (%@)", zoneNote];
     } else if (sSafeModeActive) {
         reason = @"safe mode";
     } else if (sAppleMode) {
@@ -267,12 +345,18 @@ static void OITIHandleIslandTouch(UITouch *touch) {
     } else if (sIslandNoticeItems.count > 0 || sDownloadItem) {
         reason = @"Insula is showing an element";
     }
+    NSString *evidence = nil;
+    if (!reason && islandWindowTouch) {
+        // The Island window also takes touches on Apple's own elements (timer, music, call): those are left to Apple.
+        if (OITIIslandShowsElementContent(&evidence)) reason = [NSString stringWithFormat:@"the Island window took the touch and an element is showing (%@)", evidence];
+    }
     if (reason) {
         [sLog logLevel:1 tag:@"ISLANDTOUCH" format:@"double tap rejected: %@", reason];
         return;
     }
     sOITILastDoubleTapOpen = CFAbsoluteTimeGetCurrent();
-    [sLog logLevel:1 tag:@"ISLANDTOUCH" format:@"double tap accepted: opening %@", kOITITellusBundleID];
+    [sLog logLevel:1 tag:@"ISLANDTOUCH" format:@"double tap accepted via %@: opening %@",
+     islandWindowTouch ? [NSString stringWithFormat:@"the Island window (%@)", evidence ?: @"no check"] : @"the status bar", kOITITellusBundleID];
     OITIOpenApp(kOITITellusBundleID);
 }
 
