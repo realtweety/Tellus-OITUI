@@ -289,7 +289,12 @@ static void OITIHandleIslandTouch(UITouch *touch) {
     if (touch.tapCount != 2 || !sExtrasDoubleTapOpensTellus) return;
 
     NSString *reason = nil;
-    BOOL statusBarView = [viewClass hasPrefix:@"_UIStatusBar"] || [viewClass hasPrefix:@"UIStatusBar"];
+    // Any view of the status bar counts, also a plain UIView inside it (build -c log: a UIView under _UIStatusBarForegroundView took
+    // touches at x 315 to 322 and was wrongly refused).
+    static Class statusBarModernClass;
+    if (!statusBarModernClass) statusBarModernClass = NSClassFromString(@"UIStatusBar_Modern");
+    BOOL statusBarView = [viewClass hasPrefix:@"_UIStatusBar"] || [viewClass hasPrefix:@"UIStatusBar"] ||
+        (touch.view && statusBarModernClass && OITViewHasAncestorOfClass(touch.view, statusBarModernClass));
     if (!statusBarView) {
         reason = [NSString stringWithFormat:@"the touch was not taken by the status bar (window %@, view %@)", windowClass, viewClass];
     } else if (sSafeModeActive) {
