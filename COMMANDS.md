@@ -3148,6 +3148,8 @@ Stock settings (S1) still look stock; the status bar tap still scrolls an app to
 
 ## 50. Build `OITI-exp-2026-11-27-b`: the Double Tap zone follows the Island
 
+**Result (28 Nov 2026): tested; superseded by section 51.** Five accepts via the status bar, one correct rejection with a timer, no accept via the Island window; Y 60 is a limit (the touch goes to the Home Screen). The checks below stay as the record.
+
 Insula only (still `0.4.1` in `control`). Written from the single probe log of section 49 (your everyday settings only), syntax-checked offline (`bash tools/offline_check.sh`: `errors=0` for every file, same output as before the change), NOT compiled by CI, NOT device-tested. What changed in `OITI/IslandSize/OITIIslandHooks.xm`:
 
 - With **Use Custom Position**, **Use Custom Scale** or a changed Island Size width on, the status-bar zone is centred on the Island window (at least 90 points either side, wider for a wider pill). With all three off it is exactly the old fixed band.
@@ -3214,3 +3216,67 @@ ssh -p 2222 root@127.0.0.1 'grep -E "START build=|double tap (accepted|rejected)
 ```
 
 Send me the output and your answers. For every accepted line it says `via the status bar` or `via the Island window (<evidence>)`; for every rejected one the reason. A line `accepted via the Island window` during check 4 or 5 means the element test missed that element. Afterwards set Log Detail back to Normal.
+
+## 51. Build `OITI-exp-2026-11-28-c`: the zone follows the Island, without the Island-window path
+
+Insula only (still `0.4.1` in `control`). Build `-b` minus the path that accepted a double tap taken by the Island window (it never fired on an idle Island and carried a false-accept risk). What stays: the status-bar zone that follows the Island window when a custom position, scale or size is on (the fixed old band otherwise). Syntax-checked offline (`bash tools/offline_check.sh`: same output as before the change), NOT compiled by CI, NOT device-tested. Known limit (from your log): with the pill below the status strip (Y 60) nothing can see the double tap.
+
+**1. Apply, push, wait for CI** (Arch PC, fish):
+
+```
+tar -xzf ~/Downloads/oitui-0.4.2-c.tar.gz -C ~/OITUI
+cd ~/OITUI
+git status --short
+```
+
+Expected: 7 modified files, none untracked: `COMMANDS.md`, `DIAGNOSTICS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `PLANS.md`, `OITI/IslandSize/OITIIslandHooks.xm`, `OITI/Tweak.xm`. If the list differs, stop and tell me. Then:
+
+```
+git add -A
+git commit -m "Insula: Double Tap zone follows the Island, Island-window path removed (build OITI-exp-2026-11-28-c, untested)"
+git push origin experiments
+gh run watch --repo realtweety/Tellus-OITUI --exit-status (gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId')
+```
+
+A red run: tell me the failing step (a compile error is mine; an `upload-artifact` `ENOTFOUND` is a runner error: `gh run rerun <id> --failed --repo realtweety/Tellus-OITUI`, no commit).
+
+**2. Install the CI build** (`iproxy 2222 22` running):
+
+```
+cd ~/OITUI
+gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json headSha,conclusion,status
+git rev-parse HEAD
+```
+
+`headSha` must equal the second line and `conclusion` must be `success`. Then:
+
+```
+rm -rf ~/Downloads/oiti-ci
+gh run download (gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --repo realtweety/Tellus-OITUI -D ~/Downloads/oiti-ci
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-ci; mkdir /var/mobile/oiti-ci'
+scp -P 2222 (find ~/Downloads/oiti-ci -name '*.deb') root@127.0.0.1:/var/mobile/oiti-ci/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-ci/*.deb; sbreload'
+ssh -p 2222 root@127.0.0.1 'grep "START build=" /tmp/OITIDebug.log | tail -n 1'
+```
+
+Expected last line: `build=OITI-exp-2026-11-28-c`. Otherwise respring again and tell me.
+
+**3. Settings.** Tellus > Diagnostics > **Log Detail: Detailed**, Tellus > Insula > Extras > **Double Tap Opens Tellus ON**. Respring.
+
+**4. Four checks** (the Island idle: no timer, music, call, download or charger; Home Screen; yes or no each):
+
+1. Your everyday settings, as they are: double tap the pill. Tellus opens.
+2. The true stock look: Tellus > Insula > Island > **Use Custom Position OFF**, Tellus > Insula > Appearance > **Use Custom Scale OFF** (leave Island Size as it is): double tap the pill. Tellus opens. This is the default case and it matters most.
+3. Moved sideways: **Use Custom Position ON**, X 100, Y 20.5, **Save Position**, scale as in check 1: double tap the pill (it sits right of the middle). Write down whether Tellus opens.
+4. Timer: start a timer in Clock and double tap the Island. Nothing from Insula.
+
+Then restore your everyday settings and set Log Detail back to Normal.
+
+**5. Read the log:**
+
+```
+ssh -p 2222 root@127.0.0.1 'grep -E "START build=|ISLANDTOUCH|ISLANDPROBE" /tmp/OITIDebug.log | tail -n 100' > ~/Downloads/oiti-probe-c.log
+wc -c ~/Downloads/oiti-probe-c.log
+```
+
+Paste the file or attach it, with your four answers. The `tap2` lines carry the settings in force (`customPos`, `customScale`, `size`), so I can match each tap to its check.
