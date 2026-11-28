@@ -14,6 +14,7 @@ BOOL sDownloadProgressEnabled;          // DownloadProgressEnabled (default NO)
 BOOL sDownloadAppStoreEnabled;          // DownloadAppStoreEnabled (default NO): feed the tracker from App Store downloads
 BOOL sDownloadBrowserEnabled;           // DownloadBrowserEnabled (default NO): feed the tracker from Arc Search downloads (OITIBrowserSource.xm)
 BOOL sDownloadTestFractionOnly;         // DownloadTestFractionOnly (default NO, defaults write only): the test download reports a percentage only
+BOOL sDownloadCompletionHapticEnabled;  // DownloadCompletionHaptic (default NO; "Completion Haptic" under Download Progress, 0.4.2): a haptic when a download ends; forced off by Apple Mode
 CGFloat sDownloadIdleAfterMB = 0;       // DownloadIdleAfterMB: return the Island to idle after this many MB downloaded, 0 = never
 CGFloat sDownloadIdleAfterSeconds = 0;  // DownloadIdleAfterSeconds: the same after this long on screen, 0 = never
 CGFloat sDownloadIdleAfterPercent = 0;  // DownloadIdleAfterPercent: the same after this percentage (1 to 99) is reached, 0 = never; works for every download
@@ -631,6 +632,35 @@ void OITIDownloadUpdateFraction(NSString *identifier, NSString *appName, NSStrin
     OITIDownloadsRefresh();
 }
 
+// ---- Completion haptic (0.4.2) ------------------------------------------------------------------
+// One haptic when a tracked download or installation finishes, two short ones in a quick burst when it fails or is cancelled. Haptic
+// only, no sound; UIKit decides whether the system plays it (System Haptics). Two endings less than 0.6 seconds apart give one haptic.
+// The generator is used on the main queue, like the notification haptic.
+static void OITIDownloadPlayCompletionHaptic(BOOL success, NSString *identifier) {
+    static CFAbsoluteTime lastHaptic = 0;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (now - lastHaptic < 0.6) {
+        [sLog logLevel:1 tag:@"DOWNLOAD" format:@"completion haptic skipped (another one played less than 0.6 s ago): %@", identifier];
+        return;
+    }
+    lastHaptic = now;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        static UIImpactFeedbackGenerator *generator;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        if (!generator) generator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+#pragma clang diagnostic pop
+        [generator prepare];
+        [generator impactOccurredWithIntensity:success ? 1.0 : 0.8];
+        if (!success) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [generator impactOccurredWithIntensity:0.8];
+            });
+        }
+        [sLog logLevel:1 tag:@"DOWNLOAD" format:@"completion haptic played (%@): %@", success ? @"one, finished" : @"two, failed or cancelled", identifier];
+    });
+}
+
 // outcome: 0 = drop quietly (the feature or the source was switched off), 1 = completed (a short "complete" state with the
 // check animation), 2 = cancelled (a short red "Cancelled" state). With several downloads only the one that ended is removed.
 static void OITIDownloadEnd(NSString *identifier, NSInteger outcome) {
@@ -643,6 +673,7 @@ static void OITIDownloadEnd(NSString *identifier, NSInteger outcome) {
     NSDictionary *finalSnapshot = OITIDownloadSnapshot();
     [sDownloads removeObjectForKey:identifier];
     [sLog logTag:@"DOWNLOAD" format:@"%@ %@", completed ? @"finished" : (outcome == 2 ? @"cancelled" : @"dropped"), identifier];
+    if (outcome != 0 && sDownloadCompletionHapticEnabled) OITIDownloadPlayCompletionHaptic(completed, identifier);   // before the early return below: every ended download counts
     OITIDownloadsEnsureTimer();
     if (sDownloads.count) {
         OITIDownloadsRefresh();

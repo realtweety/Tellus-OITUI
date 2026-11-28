@@ -143,6 +143,7 @@
 // Prefs keys (domain com.wilburt.oiti.prefs, set with `defaults write`, no UI yet):
 //   DiagnosticsEnabled (bool, default YES)      DiagnosticsLevel (0-2, default 0)
 //   ExtrasDoubleTapOpensTellus (bool, default NO)   Tellus > Extras: a double tap on the idle Island opens Tellus (0.4.1)
+//   DownloadCompletionHaptic (bool, default NO)     Download Progress > Completion Haptic: one haptic when a download finishes, two when it fails or is cancelled (0.4.2)
 //   SafeModeGuardEnabled (bool, default YES)    SafeModeMaxLaunches (int, default 5)
 //   SafeModeWindowSeconds (int, default 120)    SafeModeStableSeconds (int, default 45)
 //   SafeModeRestoreGestalt (bool, default NO)   -- on a trip, also run the OITIRestoreGestalt helper
@@ -195,7 +196,7 @@
 #import "Shared/OITIMobileGestalt.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-exp-2026-11-28-d";
+extern NSString * const kOITIBuildTag = @"OITI-exp-2026-11-28-e";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITIRespringNotification = @"com.wilburt.oiti/Respring";

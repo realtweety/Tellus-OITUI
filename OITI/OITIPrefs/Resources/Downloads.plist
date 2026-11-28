@@ -68,6 +68,28 @@
         <key>cell</key>
         <string>PSGroupCell</string>
         <key>label</key>
+        <string>Completion Haptic</string>
+        <key>footerText</key>
+        <string>One short haptic when a tracked download or installation finishes, two quick ones when it fails or is cancelled. Haptic only, no sound; the system's own haptics setting applies. Needs Show Download Progress and a source above.</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSSwitchCell</string>
+        <key>default</key>
+        <false/>
+        <key>defaults</key>
+        <string>com.wilburt.oiti.prefs</string>
+        <key>key</key>
+        <string>DownloadCompletionHaptic</string>
+        <key>label</key>
+        <string>Completion Haptic</string>
+        <key>PostNotification</key>
+        <string>com.wilburt.oiti/PrefsChanged</string>
+      </dict>
+      <dict>
+        <key>cell</key>
+        <string>PSGroupCell</string>
+        <key>label</key>
         <string>Look</string>
         <key>footerText</key>
         <string>Minimal is a small pill over the Island. Detailed is the system's expanded Island.</string>

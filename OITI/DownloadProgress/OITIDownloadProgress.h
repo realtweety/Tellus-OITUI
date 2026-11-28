@@ -11,6 +11,7 @@ extern BOOL sDownloadProgressEnabled;
 extern BOOL sDownloadAppStoreEnabled;
 extern BOOL sDownloadBrowserEnabled;
 extern BOOL sDownloadTestFractionOnly;
+extern BOOL sDownloadCompletionHapticEnabled;
 extern CGFloat sDownloadIdleAfterMB;
 extern CGFloat sDownloadIdleAfterSeconds;
 extern CGFloat sDownloadIdleAfterPercent;

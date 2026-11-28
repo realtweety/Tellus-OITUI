@@ -3285,6 +3285,8 @@ Paste the file or attach it, with your four answers. The `tap2` lines carry the 
 
 ## 52. Build `OITI-exp-2026-11-28-d`: any status bar view counts
 
+**Result (28 Nov 2026): tested, the owner says it seems to be fixed.** Seven accepts via the status bar (zone centre 207 and 293.4), no refusal. The checks below stay as the record.
+
 Insula only (still `0.4.1` in `control`). Build `-c` plus one fix in `OITI/IslandSize/OITIIslandHooks.xm`: a plain `UIView` inside the status bar (it took touches at x 315 to 322 of a sideways pill and was refused) now counts, because any view with a `UIStatusBar_Modern` ancestor is a status bar view. Syntax-checked offline (`bash tools/offline_check.sh`: same output as before the change), NOT compiled by CI, NOT device-tested. The stock position of the iPhone 8 Plus remains a documented limit (the README says so).
 
 **1. Apply, push, wait for CI** (Arch PC, fish):
@@ -3344,3 +3346,70 @@ ssh -p 2222 root@127.0.0.1 'grep -E "START build=|double tap (accepted|rejected)
 ```
 
 Paste the output with your three answers.
+
+## 53. Build `OITI-exp-2026-11-28-e`: completion haptic (item 3)
+
+Insula and Tellus (Swift). The new switch **Completion Haptic** is in Settings > Insula > Download Progress (a group of its own under the sources) and in Tellus > Insula > Download Progress > Completion. Off by default, off in Apple Mode. One medium haptic when a tracked download or installation finishes, two quick ones (0.15 s apart) when it fails or is cancelled; two endings less than 0.6 s apart give one haptic. The Tellus Download Progress footer no longer says private browsing is "not checked in every browser", and the Extras footer now states the status bar limit. Versions are unchanged (Insula `0.4.1`, Tellus `0.1.3` in the files; both are bumped when this ships). Written and syntax-checked offline for Insula (`bash tools/offline_check.sh`: same output as before the change; `python3 tools/check_settings.py` passes); the Swift changes are only bracket-checked by reading; NOT compiled by CI, NOT device-tested.
+
+**1. Apply, push, wait for CI** (Arch PC, fish):
+
+```
+tar -xzf ~/Downloads/oitui-0.4.2-e.tar.gz -C ~/OITUI
+cd ~/OITUI
+git status --short
+```
+
+Expected: 15 modified files, none untracked: `COMMANDS.md`, `DIAGNOSTICS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `PLANS.md`, `README.md`, `OITI/DownloadProgress/OITIDownloadProgress.h`, `OITI/DownloadProgress/OITIDownloadTracker.xm`, `OITI/OITIPrefs/Resources/Downloads.plist`, `OITI/Shared/OITIPreferences.xm`, `OITI/Shared/OITIState.xm`, `OITI/Tweak.xm`, `TellusApp/Documentation/FeatureInventory.md`, `TellusApp/TellusApp/Sources/DownloadProgressSettingsView.swift`, `TellusApp/TellusApp/Sources/ExtrasSettingsView.swift`. If the list differs, stop and tell me. Then:
+
+```
+git add -A
+git commit -m "Insula, Tellus: completion haptic for downloads, corrected private-browsing and double tap footers (build OITI-exp-2026-11-28-e, untested)"
+git push origin experiments
+gh run watch --repo realtweety/Tellus-OITUI --exit-status (gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId')
+```
+
+The same run builds OITCore, Insula and Tellus (the step "Build Tellus"; a Tellus compile error makes the step "Fail the run if the Tellus build failed" red), so this is also the first compile of the Swift changes. A red run: tell me the failing step (a compile error is mine; an `upload-artifact` `ENOTFOUND` is a runner error: `gh run rerun <id> --failed --repo realtweety/Tellus-OITUI`, no commit).
+
+**2. Install the CI build** (`iproxy 2222 22` running):
+
+```
+cd ~/OITUI
+gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json headSha,conclusion,status
+git rev-parse HEAD
+```
+
+`headSha` must equal the second line and `conclusion` must be `success`. Then:
+
+```
+rm -rf ~/Downloads/oiti-ci
+gh run download (gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --repo realtweety/Tellus-OITUI -D ~/Downloads/oiti-ci
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-ci; mkdir /var/mobile/oiti-ci'
+scp -P 2222 (find ~/Downloads/oiti-ci -name '*.deb') root@127.0.0.1:/var/mobile/oiti-ci/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-ci/*.deb; sbreload'
+ssh -p 2222 root@127.0.0.1 'grep "START build=" /tmp/OITIDebug.log | tail -n 1'
+```
+
+Expected last line: `build=OITI-exp-2026-11-28-e`. The artifact holds all three packages (OITCore, Insula, Tellus), so the commands above install the matching Tellus too, and the Tellus switch is there as well as the one in Settings.
+
+**3. Settings.** Settings > Insula > Download Progress: **Show Download Progress** on, **Show App Store Downloads** and **Show Browser Downloads** on, **Completion Haptic** on. Tellus > Diagnostics > **Log Detail: Detailed**. System Settings > Sounds & Haptics > **System Haptics** on (UIKit plays nothing when it is off).
+
+**4. Checks** (yes or no each; what you felt). Start with the test download, it needs no real download:
+
+1. Settings > Insula > Download Progress > Start Test Download with **Test Size 50 MB**; let it finish by itself. **One** haptic at the end.
+2. Start Test Download again and tap **Stop Test Download**. **Two** quick haptics.
+3. Safari: the 100 MB download of `COMMANDS.md` section 49 (`python3 ~/OITUI/tools/throttle_server.py --size-mb 100 --rate-mb 2 --name test.bin`), let it finish: one haptic. Start another and cancel it in Safari's download list: two haptics. Fail one by stopping the server (Ctrl+C) in the middle: two haptics (a stopped connection may show as cancelled or fail; tell me which you got).
+4. Arc Search and Chrome: one finished download each: one haptic; one cancelled each: two haptics.
+5. App Store: install a small app: one haptic when the installation completes (not when the download part ends). Cancel one install while it downloads: two haptics.
+6. With **Completion Haptic** off, check 1 and 2 again: no haptic.
+7. Two downloads together (two Safari downloads started and cancelled within a second): one burst, not two.
+8. **Apple Mode** on, Completion Haptic on, test download to the end: no haptic. Apple Mode off again afterwards.
+
+Set Log Detail back to Normal afterwards.
+
+**5. Read the log:**
+
+```
+ssh -p 2222 root@127.0.0.1 'grep -E "START build=|DOWNLOAD.*(finished|cancelled|dropped|completion haptic)" /tmp/OITIDebug.log | tail -n 60'
+```
+
+Paste the output with your answers. Every `finished` or `cancelled` line must be followed by a `completion haptic played` or `skipped` line while the switch is on, and by none while it is off.

@@ -126,6 +126,7 @@ void preferencesChanged(void) {
     sDownloadAppStoreEnabled = [sOITIPreferences boolForKey:@"DownloadAppStoreEnabled" default:NO];
     sDownloadBrowserEnabled = [sOITIPreferences boolForKey:@"DownloadBrowserEnabled" default:NO];
     sDownloadTestFractionOnly = [sOITIPreferences boolForKey:@"DownloadTestFractionOnly" default:NO];
+    sDownloadCompletionHapticEnabled = [sOITIPreferences boolForKey:@"DownloadCompletionHaptic" default:NO];
     CGFloat downloadIdleMB = [sOITIPreferences floatForKey:@"DownloadIdleAfterMB" default:0.0];
     sDownloadIdleAfterMB = isfinite(downloadIdleMB) ? MAX(0.0, MIN(5000.0, downloadIdleMB)) : 0.0;
     CGFloat downloadIdleSeconds = [sOITIPreferences floatForKey:@"DownloadIdleAfterSeconds" default:0.0];
@@ -166,6 +167,7 @@ void preferencesChanged(void) {
         sDownloadProgressEnabled = NO;
         sDownloadAppStoreEnabled = NO;
         sDownloadBrowserEnabled = NO;
+        sDownloadCompletionHapticEnabled = NO;   // an addition to the download display, which Apple Mode removes
     }
     dispatch_async(dispatch_get_main_queue(), ^{ OITIAppStoreSourceRefresh(); OITIBrowserSourceRefresh(); });   // starts or stops the App Store source and sets the browser flag
     if (sDownloadProgressEnabled != downloadProgressWasEnabled || sDownloadStyle != downloadPreviousStyle) {

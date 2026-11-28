@@ -114,6 +114,7 @@ NSDictionary<NSString *, NSNumber *> *OITIPrefSnapshot(void) {
         @"NotificationHaptic": @(sNotificationHapticEnabled),   // the effective value (Apple Mode forces it off)
         @"NotificationTapDismisses": @(sIslandNotificationTapDismisses),   // the effective value (Apple Mode forces it off)
         @"ExtrasDoubleTapOpensTellus": @(sExtrasDoubleTapOpensTellus),   // the effective value (Apple Mode forces it off)
+        @"DownloadCompletionHaptic": @(sDownloadCompletionHapticEnabled),   // the effective value (Apple Mode forces it off)
         @"IslandNotificationsMessageLines": @([sOITIPreferences floatForKey:@"IslandNotificationsMessageLines" default:2]),
     };
 }

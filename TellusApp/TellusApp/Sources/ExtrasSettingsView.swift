@@ -13,7 +13,7 @@ struct ExtrasSettingsView: View {
             Section {
                 Toggle("Double Tap Opens Tellus", isOn: doubleTapBinding)
             } footer: {
-                Text("Double tap the Island while it is idle to open Tellus. It does nothing while Insula shows something, while the phone is locked, or in Apple Mode. Takes effect immediately. Needs Insula 0.4.1 or later.")
+                Text("Double tap the Island while it is idle to open Tellus. It does nothing while Insula shows something, while the phone is locked, or in Apple Mode. It needs the Island to reach into the status bar at the top of the screen; if it sits lower (the stock position on a phone without an Island), move it up with Use Custom Position. Takes effect immediately. Needs Insula 0.4.1 or later; a moved or scaled Island needs 0.4.2 or later.")
             }
 
             Section {

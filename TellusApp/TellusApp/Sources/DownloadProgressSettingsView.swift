@@ -22,7 +22,15 @@ struct DownloadProgressSettingsView: View {
             }, header: {
                 Text("Sources")
             }, footer: {
-                Text("Browser support covers Safari, Chrome, and Arc Search. Private browsing downloads are not checked in every browser.")
+                Text("Browser support covers Safari, Chrome, and Arc Search. Downloads from private browsing are shown like any other.")
+            })
+
+            Section(content: {
+                Toggle("Completion Haptic", isOn: boolBinding("DownloadCompletionHaptic", default: false))
+            }, header: {
+                Text("Completion")
+            }, footer: {
+                Text("One short haptic when a tracked download or installation finishes, two quick ones when it fails or is cancelled. Haptic only, no sound; the system's own haptics setting applies. Needs Insula 0.4.2 or later.")
             })
 
             Section(content: {
