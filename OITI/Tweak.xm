@@ -195,7 +195,7 @@
 #import "Shared/OITIMobileGestalt.h"
 
 
-extern NSString * const kOITIBuildTag = @"OITI-0.4.1";
+extern NSString * const kOITIBuildTag = @"OITI-exp-2026-11-27-a";
 static NSString * const kOITIPrefsChangedNotification = @"com.wilburt.oiti/PrefsChanged";
 static NSString * const kOITIClearSafeModeNotification = @"com.wilburt.oiti/ClearSafeMode";
 static NSString * const kOITIRespringNotification = @"com.wilburt.oiti/Respring";

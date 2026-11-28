@@ -34,7 +34,7 @@
         <key>label</key>
         <string>App Store Downloads (Experimental)</string>
         <key>footerText</key>
-        <string>Shows App Store downloads with the percentage and the time left, and browser downloads (Arc Search, Chrome and Safari) with the file name and the percentage (experimental; Safari Private Browsing downloads are not shown, Arc Search and Chrome private tabs are not checked yet). Needs Show Download Progress.</string>
+        <string>Shows App Store downloads with the percentage and the time left, and browser downloads (Arc Search, Chrome and Safari) with the file name and the percentage (experimental; downloads from private browsing are shown like any other). Needs Show Download Progress.</string>
       </dict>
       <dict>
         <key>cell</key>

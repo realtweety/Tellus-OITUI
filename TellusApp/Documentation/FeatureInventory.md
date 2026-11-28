@@ -74,7 +74,7 @@ All listed preference controls use `com.wilburt.oiti.prefs` and post `com.wilbur
 | --- | --- | ---: | --- | --- |
 | Show Download Progress | `DownloadProgressEnabled` | false | on/off | Master switch; App Store and browser sources depend on it. |
 | Show App Store Downloads | `DownloadAppStoreEnabled` | false | on/off | Tracks App Store installs; dependent on master switch. |
-| Show Browser Downloads | `DownloadBrowserEnabled` | false | on/off | Browser support exists for Safari, Chrome and Arc Search. Private browsing is not checked in Arc/Chrome; Safari private downloads are excluded. |
+| Show Browser Downloads | `DownloadBrowserEnabled` | false | on/off | Browser support exists for Safari, Chrome and Arc Search. Private browsing downloads are shown like any other (Insula 0.4.2; before that Safari hid them). |
 | Style | `DownloadProgressStyle` | 0 | Minimal=0, Detailed=1 | Minimal is a custom floating pill. Detailed is an Island element and participates in element crash recovery and promotion safety. Restyling replaces the active presentation. |
 | Width | `DownloadPillWidth` | 296 pt | 200–380 | Minimal pill width. |
 | Bottom padding | `DownloadPillBottomPadding` | 10 pt | 0–40 | Minimal pill placement. |

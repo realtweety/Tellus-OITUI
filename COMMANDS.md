@@ -3041,3 +3041,107 @@ git rev-parse main experiments origin/experiments
 Expected from the dry run: five `ok` lines (`only documentation and tooling changed (0 files)` when nothing changed after the tested commit), `ok   CI is green`, the seven numbered steps and `[dry-run] nothing was changed`. Real run: it asks whether the signing keys are safe, then for the release number (`0.4.3`). Afterwards `verify` ends with `verdict: signed, complete and consistent`, the release list shows `OITUI 0.4.3` as Latest and the three hashes are equal.
 
 **4. Cleanup.** The tool deletes its own candidate only. A pre-release left over from an earlier release (`v0.4.1-rc.1`) stays until the owner removes it: `gh release delete v0.4.1-rc.1 --repo realtweety/Tellus-OITUI --cleanup-tag --yes`. Remove the staged test files on the phone (`/var/mobile/oiti-042`, `/var/mobile/tellus-rc-test`, `/var/mobile/tellus-backup-test`) and the scratch folders in `~/Downloads`; the backup signing key must not stay on the PC outside its normal place.
+
+## 49. 0.4.2 work, build `OITI-exp-2026-11-27-a`: Safari private downloads and the Double Tap probe
+
+Two changes in one build, both Insula only (Insula stays `0.4.1` in `control` until it ships as `0.4.2`; Tellus is unchanged). Implemented and syntax-checked offline (`bash tools/offline_check.sh`: Logos and `clang -fsyntax-only` report `errors=0` for every file; its object step and the `check_split.py` symbol lines fail in a container without the SDK, exactly as before the change), `python3 tools/safari_source_model.py` passes. NOT compiled by CI yet, NOT device-tested.
+
+1. **Safari downloads from Private Browsing are shown like any other** (owner's decision, 27 Nov 2026). `OITI/Browser/OITIBrowserDump.xm`: the hidden ring, `OITISafariPersistence` and the fail-closed rule are gone. Arc Search and Chrome are untouched. Texts changed: the Settings footer (`Downloads.plist`), `README.md`, `FeatureInventory.md`. The Tellus footer on Download Progress still says "Private browsing downloads are not checked in every browser" (Tellus change, not in this build).
+2. **A log-only probe for the Double Tap hit zone** (`OITIProbeIslandTouch`, tag `ISLANDPROBE`, Log Detail Detailed). It decides nothing; Double Tap Opens Tellus behaves as before.
+
+**1. Apply, push, wait for CI.** Arch PC, fish:
+
+```
+tar -xzf ~/Downloads/oitui-0.4.2-a.tar.gz -C ~/OITUI
+cd ~/OITUI
+git status --short
+```
+
+Expected: 12 modified files, none untracked: `COMMANDS.md`, `DIAGNOSTICS.md`, `LEARNINGS.md`, `OVERVIEW.md`, `PLANS.md`, `README.md`, `OITI/Browser/OITIBrowserDump.xm`, `OITI/IslandSize/OITIIslandHooks.xm`, `OITI/OITIPrefs/Resources/Downloads.plist`, `OITI/Tweak.xm`, `TellusApp/Documentation/FeatureInventory.md`, `tools/safari_source_model.py`. If the list differs, stop and tell me. Then (your commit, as usual):
+
+```
+git add -A
+git commit -m "Insula: show private-browsing downloads like any other; log-only Double Tap probe (build OITI-exp-2026-11-27-a, untested)"
+git push origin experiments
+gh run watch --repo realtweety/Tellus-OITUI --exit-status (gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId')
+```
+
+A red run: tell me the failing step (a compile error is mine; an `upload-artifact` `ENOTFOUND` is a runner error: `gh run rerun <id> --failed --repo realtweety/Tellus-OITUI`, no commit).
+
+**2. Install the CI build** (`iproxy 2222 22` running):
+
+```
+cd ~/OITUI
+gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json headSha,conclusion,status
+git rev-parse HEAD
+```
+
+`headSha` must equal the second line and `conclusion` must be `success`. Then:
+
+```
+rm -rf ~/Downloads/oiti-ci
+gh run download (gh run list --repo realtweety/Tellus-OITUI --workflow=build-oiti.yml --branch experiments --limit 1 --json databaseId --jq '.[0].databaseId') --repo realtweety/Tellus-OITUI -D ~/Downloads/oiti-ci
+ssh -p 2222 root@127.0.0.1 'rm -rf /var/mobile/oiti-ci; mkdir /var/mobile/oiti-ci'
+scp -P 2222 (find ~/Downloads/oiti-ci -name '*.deb') root@127.0.0.1:/var/mobile/oiti-ci/
+ssh -p 2222 root@127.0.0.1 'export PATH=$PATH:/var/jb/usr/bin; dpkg -i /var/mobile/oiti-ci/*.deb; sbreload'
+```
+
+After the respring, the log's last start line must name the new build:
+
+```
+ssh -p 2222 root@127.0.0.1 'grep "START build=" /tmp/OITIDebug.log | tail -n 1'
+```
+
+Expected: `build=OITI-exp-2026-11-27-a`. If it still says `OITI-0.4.1` or an older `OITI-exp` tag, the old build is running: respring again and tell me.
+
+**3. Settings for both parts.** Tellus > Diagnostics > **Log Detail: Detailed**. Tellus > Insula > Download Progress: **Show Download Progress** on and **Browser Downloads** on (Settings > Insula calls it **Show Browser Downloads**). Tellus > Insula > Extras: **Double Tap Opens Tellus OFF** for part B, so Tellus does not open over your test (the probe logs the touches anyway). Respring.
+
+### Part A: Safari Private Browsing downloads (yes or no each; what you saw)
+
+PC, a second terminal:
+
+```
+python3 ~/OITUI/tools/throttle_server.py --size-mb 100 --rate-mb 2 --name test.bin
+```
+
+A1. Open the printed link in a **Private** Safari tab and tap Download. Check: the Island shows `Safari - test.bin` with a rising percentage (before this build it showed nothing).
+A2. Cancel it in Safari's download list. Check: the red Cancelled state, then the Island goes back to idle.
+A3. Download `test.bin` again from a **normal** tab and let it finish. Check: the percentage rises and the finished state (check mark) shows at the end.
+A4. Stop the server (Ctrl+C) and start two: `python3 ~/OITUI/tools/throttle_server.py --size-mb 400 --rate-mb 1 --name big.bin` in this terminal and `python3 ~/OITUI/tools/throttle_server.py --size-mb 100 --rate-mb 2 --name test.bin --port 8099` in a third. Download `big.bin` from a normal tab, and while it runs download `test.bin` from a **Private** tab (use the link each server prints). Write down which one the Island shows (the newest started download is expected) and what it shows after you cancel the newer one. Cancel both when done.
+A5. Regression: one 100 MB download in Arc Search and one in Chrome (normal tabs): `Arc - test.bin` and `Chrome - test.bin` with rising percentage and a finished state, as before.
+
+### Part B: where do double taps land? (the probe)
+
+The Island must be really idle for every step (no timer, music, call, download or notification), on the Home Screen unless stated. Tellus > Insula > Island has **Use Custom Position**, **X Position**, **Y Position** and **Save Position** (type the numbers, tap Save Position); Tellus > Insula > Appearance has **Use Custom Scale** with the **Width (X)** and **Height (Y)** sliders under Custom Scale. Apple Mode off.
+
+Set up each row, then do the taps below it. Row **S0** is your everyday settings, exactly as they are now (do not change anything first).
+
+| Row | Use Custom Position | X / Y | Use Custom Scale | Width / Height |
+|---|---|---|---|---|
+| S0 | as you have it | as you have it | as you have it | as you have it |
+| S1 | off | - | off | - |
+| S2 | on | X 0, Y 60 | off | - |
+| S3 | on | X 100, Y 20.5 | off | - |
+| S4 | off | - | on | 0.7 / 0.7 |
+| S5 | on | X 0, Y 60 | on | 0.7 / 0.7 |
+
+For each row (the settings apply live, no respring):
+1. Double tap twice on the Island's black pill, about a second apart. If the idle Island is not visible at a setting, start a timer in Clock to see where the Island sits, stop the timer, wait until it is idle again, then tap that spot.
+2. Double tap once about 1.5 cm to the left of the pill, once about 1.5 cm to the right, and once at the top centre of the screen (where the Island sits at S1), even when the Island has moved away from it.
+3. Write down for each tap whether anything visibly happened.
+
+Inside an app: for S1, S2 and S4 also open Safari (a normal page) and repeat step 1 only.
+
+Afterwards set Log Detail back to Normal and restore your everyday settings. **Read the log:**
+
+```
+ssh -p 2222 root@127.0.0.1 'grep -c ISLANDPROBE /tmp/OITIDebug.log'
+ssh -p 2222 root@127.0.0.1 'grep -E "ISLANDPROBE|ISLANDTOUCH|START build=" /tmp/OITIDebug.log' > ~/Downloads/oiti-probe.log
+wc -c ~/Downloads/oiti-probe.log
+```
+
+The first line is the number of probe lines (expect about 15 to 20 per row). Paste the file, or attach it if it is too long. How to read it: `tap2` lines name the window and view that took the second tap and say `inBand` (would the old fixed band have matched) and `inPill` (is the point near the drawn pill); `pill=not drawn` means the Island did not draw a pill at that moment. A `UIStatusBar...` view with `window=UIStatusBarWindow` (Home Screen) or `SBMainSwitcherWindow` (in an app) is what the current detection needs; anything else means the touch cannot be told from an ordinary tap on an app.
+
+### Regression (must all pass)
+
+Stock settings (S1) still look stock; the status bar tap still scrolls an app to the top; a notification Island still opens its app when tapped; nothing near the top of the screen feels delayed; the Settings > Insula > Download Progress footer says that downloads from private browsing are shown like any other.

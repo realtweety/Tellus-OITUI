@@ -165,9 +165,82 @@ static NSString *OITIDoubleTapLockReason(void) {
     return locked ? @"device is locked" : nil;
 }
 
+// ---- 0.4.2 PROBE (log only; build OITI-exp-2026-11-27-a): where do double taps land when the Island is moved or scaled? ---------
+// Plan item 2 (Dynamic Double Tap Opens Tellus hit zone). The fixed band below was measured at the default position only. This logs
+// every touch that begins in the top 170 points (the real one, not the _UISystemGestureWindow copy): a short line for a first tap,
+// and for the second tap of a double tap the window and view that took it, the view's ancestors, the Island window's frame and
+// transform, the Island's pill rectangle when it is drawn, the position, scale and size settings, and whether the old band matches. Log Detail 1 or higher, tag ISLANDPROBE, nothing
+// else is read or changed. It decides nothing: the double tap behaviour is the band above and stays exactly as it was.
+static NSString *OITIProbeViewChain(UIView *view) {
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (UIView *v = view; v && names.count < 5; v = v.superview) [names addObject:NSStringFromClass([v class])];
+    return names.count ? [names componentsJoinedByString:@" < "] : @"none";
+}
+
+static void OITIProbeCollectPills(UIView *view, Class containerClass, NSUInteger depth, NSMutableArray<NSValue *> *rects) {
+    if (containerClass && [view isKindOfClass:containerClass]) {
+        if (!view.hidden && view.alpha > 0.01) {
+            CGRect rect = [[UIScreen mainScreen].coordinateSpace convertRect:view.bounds fromCoordinateSpace:view];
+            if (rect.size.width > 20.0 && rect.size.height > 10.0) [rects addObject:[NSValue valueWithCGRect:rect]];
+        }
+        return;
+    }
+    if (depth >= 8) return;
+    for (UIView *subview in view.subviews) OITIProbeCollectPills(subview, containerClass, depth + 1, rects);
+}
+
+// The Island window and its drawn pill (when there is one) as one compact string; also says whether the point is inside the pill.
+static NSString *OITIProbeIslandGeometry(CGPoint point) {
+    UIView *window = nil;
+    for (UIView *view in sLiveApertureWindows.allObjects) {
+        if ([view isKindOfClass:[UIWindow class]] && !view.hidden) { window = view; break; }
+    }
+    NSString *windowText = window ? [NSString stringWithFormat:@"islandWindow frame=%@ center=%@ a=%.3f d=%.3f", NSStringFromCGRect(window.frame),
+                                     NSStringFromCGPoint(window.center), window.transform.a, window.transform.d] : @"islandWindow=none";
+    NSMutableArray<NSValue *> *rects = [NSMutableArray array];
+    if (window) OITIProbeCollectPills(window, NSClassFromString(@"SBSystemApertureContainerView"), 0, rects);
+    CGRect best = CGRectNull;
+    for (NSValue *value in rects) {
+        CGRect rect = value.CGRectValue;
+        if (CGRectIsNull(best) || rect.origin.y < best.origin.y - 1.0 ||
+            (fabs(rect.origin.y - best.origin.y) <= 1.0 && rect.size.width > best.size.width)) best = rect;
+    }
+    NSString *pillText = CGRectIsNull(best) ? @"pill=not drawn" :
+        [NSString stringWithFormat:@"pill=%@ inPill=%d", NSStringFromCGRect(best), (int)CGRectContainsPoint(CGRectInset(best, -10.0, -10.0), point)];
+    return [NSString stringWithFormat:@"%@ %@", windowText, pillText];
+}
+
+static void OITIProbeIslandTouch(UITouch *touch, CGPoint screenPoint) {
+    if (screenPoint.y >= 170.0) return;
+    @try {
+        NSString *windowClass = touch.window ? NSStringFromClass([touch.window class]) : @"no window";
+        // The copy that arrives in _UISystemGestureWindow is skipped (ISLANDTOUCH already logs it in the band); only the real one counts.
+        if ([windowClass isEqualToString:@"_UISystemGestureWindow"]) return;
+        NSString *viewClass = touch.view ? NSStringFromClass([touch.view class]) : @"no view";
+        if (touch.tapCount < 2) {
+            // The first tap of a double tap: short line (where it landed and who took it).
+            OITLOGGER_LOG_RATED(sLog, 1, @"ISLANDPROBE", @"island.probe.first", 12, @"tap1 at %@ window=%@ view=%@",
+                                NSStringFromCGPoint(screenPoint), windowClass, viewClass);
+            return;
+        }
+        // The second tap decides a double tap: the full line, with the Island's geometry and the settings in force.
+        NSString *lockReason = OITIDoubleTapLockReason();
+        OITLOGGER_LOG_RATED(sLog, 1, @"ISLANDPROBE", @"island.probe", 12,
+                            @"tap2 at %@ taps=%lu window=%@ view=%@ chain=[%@] inBand=%d | %@ | customPos=%d x=%.1f y=%.1f customScale=%d sx=%.3f sy=%.3f size=%.2fx%.2f apple=%d dtOpensTellus=%d lock=%@ notices=%lu download=%d",
+                            NSStringFromCGPoint(screenPoint), (unsigned long)touch.tapCount, windowClass, viewClass,
+                            OITIProbeViewChain(touch.view), (int)OITIIslandTapBand(screenPoint), OITIProbeIslandGeometry(screenPoint),
+                            (int)posEnabled, (double)xPos, (double)yPos, (int)scaleEnabled, (double)scaleX, (double)scaleY,
+                            (double)sMetricsSensorX, (double)sMetricsSensorY, (int)sAppleMode, (int)sExtrasDoubleTapOpensTellus,
+                            lockReason ?: @"unlocked", (unsigned long)sIslandNoticeItems.count, (int)(sDownloadItem != nil));
+    } @catch (NSException *exception) {
+        [sLog logLevel:1 tag:@"ISLANDPROBE" format:@"probe threw %@", exception.name];
+    }
+}
+
 static void OITIHandleIslandTouch(UITouch *touch) {
     if (touch.phase != UITouchPhaseBegan) return;
     CGPoint screenPoint = [touch locationInView:nil];
+    OITIProbeIslandTouch(touch, screenPoint);   // 0.4.2 probe: log only
     if (!OITIIslandTapBand(screenPoint)) return;
     NSString *windowClass = touch.window ? NSStringFromClass([touch.window class]) : @"no window";
     NSString *viewClass = touch.view ? NSStringFromClass([touch.view class]) : @"no view";
